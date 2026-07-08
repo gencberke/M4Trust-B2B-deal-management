@@ -47,4 +47,4 @@ Karar "baştan gerçek detector" yönünde; ama **COCO-pretrained YOLO'da karton
 - **LLM API erişimi/kesintisi** → `FakeExtractionService` fixture'ları her zaman çalışır halde tutulur.
 - **Detector hazır olmazsa** → fake analyzer + "gerçek pipeline şurada, model şu" anlatısı.
 - **Demo canlı patlarsa** → 6. gün çekilecek ekran kaydı yedeği.
-- **Chunker uyumu:** mevzuat metinlerindeki `GEÇİCİ MADDE` mevcut regex'e yakalanmıyor (önceki chunk'a yapışıyor) — demo için kabul edilebilir, istenirse `(?:GEÇİCİ\s+)?` eklenir.
+- **Chunker uyumu:** ~~mevzuat metinlerindeki `GEÇİCİ MADDE` mevcut regex'e yakalanmıyor~~ düzeltildi — regex artık `GEÇİCİ MADDE` ve `EK MADDE`'yi de ayrı madde olarak yakalıyor, önceki chunk'a yapışma sorunu yok.

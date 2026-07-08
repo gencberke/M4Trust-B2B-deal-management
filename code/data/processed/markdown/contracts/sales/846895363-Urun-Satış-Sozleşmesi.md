@@ -1,0 +1,155 @@
+
+
+{0}------------------------------------------------
+
+## **1. TARAFLAR**
+
+İşbu "Bireysel Satıcıdan Ürün Satış Sözleşmesi" (bundan böyle "Sözleşme" olarak anılacaktır); www.sahibinden.com portalında "Bireysel Hesap Sahibi" olan ve ilan yayınlayarak "S-Param GÜVENDE HİZMETİ" (bundan böyle "Hizmet" olarak anılacaktır.) kapsamında ürün satışı yapan "Satıcı" ile ilgili ürün sipariş eden "Alıcı" arasında elektronik ortamda akdedilerek yürürlüğe girmiştir. Alıcı, "Satıcı ve "Ürün"e ilişkin bilgiler aşağıda yer almaktadır:
+
+### **ALICI**
+
+Adı-soyadı : Barış A.
+
+### **SATICI**
+
+Adı-soyadı : Emir Ç.
+
+### **ÜRÜN**
+
+Ürün Açıklaması: Beşiktaş 2014-2015 Deplasman Forması
+
+|                        |                                      |
+|------------------------|--------------------------------------|
+| <b>Ürün Açıklaması</b> | Beşiktaş 2014-2015 Deplasman Forması |
+| <b>Adet</b>            | 1                                    |
+| <b>Peşin Fiyatı*</b>   | 1.200 TL                             |
+| <b>Toplam Tutar**</b>  | 1.200 TL                             |
+
+\* Tüm vergiler dahil peşin birim fiyatı gösterir.
+
+\*\* Tüm vergiler dahil toplam tutarı gösterir.
+
+## **2. TANIMLAR**
+
+**"Portal"**: Sahibinden Bilgi Teknolojileri Pazarlama ve Ticaret Anonim Şirketi (bundan böyle "SAHİBİNDEN" olarak anılacaktır) tarafından işletilmekte olan www.sahibinden.com isimli alan adından ve bu alan adına bağlı alt alan adlarından oluşan "SAHİBİNDEN" in hizmetlerini sunduğu internet sitesi ve/veya mobil uygulamalar.
+
+{1}------------------------------------------------
+
+**"Bireysel Hesap Sahibi"**: "Portal"da hesap açan, mesleki veya ticari amaç gütmeksizin "Portal" dahilinde sunulan hizmetlerden belirlenen koşullar dahilinde yararlanan gerçek veya tüzel kişi
+
+**"Alıcı"**: "Portal"da "Bireysel Hesap Sahibi" olan, "S-Param Gündeme Hizmeti"ni satın alarak ürün sipariş eden, ticari veya mesleki olmayan amaçlarla hareket eden gerçek veya tüzel kişi.
+
+**"Satıcı"**: "Portal"da "Bireysel Hesap Sahibi" olan, "kargo ile gönderim" seçeneğini seçerek ilan yayınlayan, yayınladığı ilandaki ürün üzerinde hukuka tasarrufta bulunabilme hak ve yetkisine sahip, tacir, esnaf, tedarikçi, üretici, ticari işletme, ticaret şirketi olmayan, ticari veya mesleki olmayan amaçlarla hareket eden gerçek kişi veya tüzel kişi
+
+**"S-Param Gündeme Hizmeti"("Hizmet")**: İkinci el veya sıfır ürün (bundan böyle "ürün" olarak anılacaktır) alım-satımı konusunda "Alıcı"nın Portal üzerinden kredi kartıyla güvenli alışveriş yapabilmesine yönelik:
+
+- "Alıcı" ve "Satıcı"nın "Portal" alt yapısını kullanarak çevrimiçi (online) ortamda anlaşmalarını sağlayacak alt yapının SAHİBİNDEN tarafından sunulması,
+- "Satıcı" tarafından "kargo ile gönderim" tercihi ile ilanın yayınlanması,
+- "Alıcı"nın elektronik ortamda "S-Param Gündeme Hizmeti"ni satın alarak ilandaki ürünü sipariş etmesi,
+- Ürün bedelinin; "Satıcı" adına "SAHİBİNDEN" in anlaşmalı ödeme kuruluşu tarafından "Alıcı"nın kredi kartı/banka kartından çekilerek, ürünün satış ve teslimine yönelik işbu Sözleşme'de belirtilen süreçler tamamlanana kadar "SAHİBİNDEN" in anlaşmalı ödeme kuruluşunun hesabında muhafaza edilmesi,
+- "Hizmet" bedelinin de; SAHİBİNDEN" adına "SAHİBİNDEN" in anlaşmalı ödeme kuruluşu tarafından "Alıcı"nın kredi kartından çekilerek, işbu Sözleşme'de belirtilen süreçler tamamlanana kadar ödeme kuruluşunun hesabında muhafaza edilmesi,
+- Ürünün "Satıcı" tarafından "Alıcı"ya "SAHİBİNDEN" in anlaşmalı kargo firması ile gönderilmesi
+
+{2}------------------------------------------------
+
+- Alıcı'nın ürünü iade etmek istemesi halinde; Alıcı'nın 2 (iki) günlük süre içinde "Portal" üzerinden iade talebinde bulunması ve anlaşmalı kargo firması ile ürünü iade etmesi,
+
+- S-Param Güvende hizmetini satın alması üzerine Alıcı'nın yaptığı ödememin kredi kartı veya banka kartından çekildiği an itibariyle güvence altına alınmış olması nedeniyle; ürünü iade etmesi halinde veya 2 (iki) günlük süre içinde iade sürecini başlatmaması halinde; S-Param Güvende Hizmet Bedeli'nin "SAHİBİNDEN"e aktarılması
+
+aşamalarını içeren "SAHİBİNDEN" hizmetidir.
+
+**"S-Param Güvende Hizmet Bedeli" : SAHİBİNDEN'in** değişen piyasa koşullarına göre belirlendiği, ürün/ürünlere ilişkin ödenen toplam ürün bedeli üzerinden hesaplanan, "Alıcı'nın kredi kartı/banka kartından "SAHİBİNDEN'in anlaşmalı ödeme kuruluşu tarafından çekilen, işbu Sözleşme'de belirtilen süreçlerin tamamlanması üzerine "SAHİBİNDEN"e aktarılır. Ürün bedeli, "Alıcı'nın kredi kartından veya banka kartından SAHİBİNDEN'in anlaşmalı ödeme kuruluşu tarafından çekildiği an itibariyle güvence altına alındığından; "Alıcı'nın S-Param Güvende hizmetinden cayma hakkı yoktur. "Alıcı'nın S-Param Güvende hizmetini satın alması üzerine yaptığı ödeme güvence altına alındığından SAHİBİNDEN S-Param Güvende hizmet bedeline hak kazanır. Sadece ürünün "Satıcı" tarafından kargoya verilmemesi veya ürün kargoya verilmeyen satışın Satıcı tarafından iptal edilmesi halinde; "S-Param Güvende Hizmet Bedeli" "Alıcı"ya iade edilir, diğer tüm hallerde "S-Param Güvende Hizmet Bedeli" SAHİBİNDEN'in hesabına aktarılır.
+
+Taraflar, işbu Sözleşme hükümleri kapsamında, ürün bedelinin "SAHİBİNDEN"in anlaşmalı ödeme kuruluşu nezdinde muhafaza edilmesi ve ürün satış ve teslim süreçlerinin tamamlanması üzerine "Hizmet" koşullarına uygun olarak ilgili tarafla aktarılması işlemlerinin koordinasyonunun "SAHİBİNDEN" tarafından yürütülmesinde mutabaktır.
+
+### **3. SÖZLEŞMENİN KONUSU VE KAPSAMI**
+
+{3}------------------------------------------------
+
+İşbu "Sözleşme'nin konusu, "S-Param GÜVENDE HİZMETİ"nin işleyişinin sağlanabilmesi için; "Hizmet"ten yararlanma koşulları ile "Alıcı'nın ve "Satıcı'nın hak ve yükümlülüklerinin belirlenmesidir.
+
+İşbu Sözleşme'nin imzalanması, "Alıcı" ile "Satıcı'nın Portal'da hesap açma aşamasında onaylamış oldukları Bireysel Hesap Sözleşmesi hükümlerinin uygulanmasını engellemeyecektir.
+
+## **4. TARAFLARIN HAK VE YÜKÜMLÜLÜKLERİ**
+
+### **4.1 "Alıcı'nın Hak ve Yükümlülükleri**
+
+**4.1.1** "Alıcı", işbu Sözleşme hükümlerini kabul etmekle, "Hizmet" hakkında "SAHİBİNDEN" tarafından "Portal"da belirlenen tüm kurallara, duyurulara, bildirimlere ve yürürlükteki mevzuata uygun hareket edeceğini kabul ve taahhüt etmektedir.
+
+**4.1.2** "Alıcı", "SAHİBİNDEN"in "Yer Sağlayıcı" ve "Aracı Hizmet Sağlayıcı" sıfatıyla faaliyet gösterdiğini, ürünün sahibi olmadığını, "Portal"da yayınlanan ilanlardaki ürünler ile ilgili satıcı, tedarikçi, imalatçı-ithalatçı, bayi veya benzeri herhangi bir ilişkisinin /sıfatının bulunmadığını, "Aracı Hizmet Sağlayıcı'nın 6502 sayılı Tüketicinin Korunması Hakkındaki Kanun ve 6563 sayılı Elektronik Ticaretin Düzenlenmesi Hakkında Kanun uyarınca hiçbir yasal sorumluluğu bulunmadığını, satın aldığı ürün ile ilgili iade işlemleri de dahil olmak üzere yaptığı ürün alımı ile ilgili her türlü talebinin yegane muhatabının sadece "Satıcı" olduğunu; "SAHİBİNDEN"in ürünün satışı ve kargo ile gönderilmesine yönelik "Alıcı" ve "Satıcı" arasında gerçekleşen işlemlerin hiçbir aşamasına taraf olmadığını; mobil uygulama veya internet sitesi üzerinden satın aldığı ürünün "Satıcı" tarafından tedarik edilerek kendisine gönderileceğini kabul, beyan ve taahhüt eder.
+
+**4.1.3** "Alıcı", ürünün geç teslimi, teslim edilmemesi, hasarlı teslimi, ilandakinden farklı ürünün gönderilmesi, ürünün ayıplı/kusurlu/hasarlı olması, üründe üretim hatası bulunması, "Portal"da belirtilen yasaklı ürünlerden olması, orijinal olmaması, ürünün tanıtımında kullanılan yazılı ve/veya görsel açıklamaların doğru olmaması veya eksik olması da dahil olmak ve sayılanlarla sınırlı olmamak üzere; ürün/hizmet ile ilgili hiçbir konu hakkında SAHİBİNDEN'in bilgi sahibi olmadığını ve bilgi sahibi olması gerektiğiğini, ürünü/hizmeti veya kalitesini veya "Satıcı'nın güvenilirliğini
+
+{4}------------------------------------------------
+
+"SAHİBİNDEN"in taahhüt veya garanti etme yükümlülüğü bulunmadığını, Aracı Hizmet Sağlayıcı'nın sadece "Alıcı" tarafından ödenen ürün bedelini "Hizmet" koşullarına uygun hareket edilmesi halinde "Satıcı"ya iletmekle yükümlü olduğunu, satış veya teslim süreçlerinde yaşayabileceği herhangi bir uygunsuzluk hakkında "SAHİBİNDEN"den talepte bulunmayacağını, "SAHİBİNDEN"e karşı yasal yollara müracaat etmeyeceğini kabul, beyan ve taahhüt eder.
+
+**4.1.4** "Alıcı"nın, sipariş vermesi üzerine adı-soyadı/ticari unvanı, açık teslimat adresi, telefon numarasını içeren "kargo kodu"; "Satıcı" ve "Anlaşımlı Kargo" firması ile paylaşılacaktır.
+
+**4.1.5** "Alıcı", satın aldığı ürünün kendisine kargo ile gönderilmesi üzerine ürünü teslim almakla yükümlü olduğunu, teslim aldıkdan sonra ürünü onaylaması halinde veya ürünü "Portal"da yayınlanan kurallarda belirtilen şekilde ve belirtilen süre içinde "Satıcı"ya iade etmemesi halinde; ürün bedelinin "Satıcı"ya aktarılacağını, "S-Param Güvende Hizmet Bedeli"nin ise "SAHİBİNDEN"e aktarılacağını kabul, beyan ve taahhüt eder. "Alıcı"nın veya Alıcı tarafından sipariş sırasında ürünü teslim almayı yetkili kılınacak kişinin teslimat sırasında adreste bulunmaması gibi sebeplerle ürünü geç teslim olmasından "Alıcı" sorumlu olacaktır. "SAHİBİNDEN", ürüne ve teslim edileceği tarihe ilişkin hiçbir taahhütte bulunmamakta olup; ürüne ve teslim tarihine ilişkin sadece "Satıcı" tarafından taahhütte bulunulabilir.
+
+**4.1.6** "Alıcı", işbu sözleşme konusu ürünün satışının; "Satıcı"nın mesleki veya ticari amaçla hareket etmemesi nedeniyle 6502 sayılı Tüketiciinin Korunması Hakkındaki Kanun kapsamına girmedğini, dolayısıyla tüketici mevzuatındaki cayma hakkına sahip olmayacağını peşinen kabul ve taahhüt etmektedir.
+
+**4.1.7** "Alıcı", "S-Param Güvende Hizmeti" kapsamında ürün satın alması nedeniyle; ürünü teslim aldığı tarihten itibaren başlayan 2 (iki) günlük süre içinde iade talebinde bulunduktan sonra "Portal" üzerinden verilen kargo kodunu "SAHİBİNDEN"in anlaşımlı kargo firmasına vererek ürünü iade edebileceğini, "Satıcı"ya iade sürecinde sadece SAHİBİNDEN'in anlaşımlı kargo firmasına ürünü teslim edeceğini ancak işbu 2 (iki) günlük süre içinde iade sürecini başlatmaması halinde sözleşmeden dönme hakkına
+
+{5}------------------------------------------------
+
+sahip olmayacağını ve anılan 2 (iki) günlük süre sonunda ürün bedelinin "Satıcı"ya aktarılacağını, "SAHİBİNDEN"in de S-Param GÜVENDE HİZMET BEDELİNE hak kazanacağını peşinen kabul, beyan ve taahhüt eder.
+
+**4.1.8** "Alıcı" ürün alım esnasında kullandığı kredi kartı bilgilerinin, "SAHİBİNDEN"in anlaşılmalı ödeme kuruluşu nezdinde saklanmasını talep edebilir. Kart bilgilerinin saklanmasına ilişkin tüm güvenlik önlemleri ödeme kuruluşunca sağlanacaktır. "Alıcı" kredi kartı bilgilerinin güvenliğinin sağlanması konusunda "SAHİBİNDEN"in herhangi bir sorumluluğu olmayacağını, her tür talep, dava ve şikayetinin muhatabının yalnızca üçüncü kişi konumundaki anlaşılmalı ödeme kuruluşu olduğunu kabul, beyan ve taahhüt eder.
+
+**4.1.9** "Alıcı", işbu Sözleşme'yi veya bu Sözleşme'nin kapsamındaki hak ve yükümlülüklerini kısmen veya tamamen herhangi bir üçüncü kişiye devredemez.
+
+## **4.2** "Satıcı'nın Hak ve Yükümlülükleri
+
+**4.2.1** "Satıcı"; fotoğraflar, açıklamalar gibi "Portal"da kendisi tarafından sağlanan ürüne ilişkin tüm bilgi ve içeriklerin doğru ve eksiksiz olacağını, "Portal"daki ilan verme kurallarına uygun olarak ilan vereceğini, ürünün ilanını vermeye ve satışa sunmaya yetkili olacağını, ilandaki üründen başka ürünler satmaya veya pazarlamaya yönelik ifadeler kullanmayacağını, ürün satışını yaptığı herhangi bir mecra'ya yönelik bir URL adresine (link) yönlendirme yapmayacağını veya bu amaca yönelik davranışlarda bulunmayacağını, başka ürünler aynı ilanda listelemeyeceğini, ürüne ait olmayan açıklamalarda bulunmayacağını, mevzuata ve genel ahlaka uygun olmayan açıklamalara, üçüncü kişilerin kişilik haklarını veya fikri haklarını ihlal edecek içeriklere, yanıltıcı bilgilere ve fotoğraflara yer vermeyeceğini kabul, beyan ve taahhüt eder.
+
+**4.2.2** "Satıcı"; "SAHİBİNDEN"in ilandaki görsel ve bilgilerin doğruluğunu, hukuka uygunluğunu, ürünün kalitesini taahhüt ve garanti etmekle yükümlü olmadığını, söz konusu bilgi ve içeriklerin eksik veya hatalı olmasından dolayı ortaya çıkabilecek herhangi bir zarardan "SAHİBİNDEN"in sorumlu tutulmayacağını, sorumluluğun kendisine ait olduğunu ve kendi ürünleri ve ilanları sebebiyle "SAHİBİNDEN" aleyhine hükmedilecek ceza veya tazminatların tamamından kendisinin sorumlu olacağını kabul, beyan ve taahhüt eder.
+
+{6}------------------------------------------------
+
+**4.2.3** "Satıcı", Elektronik Ticaretin Düzenlenmesi ve Kişisel Verilerin Korunması mevzuatı dahil olmak üzere tüm yasal düzenlemelere uygun davranacağını, "Alıcı"nın ilgili mevzuattan kaynaklanan tüm hak ve yükümlülüklerinin muhatapının bizzat kendisi olacağını, uygunsuz davranış nedeniyle "Alıcı"nın, "SAHİBİNDEN"in ve/veya üçüncü kişilerin uğrattığı ve uğrayacağı doğrudan ve dolaylı her türlü zarar ve ziyanı karşılayacağını, ihlale ve ihlalin giderilmesine ilişkin "SAHİBİNDEN" tarafından bildirilecek aksiyonları derhal yerine getireceğini, "SAHİBİNDEN"in uygulayacağı tedbir ve yaptırımlara itirazda bulunmayacağını kabul ve taahhüt etmektedir.
+
+**4.2.4** "Satıcı", ürün bedelinin "SAHİBİNDEN"in anlaşımlı ödeme kuruluşu tarafından "Alıcı"nın kredi kartından veya banka kartından tahsil edildiği bilgisinin kendisine iletilmesinden itibaren 3 (üç) iş günü içinde ürünü "Portal" üzerinden verilen "kargo kodu" ile "kargo ile gönderim" koşullarına uygun olarak, ürünün ambalajı konusunda gerekli özeni göstererek, "SAHİBİNDEN"in anlaşımlı kargo firmalarından birine teslim edecek ve "Alıcı"ya gönderecektir.
+
+**4.2.5** "Satıcı", "Portal" üzerinden verilen "kargo kodu" ile ürünü "SAHİBİNDEN"in anlaşımlı kargo firmalarından birine teslim ederek "Alıcı"ya göndermesi halinde kargo ücreti ödemeyecektir. Ancak "Satıcı" ürünü anlaşımlı kargo firması dışında bir kargo firmasına teslim ederse; S-Param Güvende hizmeti kapsamı dışına çıkmış olacağını, bu durumda ürün satışının "S-Param Güvende Hizmeti" ile gerçekleşmemiş olmasından ötürü işbu Ürün Satış Sözleşmesinden dönüp sayılacağını, dolayısıyla ürün bedelinin "Alıcı"ya iade edileceğini kabul etmektedir.
+
+**4.2.6** "Satıcı" işbu Sözleşme'yi veya bu Sözleşme'nin kapsamındaki hak ve yükümlülüklerini kısmen veya tamamen herhangi bir üçüncü kişiye devretmeyecektir.
+
+## **5. S-PARAM GÜVENDE HİZMETİNİN İŞLEYİŞİ**
+
+**5.1** "Alıcı" ve "Satıcı" ürün satışına yönelik işbu sözleşmeyi okuyup, kabul edip, "Anlaşımlı Kargo ile Gönderim Koşulları"nı onaylayarak, tüm düzenlemelere uygun davranmayı kabul ve taahhüt eder.
+
+**5.2** "S-Param Güvende Hizmet Bedeli"nin ve ürün bedelinin ödenmesinde "Alıcı"ya anlaşımlı bankalar aracılığıyla taksitle ödeme kolaylığı sunulabilir. "Alıcı" taksitle ödemeyi tercih ederse, taksitli ödemeden doğan taksit (vade) farkını bankaya ödemeyi
+
+{7}------------------------------------------------
+
+kabul eder. Taksit farkı, SAHİBİNDEN tarafından "Alıcı"ya fatura edilir ve ürünün satış ve teslimine ilişkin işbu Sözleşme'de belirtilen süreçlerin tamamlanması halinde taksit farkı tutarı "SAHİBİNDEN" in anlaşmalı ödeme kuruluşu tarafından ilgili bankaya aktarılır. Taksit farkı bankaya ve ürün tutarına göre değişiklik gösterebilir. Mevzuat gereği belirli kategorilerde taksitli ödeme kısıtlaması uygulanır.
+
+**5.3** Alıcının, ödemeyi yaparak sipariş vermesi üzerine; ürünün "Satıcı" tarafından "Alıcı"ya kargo ile gönderilmesi amacıyla "Alıcı"nın adı-soyadı/ticari unvanı, açık teslimat adresi, telefon numarasını içeren "kargo kodu"; "Satıcı" ve "Anlaşmalı Kargo" firması ile paylaşırlar.
+
+**5.4** "Satıcı" tarafından anlaşmalı kargo ile gönderilen ürünü "Alıcı" teslim almakla yükümlüdür. "Alıcı" satın aldığı ürünü teslim aldığı tarihten itibaren 2 (iki) gün içinde onaylar veya iade etmek üzere iade sürecini başlatır. "Alıcı" ürünü teslim aldıktan sonra Portal üzerinden onaylaması halinde; ürün satış ve teslim süreci tamamlanmış olur ve ürün bedeli "Satıcı"ya, "S-Param Güvende Hizmet Bedeli" SAHİBİNDEN'e aktarılır. "Alıcı" ürüne onay verdikten sonra verdiği onayı hiçbir şekilde geri alamaz, verdiği onay ile iade hakkı sona erer. Ayrıca, ürünün onayının veya iadesinin S-Param Güvende hizmeti kurallarına uygun olarak süresi içinde gerçekleştirilmemesi veya ürünün anlaşmalı kargo firmasına teslim edilmemesi halinde de; ürün satış ve teslim süreci tamamlanmış sayılır ve ürün bedeli "Satıcı"ya, "S-Param Güvende Hizmet Bedeli" SAHİBİNDEN'e aktarılır.
+
+**5.5** "Alıcı" ürünü "Satıcı"ya iade etmek isterse; "Portal"da ürünü iade etmeye yönelik butona basarak, iade bildiriminden itibaren 3 (üç) iş günü içinde ekranında gösterilen "kargo kodu" ile "Satıcı"ya iade edilmek üzere ürünü kargo ücreti ödemeksizin anlaşmalı kargo firmasına teslim eder. "Alıcı", ürünü ambalajı, varsa standart aksesuarları ve faturası ile birlikte kullanılmamış olarak, eksiksiz ve hasarsız olarak iade etmelidir. "Alıcı", "S-Param Güvende" hizmeti kapsamından çıkmamak için, ürünü mutlaka anlaşmalı kargo firması ile iade etmelidir. "Alıcı"nın ürünü "Satıcı"ya iade etmesi halinde ya da ürünün "Satıcı" tarafından kargoya verilmemesi veya Satıcı tarafından ürün kargoya verilmeden satışının Satıcı tarafından iptal edilmesi hallerinde; ürün bedeli "Alıcı"ya iade edilecektir.
+
+{8}------------------------------------------------
+
+**5.6** "Alıcı'nın ürünü SAHİBİNDEN'in anlaşmalı kargo firması ile "Satıcı"ya iade etmemesi halinde; ürün satış ve teslim süreci tamamlanmış sayılacak, ürün bedeli "Satıcı"ya aktarılacak, "S-Param Güvende Hizmet Bedeli" ise SAHİBİNDEN'e aktarılacaktır. Ürün bedelinin aktarımına dair bankadan veya anlaşmalı ödeme kuruluşundan kaynaklanabilecek olası gecikmelerden "SAHİBİNDEN" sorumlu tutulamaz.
+
+**5.7** Alıcı'nın ürünü iade etmesi halinde; ürünün Satıcı'ya teslim edilmesinden itibaren 24 (yirmi dört) saatlik süre içinde "Satıcı" tarafından ürünün teslim alındığı onaylanmazsa; ürün bedeli 48 saat içinde "Alıcı"ya iade edilir.
+
+**5.8** "SAHİBİNDEN" şüpheli işlem tespit etmesi halinde; "Alıcı ve "Satıcı" arasındaki işlemi durdurabilir, "S-Param Güvende hizmetini duraklatarak ek bilgi/belge talep edebilir, "Alıcı" ve/veya "Satıcı"nın hesabını geçici veya sürekli olarak durdurabilir. Bu tür işlemler sebebiyle ürün satış ve teslimine ilişkin süreçlerde gecikmeye sebebiyet verildiğinden bahisle "SAHİBİNDEN"den herhangi bir talepte bulunulamaz.
+
+**5.9** Alıcı veya Satıcı'nın "Anlaşmalı Kargo ile Gönderim Koşullarına" aykırı hareket etmesi nedeniyle SAHİBİNDEN'in herhangi bir zarara uğraması, idari para cezası veya tazminat ödemek durumunda kalması halinde; SAHİBİNDEN'in zarara uğramasına sebep olan Alıcı veya Satıcı; SAHİBİNDEN'in maddi ve manevi, doğrudan ve dolaylı her türlü zararı ile idari para cezalarını tüm fer'ileri ile birlikte derhal karşılayacaktır.
+
+**5.10** Ürün bedeli, "Alıcı"nın kredi kartından veya banka kartından SAHİBİNDEN'in anlaşmalı ödeme kuruluşu tarafından çekildiği an itibariyle güvence altına alındığından; "Alıcı"nın S-Param Güvende hizmetinden cayma hakkı yoktur. Alıcı'nın S-Param Güvende hizmetini satın alması üzerine yaptığı ödeme güvence altına alındığından SAHİBİNDEN S-Param Güvende hizmet bedeline hak kazanır. Sadece ürünün "Satıcı" tarafından kargoya verilmemesi veya ürün kargoya verilmeden satışının Satıcı tarafından iptal edilmesi halinde; "S-Param Güvende Hizmet Bedeli" "Alıcı"ya iade edilir, diğer tüm hallerde "S-Param Güvende Hizmet Bedeli" SAHİBİNDEN'in hesabına aktarılır.
+
+## **6. UYGULANACAK HUKUK VE YETKİ**
+
+İşbu Sözleşme'nin uygulanmasında, yorumlanmasında ve işbu Sözleşme dâhilinde doğan hukuki ilişkilerin yönetiminde yabancılık unsuru bulunması durumunda Türk
+
+{9}------------------------------------------------
+
+kanunlar ihtilafı kuralları hariç olmak üzere Türk Hukuku uygulanacaktır. İşbu Sözleşme'den dolayı doğan veya doğabilecek her türlü ihtilafın hallinde İstanbul Merkez (Çağlayan) Mahkemeleri ve İcra Daireleri yetkilidir.
+
+İşbu Sözleşme 6 (altı) maddeden ibaret olup, "Alıcı" ve "Satıcı" tarafından elektronik ortamda onaylanmak suretiyle yürürlüğe girmiştir.

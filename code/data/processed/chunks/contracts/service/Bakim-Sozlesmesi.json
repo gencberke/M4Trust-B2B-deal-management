@@ -1,0 +1,107 @@
+[
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "3",
+    "chunk_id": "Bakim-Sozlesmesi#000-madde-3",
+    "text": "MADDE 3 - İşbu Sözleşme'nin amacı ve konusu; IAS tarafından Firma'ya, Firma'nın Bakım'a ilişkin yıllık Bakım bedelini ödemesi halinde ilgili yıllık dönem içerisinde sunulacak Bakım'a ilişkin olarak Taraflar'ın hak ve yükümlülüklerinin belirlenmesidir."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "4",
+    "chunk_id": "Bakim-Sozlesmesi#001-madde-4",
+    "text": "MADDE 4 - **4.1. IAS, Firma'nın, işbu Sözleşme'yi imzalayıp yıllık Bakım bedelini ödemesi halinde ilgili yıllık dönem içerisinde, CANIAS ERP yazılımı, IASDB veritabanı ve/veya IoT Gateway çözümünün Firma'da kurulu olan versiyonlarına ait tanıtım dokümanlarında yer alan fonksiyonların işlevsellğini garanti eder. İlgili fonksiyonların kullanılabilmesi için Firma tarafından Danışmanlık ve Uyarlama Destek Hizmetleri talep edilebilir. Söz konusu Danışmanlık ve Uyarlama Destek Hizmetleri, Danışmanlık ve Uyarlama Destek Hizmetleri Sözleşmesi altında belirtilen huküm ve koşullar uyarınca belirlenen bedeller üzerinden ücretlendirilir.**\n\n**4.2.** IAS, CANIAS ERP yazılımı, IASDB veritabanı ve/veya IoT Gateway çözümünün standart versiyonlarında çıkabilecek hataların tespiti ile ilgili telefon ve internet üzerinden destek verir. IAS, hata tespitinin ardından süratle düzeltme çalışmaları başlayacak ve gerçekleştirilen düzeltmeyi Madde 4.3'de ifade edildiği şekilde Firma'nın erişimine sunacaktır.\n\n**4.3.** Firma, İşbu Sözleşmeyi imzalayıp yıllık Bakım bedelini ödemesi halinde ilgili yıllık dönem içerisinde, CANIAS ERP yazılımı, IASDB veritabanı ve/veya IoT Gateway çözümünün ve/veya dokümanlarının yeni versiyonlarına ve/veya versiyon içi revizyonlarına (T.C. Mevzuat değişikliği, fonksiyonel iyileştirmeler, standart versiyondaki hata düzeltmeleri ve benzeri) erişim ve kullanım haklarına sahip olur. Söz konusu güncellemeler için gereken dosyalara internet ortamında Firma'nın erişimi sağlanacaktır. Yeni versiyona ve/veya versiyon içi revizyonu geçişle ilgili Firma, Danışmanlık ve Uyarlama Destek Hizmetleri talep edebilir. Söz konusu Danışmanlık ve Uyarlama Destek Hizmetleri, Danışmanlık ve Uyarlama Destek Hizmetleri Sözleşmesi altında belirtilen hüküm ve koşullar uyarınca belirlenen bedeller üzerinden ücretlendirilir.\n\n**4.4.** TROA Geliştirme Araçlarına erişim Bakım'ın bir parçasıdır. Bakım Sözleşmesi'nin herhangi bir nedenle sona ermesi ve/veya Firma'nın yeni dönemde Bakım'ı almak istememesi durumunda TROA Geliştirme Araçlarına erişilemez ve CANIAS ERP yazılımı üzerinde yazılım geliştirmeye dayalı herhangi bir değişiklik veya uyarlama yapılamaz.\n\n**4.5.** Firma, CANIAS ERP yazılımı, IASDB veritabanı ve/veya IoT Gateway çözümünün çalışabilmesine gerekli olarak; server için gerekli güvenlik önlemlerini almak, network ürünlerini ve bilgisayar sistemlerinin sağlıklı çalışmaya uygun bir ortamı sağlamakla yükümlüdür. IAS, İşbu unsurlardan sorumlu tutulamaz."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "5",
+    "chunk_id": "Bakim-Sozlesmesi#002-madde-5",
+    "text": "MADDE 5 - **5.1.** Bakım bedeli, Firma'nın satın aldığı lisanslara ilişkin indirimsiz ücretlerin %#MNRATE#%si olarak EK'de belirtilmiştir. Firma'nın İşbu Sözleşme'nin imzalandığı tarihte ödeyeceği yıllık Bakım ücreti, EK'de yer alan bedelin (EUR) fatura düzenleme tarihinde geçerli olan Türkiye Cumhuriyeti Merkez Bankası (\"TCMB\") döviz satış kuru üzerinden hesaplanacaktır.\n\nİşbu Sözleşme'nin imzalanmasını takip eden yıllarda Bakım bedeli, bir önceki yıldaki Bakım bedelinin Bakım faturasının kesim tarihinde Avrupa Birliği İstatistik Ofisi olan \"Eurostat\" tarafından açıklanan Avrupa Birliği yıllık Euro enflasyon oranında artırılması üzerinden hesaplanacaktır. Hesaplanan Bakım bedeli (EUR) fatura düzenleme tarihinde geçerli olan Türkiye Cumhuriyeti Merkez Bankası (\"TCMB\") döviz satış kuru üzerinden faturalandırılacaktır.\n\n**5.2.** Bakım faturası İşbu Sözleşme'nin imzalandığı tarih ve takip eden yıl dönümüne kadar kesilir. IAS tarafından kesilen faturaların ödeme vadesi 14 (ondört) gündür. Geciken ödemelere bankalar arası uygulanan günlük repo faiz oranı + %3'lük bir vade farkı uygulanır. Gecikmeden dolayı doğabilecek her türlü masraf ayrıca fatura edilir.\n\n**5.3.** İşbu Sözleşme'de belirtilen tarifeye Katma Değer Vergisi (\"KDV\") dahil değildir ve KDV ayrıca eklenacaktır.\n\n**5.4.** Firma'nın Bakım bedellerini zamanında ödemeyip 5.2.'de belirtilen vadeyi 1(BİR) ay geciktirerek temerrüde düşmesi IAS tarafından haklı nedenle derhal fesih sebebi sayılır."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "6",
+    "chunk_id": "Bakim-Sozlesmesi#003-madde-6",
+    "text": "MADDE 6 - **6.1.** İşbu Sözleşme'nin süresi imzalandığı tarihten itibaren 1 (BİR) yıldır. Taraflar Sözleşmenin bitmesine en az 30 (OTUZ) gün kala Sözleşme'yi yenilemeyeceğini yazılı şekilde bildirdikleri takdirde Sözleşme kendiliğinden birer yıllık süreler ile uzar.\n\n**6.2.** İşbu Sözleşme aşağıda belirtilen durumlardan biri sebebiyle fesih dönemi beklenmeksizin sona erdirilebilir:\n\n**6.2.1.** Firma'nın iflasına ilişkin dava açmasının, acze düşmesinin veya alacaklıların lehine devir gerçekleştirmesi ya da aciz işlemlerin Firma'ya karşı gerçekleştirilen benzer işlemlerin açılması için dilekçe sunması durumunda derhal;\n\n**6.2.2.** Firma'nın Bakım bedellerini zamanında ödemeyip 5.2.'de belirtilen vadeyi 1 (bir) ay geciktirerek temerrüde düşmesi halinde derhal.\n\n**6.3.** İşbu Sözleşme'nin herhangi bir sebeple sona ermesi durumunda Firma'nın fatura edilmiş ve/veya onaylanmış ancak ödenmemiş ücretlere ilişkin ödeme yükümlülüğü devam eder.\n\n**6.4.** İşbu Sözleşme'nin herhangi bir nedenle sona ermesi, Firma'nın satın aldığı CANIAS ERP Kullanım ve IASDB Kullanım lisanslarının Firma'da kurulu olan mevcut versiyonlarına, Firma'nın sahip olduğu lisanslara ilişkin tüm ödemelerin yapılmış olması kaydıyla halel getirmez. Şüphede mahal vermemek adına Firma, işbu halde, IAS'nin, Firma tarafından yapılacak kullanımlara ilişkin hiçbir yükümlülüğü ve/veya sorumluluğu olmayacağı ve CANIAS ERP yazılımı, IASDB veritabanı ve/veya IoT Gateway çözümünde gerçeklesecek hata, aksaklık ve bunlarla sınırlı olmaksızın hiçbir problemi giderme, tamir etme ve destek hizmeti vermeye yükümlülüğü olmadığını kabul ve taahhüt eder."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "7",
+    "chunk_id": "Bakim-Sozlesmesi#004-madde-7",
+    "text": "MADDE 7 - **7.1.** IAS AŞAĞIDA BELİRTİLEN DURUMLARDAN DOLAYI ORTAYA ÇIKABİLECEK MADDİ, MANEVİ VE HUKUKİ SONUÇLARDAN, KAZANÇ VEYA KAYIPLARDAN SORUMLU OLMAYACAKTIR:\n\na) CANIAS ERP YAZILIMI, YAZILIM, IASDB VERİTABANI VE/VEYA IOT GATEWAY ÇÖZÜMÜNÜN FİRMA'DA KURULU OLAN VERSİYONLARINA AİT TANITIM DOKÜMANLARINDA YER ALAN FONKSİYONLARININ KAPSAMI DIŞINDA KALAN KONULARDAN;\n\n(b) YAZILIM'IN HATALI KULLANILMASINDAN, IAS DESTEĞİ VEYA GARANTİSİ UYARINCA SAĞLANAN GÜNCELLEMELER HARİÇ OLMAK ÜZERE ÜÇÜNCÜ TARAF YAZILIMLARININ KULLANILMASINDAN;\n\n(c) KULLANICI KAYNAKLı HATALARDAN, DONANIM, İŞLETİM SİSTEMİ VE IASDB DIŞINDA KULLANILACAK VERİ TABANI HATALARINDAN, CANIAS ERP YAZILIMI, YAZILIM, IASDB VERİTABANI VE/VEYA IOT GATEWAY ÇÖZÜMÜNÜN FİRMA'NIN ANA BİLGİSAYARINA KURULDUKTAN SONRA ANA MEVCUT YAZILIM KODLARINA MÜDAHALE EDİLMESİ VEYA SİLİNMESİNDEN;\n\n(d) FİRMA'NIN CANIAS ERP YAZILIMI, YAZILIM, IASDB VERİTABANI VE/VEYA IOT GATEWAY ÇÖZÜMÜNÜ YANLIŞ VE/VEYA MEVCUT HUKUKİ DÜZENLEMELERE AYKIRI OLARAK KULLANMASINDAN.\n\n**7.2.** IAS'NIN AĞIR KUSURUNDAN KAYNAKLANAN ZARARLAR HARİÇ OLMAK ÜZERE; FİRMA'YA SUNULAN YAZILIM VEYA ÜRÜN İLE HİZMETLERDEN KAYNAKLANAN VEYA BUNLARLA BAĞLANTILI OLARAK ORTAYA\n\nÇIKABİLECEK MADDİ VEYA MANEVİ ZARARLARDA, KAYIPLARDA VE/VEYA TALEPLERDE SORUMLULUĞU; SORUMLULUĞA SEBEP OLAN OLAYDAN ÖNCEKİ 12 AYLIK DÖNEM İÇERİSİNDE FİRMA TARAFINDAN IAS'YE ÖDENEN BAKIM BEDELİ İLE SINIRLI OLACAKTIR. IAS; MALİ SONUÇLARDAN, KAR-KAZANÇ KAYBI GİBİ DOLAYLI ZARARLARDAN, ÖZEL ZARARLARDAN VE/VEYA NETİCE ZARARLARINDAN, İŞİN DURMASI, VERİ KAYBI, BİLGİSAYAR ARIZASI, AVUKAT ÜCRETLERİ, MAHKEME, FAİZ VE YASAL TAKİP MASRAFLARINDAN SORUMLU OLMAYACAKTIR.\n\n**7.3.** İşbu madde dahilinde IAS'nin sözleşme gereği yükümlülüklerine ilişkin tüm sınırlandırmalar IAS Grup ve herhangi bir üyesi için geçerli olacaktır."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "8",
+    "chunk_id": "Bakim-Sozlesmesi#005-madde-8",
+    "text": "MADDE 8 - **8.1.** Firma, IAS Grup ürünleri, kodları ve bu ürünler ile kodların geliştirilmesi için kullanılmış veya bunlarla ilişkili tüm fikirler, yöntemler, algoritmalar, formüller, süreçler ve kavramlar, gelecekteki tüm güncellemeler, yükseltmeler ve diğer tüm iyileştirmeler, revizyonlar, düzeltmeler, hata düzeltmeleri, hızlı-düzeltmeler, yamalar, modifikasyonlar, genişletmeler, sürümler, yükseltmeler ve politika ve veri tabanı güncellemeleri ve/veya bunlara ilişkin diğer güncellemeler, yukarıda sayılanlarla sınırlı olmaksızın tüm çalışmaların IAS'nin gizli bilgisi olduğunu kabul, beyan ve taahhüt eder.\n\n**8.2.** Taraflar yukarıdaki bilgiler ile sınırlı olmaksızın işbu sözleşmenin ifası sırasında veya herhangi bir surette diğer tarafın işi ve işlemleriyle ilgili olarak öğrendikleri tüm bilgileri yasal olarak bilgi istemeye yetkili resmi makamlar dışında hiçbir kişi ya da kuruluşlara bildirmeyeceklerini, sır saklama yükümlülükleri olduğunu ve bu bilgileri Sözleşme süresince ve sonrasında kesinlikle kendi özel amaçları için ve/veya diğer tarafın rakiplerine karşı kullanmayacaklarını ve kullanılmayacaklarını, bu amaç doğrultusunda tüm çalışanlarının ve görevlendirdiği kişilerin de bu yükümlülüğe uyması dahil her türlü tedbiri alacaklarını beyan ve taahhüt ederler. Taraflar, işbu Sözleşme ve içeriği ile ilgili olarak diğer Tarafın yazılı izni olmadıkça yasal merciler ile IAS'nin grup şirketleri dışında üçüncü kişi ve kuruluşlara bilgi ve belge vermeyecek, kamuya ve/veya basına açıklama yapmayacaktır.\n\n**8.3.** Firma, IAS'nin, IAS Yazılım Geliştirme Servis A.Ş.'nin veya IAS'nin web sitesinde İş Ortakları listesinde yer alan ve geçerli bir iş ortaklığı sözleşmesi ile iş birliği içinde bulunduğu iş ortaklarının bünyesinde bir iş sözleşmesi ile çalışmakta olan ve iş sözleşmesinin sonlanmasının üzerinden bir yıl geçmiş olan personeli kendi bünyesinde ya da -varsa- grup şirketlerinde istihdam etmeyecek ve/veya bu kişilerle iş ilişkisine girmeyecektir. Böyle bir ihlalın tespiti durumunda IAS tarafından yapılacak yazılı uyarıyı takiben Firma, ilgili personelle iş ilişkisini derhal sonlandıracağını, aksi takdirde, IAS ya da ilgili iş ortağının uğrayabileceği zararı karşılayacağını kabul, beyan ve taahhüt eder."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "9",
+    "chunk_id": "Bakim-Sozlesmesi#006-madde-9",
+    "text": "MADDE 9 - **9.1.** Firma, işbu Sözleşme'de Firma'ya verilen sınırlı kullanım haklarının kapsamı dışında Yazılım dahil olmak üzere IAS Grup ürünleri ve materyallerinin fikri mülkiyet hakkına ilişkin ihlal gerçekleştiremez ve hiçbir hak, unvan ve kâr işlemi yapamaz.\n\n**9.2.** IAS, Firma nezdinde yapılan her türlü geliştirmeyi CANIAS ERP yazılımının standart versiyonuna taşıyabilir. Firma, buna ilişkin herhangi bir hak ileri süremeyeceğini kabul, beyan ve taahhüt eder."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "10",
+    "chunk_id": "Bakim-Sozlesmesi#007-madde-10",
+    "text": "MADDE 10 - Taraflardan herhangi biri, kendi kusurundan veya gecikmesinden kaynaklanmayan haller dahilinde, yangın, salgın hastalık, pandemi hali, hükümet kısıtlamaları, sel, patlama, savaş, isyan veya ışgütü eksikliği de dahil olmak üzere; mücbir sebep tarafın makul kontrolünün ötesinde herhangi bir nedenle sözleşmesel yükümlülüklerinden herhangi birini erteleyecek veya yerine getiremeyecek ise, mücbir sebep kapsamında diğer tarafa olayı yazılı olarak derhal bildirecektir. Her iki Taraf da bir mücbir sebep olayının etkisini en aza indirmek için elinden gelen çabayı gösterecektir.\n\nİşbu madde, Firma'ya sunulan ürünler ve hizmetler için Firma'nın yerine getirmesi gereken ödeme yükümlülüğünü ortadan kaldırmamaktadır."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "11",
+    "chunk_id": "Bakim-Sozlesmesi#008-madde-11",
+    "text": "MADDE 11 - **11.1.** Firma, işbu Sözleşme'yi ve gerekse işbu Sözleşme'den doğan hak ve alacaklarını IAS'nin yazılı onayı almakszın üçüncü kişilere devir ve temlik edemez.\n\n**11.2.** IAS bu sözleşmeyi ve sözleşme kapsamındaki herhangi bir hakkını ya da yükümlülüğünü (tamamen veya kısmen) Firma'nın yazılı onayı ile herhangi bir IAS Grup üyesine devredebilir, yetkilendirebilir, alt yüklenici olarak veya başka türlü aktarabilir. IAS ve herhangi bir IAS Grup üyesi, üçüncü tarafları bu Sözleşme kapsamındaki haklarını ve yükümlülüklerini yerine getirme konusunda alt yükleniciler olarak kullanabilir."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "12",
+    "chunk_id": "Bakim-Sozlesmesi#009-madde-12",
+    "text": "MADDE 12 - **12.1.** İşbu Sözleşme kapsamında Taraflar arasında herhangi bir kişisel veri aktarımı olması halinde, Taraflar, kişisel verileri 6698 sayılı Kişisel Verilerin Korunması Kanunu'na, yürürlükteki mevzuata ve genel ilkelerle, Kişisel Verileri Koruma Kurulu'nun kararlarına, Kişisel Verileri Koruma Kurumu'nun düzenlemeleri ve kılavuzlara uymakla yükümlü oldukları kabul ve taahhüt ederler.\n\n**12.2.** Firma, IAS'ye sunmuş olduğu her türlü yazılı metinler, resim, video, animasyon vs. içerisinde mevcut olan kişisel veriler ve üçüncü kişilere ait kişisel verilerin 6698 Sayılı Kişisel Verilerin Korunması Kanunu ve ilgili sair mevzuat hükümlerine uygun olarak toplanmasından, işlenmesinden, düzenlenmesinden, değiştirilmesinden, saklanmasından, kaydedilmesinden, üçüncü kişilere aktarılmasından, silinmesinden, yok edilmesinden anonim hale getirilmesinden münferiden Veri Sorumlusu sıfatı ile sorumludur. Firma, bu kapsamda IAS'nin herhangi bir sorumluluğu bulunmadığını kabul eder."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "13",
+    "chunk_id": "Bakim-Sozlesmesi#010-madde-13",
+    "text": "MADDE 13 - Taraflar, işbu Sözleşmenin uygulanması, yorumlanması ile ilgili olarak aralarında yaşanacak her türlü ihtilafın çözümünde Türkiye Cumhuriyeti yasalarına tabidir. İşbu sözleşmeden doğan veya bu sözleşmeyle bağlantılı olarak ortaya çıkan herhangi bir ihtilaf halinde İstanbul Çağlayan Mahkemeleri ve İcra Müdürlükleri yetkili olacaktır."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "14",
+    "chunk_id": "Bakim-Sozlesmesi#011-madde-14",
+    "text": "MADDE 14 - İşbu Sözleşme'de belirtilen adresler, Taraflar'ın kanuni adresleri olup, bu adreslere yapılacak her türlü tebligat/bildirim Taraflar'a yapılmış sayılacaktır. Adres ve/veya elektronik posta adres değişikliğini diğer Tarafa 30 (otuz) gün içinde yazılı olarak bildirmek zorundadır. Aksi halde, mevcut adrese yapılan tebligatlar muteber sayılacaktır."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "15",
+    "chunk_id": "Bakim-Sozlesmesi#012-madde-15",
+    "text": "MADDE 15 - İşbu Sözleşme ekleriyle birlikte tüm anlaşmayı teşkil eder. İşbu Sözleşmenin herhangi bir hükmünün geçersiz ve hükümsüz olduğunu iddia edilmesi halinde, söz konusu bu geçersizlik ve hükümsüzlük Sözleşme'nin geri kalan hükümlerini etkilemeyecektir. Taraflar söz konusu bu geçersiz ve hükümsüz hale gelen maddeyi Taraflar arasındaki anlaşmaya en yakın etkiye sahip başka maddeler ile değiştirmeği yazılı olarak beyanların uyuşması ile kabul ederler."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "16",
+    "chunk_id": "Bakim-Sozlesmesi#013-madde-16",
+    "text": "MADDE 16 - Bu Sözleşme'nin imzalanması nedeniyle ortaya çıkabilecek damga vergisi dahil her türlü vergi vs. masrafları Firma'ya ait olacaktır."
+  },
+  {
+    "source": "Bakim-Sozlesmesi",
+    "strategy": "madde",
+    "madde_no": "17",
+    "chunk_id": "Bakim-Sozlesmesi#014-madde-17",
+    "text": "MADDE 17 - **17.1.** İşbu Sözleşme'de herhangi bir değişiklik ancak Taraflarca usulüne uygun olarak imzalanan bağlayıcı bir sözleşme ile yazılı olarak yapılır.\n\n**17.2.** IAS'nin Sınırlı Sorumluluğu maddesi, Rekabet ve Gizlilik maddesi, Fikri Mülkiyet Hakları maddesi, Verilerin Korunması maddesi ve Uygulanacak Hukuk ve Uzlaşmazlıkların Halli maddesi bu sözleşmenin herhangi bir sebeple sona ermesinden sonra da geçerliliğini koruyacaktır.\n\nİşbu Sözleşme, \\_\\_/\\_\\_/\\_\\_\\_\\_ tarihinde, 17 (Onyedi) madde ve 2 (iki) asıl nüsha olarak Taraflarca okunarak imza ve teatı edilmiştir.\n\n**IAS Bilgi İşlem Danış. San. #CUSTOMER# ve Tic. A.Ş.**"
+  }
+]
