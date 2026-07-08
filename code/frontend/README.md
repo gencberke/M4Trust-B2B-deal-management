@@ -1,0 +1,1 @@
+frontend kısmı burada konumlanacak
