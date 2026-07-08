@@ -46,7 +46,7 @@ Dokümantasyonu eskiten bir iş, doc-sync yapılmadan "bitti" sayılmaz.
 
 ## Pratik notlar
 
-- Chroma index: `code/data/processed/embeddings/chroma/` — koleksiyon `legal_articles`, 754 vektör, BGE-M3 ile embed'li. Sorgular da BGE-M3 ile encode edilmelidir.
-- Korpusa eklenecek iki TCMB metni `code/data/raw/legal/` altında hazır bekliyor (henüz chunk/embed edilmedi) — bkz. [plans/regulasyon_rag_genisletmesi.md](plans/v1/v1_regulasyon_rag_genisletmesi.md).
-- `code/scripts/convert_documents.py` ve `extract_contract.py` henüz boştur; iş sıralaması için [plans/v1/v1_hackathon_gelistirme_yol_haritasi.md](YOL_HARITASI.md).
+- Chroma index: `code/data/processed/embeddings/chroma/` — iki koleksiyon: `legal_articles` (891 vektör: TBK, 6493, 5549, KVKK, Yönetmelik, Tebliğ) ve `contract_examples` (395 vektör, 31 örnek sözleşme, few-shot yapısal referans). Sorgular da BGE-M3 ile encode edilmelidir.
+- İki TCMB metni (Yönetmelik + Tebliğ) `code/data/raw/legal/` altına eklendi, chunk'landı ve embed edildi — bkz. [plans/regulasyon_rag_genisletmesi.md](plans/v1/v1_regulasyon_rag_genisletmesi.md).
+- `code/scripts/convert_documents.py` dolduruldu (`code/scripts/document_parser/`: PyMuPDF/python-docx/Tesseract, Clean Architecture, testli). `extract_contract.py` henüz boştur; iş sıralaması için [plans/v1/v1_hackathon_gelistirme_yol_haritasi.md](YOL_HARITASI.md).
 - Ekip: Berke (backend + frontend), Yusuf (AI). Toplam süre 5-6 gün — kapsam eklerken bunu hesaba kat.

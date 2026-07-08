@@ -20,10 +20,16 @@ MARKDOWN_DIR = ROOT / "data" / "processed" / "markdown"
 CHUNKS_DIR = ROOT / "data" / "processed" / "chunks"
 
 # Matches bold article markers: **MADDE 1-**, **MADDE 1 – (1)**, amended
-# articles like **MADDE 9- (Değişik:2/3/2024-7499/34 md.)**, and lettered
+# articles like **MADDE 9- (Değişik:2/3/2024-7499/34 md.)**, lettered
 # "ek madde" insertions like **MADDE 9/A- (Ek: 18/6/2014-6545/87 md.)** --
-# the /A suffix is captured too, since 9 and 9/A are different articles.
-MADDE_RE = re.compile(r"\*\*\s*MADDE\s+(\d+(?:/[A-ZÇĞİÖŞÜ])?)[^*\n]{0,120}\*\*", re.IGNORECASE)
+# the /A suffix is captured too, since 9 and 9/A are different articles --
+# and transitional/additional articles prefixed **GEÇİCİ MADDE N** or
+# **EK MADDE N**, which are distinct articles and must not be swallowed
+# into whatever article precedes them.
+MADDE_RE = re.compile(
+    r"\*\*\s*(GEÇİCİ\s+|EK\s+)?MADDE\s+(\d+(?:/[A-ZÇĞİÖŞÜ])?)[^*\n]{0,120}\*\*",
+    re.IGNORECASE,
+)
 HEADING_RE = re.compile(r"^(#{1,3})\s+(.+)$", re.MULTILINE)
 PAGE_MARKER_RE = re.compile(r"\{\d+\}-+\s*")
 # A run of markdown headings trailing at the very end of a slice belongs to
@@ -48,7 +54,10 @@ def chunk_by_madde(markdown: str, source: str) -> list[dict]:
         body = clean(markdown[start:end])
         if not body:
             continue
-        madde_no = m.group(1)  # e.g. "9" or "9/A", kept as a string
+        prefix = m.group(1).strip() if m.group(1) else None  # "GEÇİCİ" or "EK", if present
+        number = m.group(2)  # e.g. "9" or "9/A", kept as a string
+        madde_no = f"{prefix} {number}" if prefix else number
+        label = f"{prefix} MADDE {number}" if prefix else f"MADDE {number}"
         chunks.append(
             {
                 "source": source,
@@ -57,8 +66,8 @@ def chunk_by_madde(markdown: str, source: str) -> list[dict]:
                 # Sequential index, not madde_no: some documents embed multiple
                 # regulations that each restart their own numbering at MADDE 1,
                 # so madde_no alone is not unique within a file.
-                "chunk_id": f"{source}#{i:03d}-madde-{madde_no.replace('/', '-')}",
-                "text": f"MADDE {madde_no} - {body}",
+                "chunk_id": f"{source}#{i:03d}-madde-{madde_no.replace(' ', '-').replace('/', '-')}",
+                "text": f"{label} - {body}",
             }
         )
     return chunks

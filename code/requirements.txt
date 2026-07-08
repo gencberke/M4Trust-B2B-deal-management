@@ -1,0 +1,11 @@
+chromadb==1.5.9
+FlagEmbedding==1.4.0
+
+# runtime document parser (scripts/document_parser)
+pymupdf==1.28.0
+python-docx==1.2.0
+pytesseract==0.3.13
+pillow==12.3.0
+
+# tests
+pytest==9.1.1

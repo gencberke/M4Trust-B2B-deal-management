@@ -1,12 +1,21 @@
-"""Embed chunked legal text with BGE-M3 and store it in a local Chroma collection.
+"""Embed chunked text with BGE-M3 and store it in local Chroma collections.
 
     .venv/Scripts/python.exe scripts/build_rag.py
 
 Reads every data/processed/chunks/**/*.json file (produced by
-chunk_documents.py) and upserts each chunk into a persistent Chroma
-collection at data/processed/embeddings/chroma/. Upsert is keyed on
-chunk_id, so re-running after adding new chunks (e.g. once the 35
-contract PDFs are converted and chunked) only re-embeds what changed.
+chunk_documents.py) and upserts each chunk into one of two persistent
+Chroma collections at data/processed/embeddings/chroma/, split by purpose:
+
+- legal_articles     -- law/regulation articles, retrieved for regulatory
+                         grounding when drafting a rule from a contract.
+- contract_examples  -- past contract clauses, retrieved as few-shot
+                         structural reference for a new contract. This is
+                         retrieval-augmented context, not model training --
+                         no weights change.
+
+Kept separate because they answer different questions and mixing them
+degrades retrieval quality for both. Upsert is keyed on chunk_id, so
+re-running after adding new chunks only re-embeds what changed.
 """
 
 import json
@@ -18,15 +27,16 @@ from FlagEmbedding import BGEM3FlagModel
 ROOT = Path(__file__).resolve().parent.parent
 CHUNKS_DIR = ROOT / "data" / "processed" / "chunks"
 CHROMA_DIR = ROOT / "data" / "processed" / "embeddings" / "chroma"
-COLLECTION_NAME = "legal_articles"
 BATCH_SIZE = 32
 
 
-def load_all_chunks() -> list[dict]:
-    chunks = []
+def load_chunks_by_collection() -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {"legal_articles": [], "contract_examples": []}
     for path in sorted(CHUNKS_DIR.rglob("*.json")):
-        chunks.extend(json.loads(path.read_text(encoding="utf-8")))
-    return chunks
+        rel = path.relative_to(CHUNKS_DIR)
+        collection = "contract_examples" if rel.parts[0] == "contracts" else "legal_articles"
+        grouped[collection].extend(json.loads(path.read_text(encoding="utf-8")))
+    return grouped
 
 
 def build_metadata(chunk: dict) -> dict:
@@ -38,19 +48,12 @@ def build_metadata(chunk: dict) -> dict:
     return meta
 
 
-def main():
-    chunks = load_all_chunks()
+def embed_collection(client, model, name: str, chunks: list[dict]) -> None:
     if not chunks:
-        print(f"No chunks found under {CHUNKS_DIR}. Run scripts/chunk_documents.py first.")
+        print(f"  ({name}: no chunks, skipping)")
         return
 
-    print(f"Loaded {len(chunks)} chunks. Loading BAAI/bge-m3 (first run downloads the model, ~2-3GB)...")
-    model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
-
-    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    collection = client.get_or_create_collection(COLLECTION_NAME)
-
+    collection = client.get_or_create_collection(name)
     for i in range(0, len(chunks), BATCH_SIZE):
         batch = chunks[i : i + BATCH_SIZE]
         texts = [c["text"] for c in batch]
@@ -61,9 +64,28 @@ def main():
             documents=texts,
             metadatas=[build_metadata(c) for c in batch],
         )
-        print(f"  embedded {min(i + BATCH_SIZE, len(chunks))}/{len(chunks)}")
+        print(f"  [{name}] embedded {min(i + BATCH_SIZE, len(chunks))}/{len(chunks)}")
 
-    print(f"\nDone. Collection '{COLLECTION_NAME}' has {collection.count()} vectors at {CHROMA_DIR}")
+    print(f"  [{name}] done: {collection.count()} vectors total")
+
+
+def main():
+    grouped = load_chunks_by_collection()
+    total = sum(len(v) for v in grouped.values())
+    if total == 0:
+        print(f"No chunks found under {CHUNKS_DIR}. Run scripts/chunk_documents.py first.")
+        return
+
+    print(f"Loaded {total} chunks. Loading BAAI/bge-m3 (first run downloads the model, ~2-3GB)...")
+    model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
+
+    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+
+    for name, chunks in grouped.items():
+        embed_collection(client, model, name, chunks)
+
+    print(f"\nAll done. Collections stored at {CHROMA_DIR}")
 
 
 if __name__ == "__main__":
