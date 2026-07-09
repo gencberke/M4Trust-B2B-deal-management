@@ -1,5 +1,7 @@
 # Plan: Regülasyon RAG Genişletmesi ve Veri Güvenliği Katmanı
 
+> **Durum notu (09.07.2026):** Bu plan revize edilerek **devralındı** → [rag_context_builder_ve_guvenlik_katmani.md](../done/rag_context_builder_ve_guvenlik_katmani.md) (uygulandı 2026-07-09). Embed/korpus kalemleri zaten uygulanmıştı; PCI DSS kalemi yeni planda dar kapsamlı kontrol haritası olarak geri alındı; "validator hassas veri kontrolü" kalemi backend iskeleti planına devredildi. Bu dosya tarihçe olarak saklanır, üzerinde çalışılmaz.
+
 > **Tür:** Öneri + kısmen tamamlanmış iş listesi. Mimariye işlenen bağlayıcı kısımlar: `privacy.py` maskeleme katmanı ve "LLM'e giden içerik sınırlandırılır" ilkesi ([ARCHITECTURE.md §3.5](../../ARCHITECTURE.md)).
 > **Kaynak:** Moka mentor dönütü (08.07.2026) + aynı gün yapılan doğrulamalı web araştırması.
 

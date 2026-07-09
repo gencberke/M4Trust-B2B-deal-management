@@ -35,6 +35,7 @@ class Settings:
     rag_model_name: str = "BAAI/bge-m3"
     legal_collection: str = "legal_articles"
     contract_collection: str = "contract_examples"
+    security_collection: str = "security_controls"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -49,6 +50,7 @@ class Settings:
             rag_model_name=_env("RAG_MODEL", "BAAI/bge-m3"),
             legal_collection=_env("RAG_LEGAL_COLLECTION", "legal_articles"),
             contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples"),
+            security_collection=_env("RAG_SECURITY_COLLECTION", "security_controls"),
         )
 
     def __repr__(self) -> str:
@@ -59,5 +61,6 @@ class Settings:
             f"llm_model={self.llm_model!r}, llm_api_key={masked!r}, "
             f"llm_timeout={self.llm_timeout!r}, chroma_dir={str(self.chroma_dir)!r}, "
             f"rag_model_name={self.rag_model_name!r}, legal_collection={self.legal_collection!r}, "
-            f"contract_collection={self.contract_collection!r})"
+            f"contract_collection={self.contract_collection!r}, "
+            f"security_collection={self.security_collection!r})"
         )

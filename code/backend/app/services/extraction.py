@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from backend.app.config import Settings
 from backend.app.schemas.extraction import ExtractionJSON
-from backend.app.services.rag import Chunk
+from backend.app.services.context_builder import ContextPack
 
 _SYSTEM_PROMPT_TEMPLATE = (
     "Sen bir B2B sözleşme analistisin. Sana verilen (önceden maskelenmiş) "
@@ -30,6 +30,13 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "Yanıtın YALNIZCA aşağıdaki JSON Schema'ya uyan tek bir JSON nesnesi "
     "olmalıdır (başka hiçbir metin, açıklama veya markdown ekleme):\n\n"
     "{schema}"
+)
+
+# Kaynaklı bağlam mesajının başına eklenen yönerge (retrieval sonuçlarına güven sınırı).
+_SOURCE_GUIDANCE = (
+    "Aşağıdaki kaynaklar retrieval sistemi tarafından seçilmiştir. Yalnızca bu "
+    "kaynakları sözleşme metniyle birlikte kullan. Kaynaklarda olmayan hukuki "
+    "iddiaları kesin hüküm gibi sunma. Ödeme kararı verme; sadece kural öner."
 )
 
 
@@ -46,8 +53,8 @@ class ExtractionService(ABC):
     """Sözleşme metninden `ExtractionJSON` öneren servislerin ortak arayüzü."""
 
     @abstractmethod
-    def extract(self, masked_markdown: str, rag_context: list[Chunk]) -> ExtractionResult:
-        """Maskelenmiş markdown ve RAG bağlamından bir extraction önerisi üretir."""
+    def extract(self, masked_markdown: str, context: ContextPack | None) -> ExtractionResult:
+        """Maskelenmiş markdown ve (opsiyonel) ContextPack'ten bir extraction önerisi üretir."""
         raise NotImplementedError
 
 
@@ -93,7 +100,7 @@ def _fake_fixture() -> ExtractionJSON:
 class FakeExtractionService(ExtractionService):
     """Ağa çıkmayan, her zaman başarılı demo-güvenli fake extraction servisi."""
 
-    def extract(self, masked_markdown: str, rag_context: list[Chunk]) -> ExtractionResult:
+    def extract(self, masked_markdown: str, context: ContextPack | None) -> ExtractionResult:
         return ExtractionResult(status="ok", data=_fake_fixture())
 
 
@@ -115,15 +122,16 @@ class OpenAICompatibleExtractionService(ExtractionService):
             )
         return self._client
 
-    def _build_messages(self, masked_markdown: str, rag_context: list[Chunk]) -> list[dict]:
+    def _build_messages(self, masked_markdown: str, context: ContextPack | None) -> list[dict]:
         schema = json.dumps(ExtractionJSON.model_json_schema(), ensure_ascii=False)
         system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(schema=schema)
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
-        if rag_context:
-            context_text = "\n\n".join(chunk.text for chunk in rag_context)
-            messages.append({"role": "system", "content": f"İlgili mevzuat:\n{context_text}"})
+        if context is not None and context.formatted_for_llm:
+            messages.append(
+                {"role": "system", "content": f"{_SOURCE_GUIDANCE}\n\n{context.formatted_for_llm}"}
+            )
 
         messages.append({"role": "user", "content": masked_markdown})
         return messages
@@ -144,8 +152,8 @@ class OpenAICompatibleExtractionService(ExtractionService):
         payload = json.loads(content)
         return ExtractionJSON.model_validate(payload)
 
-    def extract(self, masked_markdown: str, rag_context: list[Chunk]) -> ExtractionResult:
-        messages = self._build_messages(masked_markdown, rag_context)
+    def extract(self, masked_markdown: str, context: ContextPack | None) -> ExtractionResult:
+        messages = self._build_messages(masked_markdown, context)
 
         last_error: Exception | None = None
         for _attempt in range(2):

@@ -34,8 +34,9 @@ code/
 │   ├── routers/      # transactions · approvals · delivery · evidence
 │   └── services/
 │       ├── documents/         # DocumentExtractor: pdf_digital · docx · ocr · normalizer
-│       ├── rag.py             # Chroma retrieval (BGE-M3 lazy singleton)
-│       ├── privacy.py         # maskeleme — dış LLM'e giden içeriği sınırlar
+│       ├── rag.py             # Chroma retrieval (BGE-M3 lazy singleton, düşük seviye)
+│       ├── context_builder.py # ContextBuilder: çoklu-query/çoklu-koleksiyon RAG orkestrasyonu → ContextPack
+│       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
 │       ├── validator.py       # deterministik kural kapısı
 │       ├── video.py           # VideoAnalyzer: detector + FakeVideoAnalyzer
@@ -54,7 +55,7 @@ Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo
 | Backend | Python 3.12 · FastAPI · SQLite (arka plan işleri: `BackgroundTasks`, queue altyapısı yok) |
 | Frontend | React · Vite · Tailwind |
 | Doküman | PyMuPDF/PyMuPDF4LLM (dijital PDF) · python-docx/mammoth (DOCX) · Tesseract (OCR) |
-| RAG | BAAI/bge-m3 + ChromaDB — koleksiyon `legal_articles`, `code/data/processed/embeddings/chroma/` |
+| RAG | BAAI/bge-m3 + ChromaDB — koleksiyonlar `legal_articles` · `contract_examples` · `security_controls` (koşullu), `code/data/processed/embeddings/chroma/`. Orkestrasyon: `context_builder.py` |
 | LLM | `gpt-5.4-mini` (OpenAI-uyumlu API, `openai>=1.40` SDK, lazy import) — structured output (`response_format=json_object` + Pydantic şema doğrulama, uymazsa 1 retry → NEEDS_REVIEW). `LLM_PROVIDER=fake\|openai` env ile seçilir (default `fake`) |
 | Video | OpenCV frame sampling + hafif detector |
 | Ödeme | Moka United havuz ödeme contract'ı (mock'lanır, bkz. §3.3) |
@@ -66,10 +67,10 @@ Kural: **tüm dış bağımlılıklar adapter interface arkasındadır ve her bi
 ### 3.1 LLM — `ExtractionService`
 
 ```python
-LLMClient.extract(contract_markdown: str, rag_context: list[Chunk]) -> ExtractionJSON
+ExtractionService.extract(masked_markdown: str, context: ContextPack | None) -> ExtractionResult
 ```
 
-- Girdi **maskelenmiş** markdown + RAG chunk'larıdır; ham dosya asla dış API'ye gitmez.
+- Girdi **maskelenmiş** markdown + `ContextPack`'tir (`context_builder.py`, §3.2); ham dosya asla dış API'ye gitmez. `context=None` veya boş pack → bağlamsız çağrı. Kaynaklı bağlam LLM'e `formatted_for_llm` olarak, kaynak-tipi etiketleriyle (`[LEGAL_SOURCE_n]` / `[CONTRACT_EXAMPLE_n]` / `[SECURITY_CONTROL_n]`) tek system mesajında verilir.
 - Çıktı §4.2'deki şemaya zorlanır (structured output). Şemaya uymayan cevap retry edilir, yine uymazsa NEEDS_REVIEW.
 - LLM çıktısı validator'dan geçmeden DB'ye aktif kural olarak yazılmaz. Provider tek dosyada izole — model değişimi diğer kodu etkilemez.
 
@@ -77,6 +78,7 @@ LLMClient.extract(contract_markdown: str, rag_context: list[Chunk]) -> Extractio
 
 - Korpus BGE-M3 ile embed'lidir; **sorgu da BGE-M3 ile encode edilmek zorundadır.** Model lazy singleton (ilk istekte yüklenir, süreçte kalır, CPU/`use_fp16=False`).
 - RAG yalnızca retrieval yapar; hukuki yorum ve karar üretmez.
+- `Retriever` (rag.py) düşük seviye tek-query/tek-koleksiyon araçtır; **`ContextBuilder`** (context_builder.py) onu sarmalar: rule-based çoklu query planlama (sabit temel + sinyal-tetiklemeli), `legal_articles` + `contract_examples` + (yalnızca kart/güvenlik sinyalinde) `security_controls` retrieval, dedupe + kaynak-tipi kotası (legal≤6 · contract≤2 · security≤2) + ~12k karakter limiti → `ContextPack`. `Chunk.score` Chroma **distance**'ıdır (düşük daha iyi); bu semantik `ContextSource.score`'da korunur. Retriever/koleksiyon yoksa ilgili query sessizce atlanır (graceful, bağlamsız/kısmi devam).
 
 ### 3.3 Ödeme — `PaymentProvider` (Moka havuz ödeme contract'ı)
 
@@ -101,6 +103,8 @@ PaymentProvider
 `privacy.py`, markdown dönüşümünden sonra kişisel/hassas alanları (TCKN/vergi no, IBAN, telefon, adres…) tespit edip maskeler; maskeleme haritası lokalde kalır. Regülatif dayanak: TCMB Tebliğ md.9/21, Yönetmelik md.21(7)/62 (bkz. `plans/ready/regulasyon_rag_genisletmesi.md`).
 
 **Uygulama durumu (2026-07-08):** `privacy.py` **minimal** implement edildi — regex tabanlı PII: TCKN (11 hane), VKN (10 hane), IBAN (`TR`+24, boşluk/tire ayraçlı formlar dahil), telefon, e-posta. `mask(text) → (masked_text, mapping)` + recursive `restore(obj, mapping)` (LLM çıktısındaki placeholder'lar lokalde orijinaline döndürülür). Kapsam bilinçli olarak dar: isim/adres gibi bağlam-bağımlı alanların NER'i ve bare-local telefon/VKN ayrımı sonraya bırakıldı. CLI hattında (`scripts/extract_contract.py`) mask, canlı LLM çağrısından **önce** çalışır (§6.7 sırası garanti).
+
+**Kart-verisi güvenlik katmanı (2026-07-09):** `mask()/restore()` üstüne `analyze(text) → PrivacyReport(masked_text, mapping, detected_types, blocking_findings, risk_flags)` eklendi. Sıra kritiktir: önce standart `mask()`, sonra kart verisi taranır (IBAN'ın gruplu hanelerinin PAN sanılmasını önlemek için). Tespit: **PAN** (13-19 hane + Luhn doğrulaması → maskelenir, placeholder `mapping`'e **girmez** = restore edilmez, `PAN_DETECTED` risk flag), **CVV/CVC · track data · PIN** (bağlam-duyarlı → **SAD**, `blocking_findings`), PAN+expiry → `CHD_CONTEXT`. `blocking_findings` doluysa ve provider `openai` ise CLI **canlı çağrıyı atlar** → tip-tutarlı `ExtractionResult(status="needs_review", data=None, reason=…)` (sahte JSON üretilmez); fake provider (dışarı veri gitmez) çalışabilir ama sonuç `needs_manual_review=true` ile işaretlenir. `risk_flags`, restore sonrası extraction JSON'ın `risk_flags` alanına birleşir (şema donuk kalır). Kaynak: `plans/done/rag_context_builder_ve_guvenlik_katmani.md`.
 
 ## 4. API contract
 
