@@ -1,6 +1,6 @@
 ---
 description: Bir planı ARCHITECTURE.md'ye uygun şekilde uygula, ardından dokümantasyonu senkronla (doc-sync)
-argument-hint: plans/v2/<plan>.md
+argument-hint: plans/ready/<plan>.md
 ---
 
 Görev: `$ARGUMENTS` plan dosyasını uçtan uca uygula ve dokümantasyonu taze bırak. Sırayla:
@@ -8,7 +8,7 @@ Görev: `$ARGUMENTS` plan dosyasını uçtan uca uygula ve dokümantasyonu taze 
 1. **Bağlamı yükle:** `AGENTS.md`, `ARCHITECTURE.md` ve `$ARGUMENTS` dosyasını oku.
 
 2. **Ön kontrol (implementasyondan önce):**
-   - Dosya `plans/v2/` altında değilse bu bir taslaktır (v1): kullanıcıya taslağı uygulamak istediğinden emin olup olmadığını sor; onaysız ilerleme.
+   - Dosya `plans/ready/` altında değilse: `plans/planning/` altındaysa henüz olgunlaşmamış bir taslaktır — kullanıcıya taslağı uygulamak istediğinden emin olup olmadığını sor, onaysız ilerleme; `plans/done/` altındaysa zaten uygulanmıştır — kullanıcıyı bilgilendir ve ne istediğini netleştir.
    - Planı ARCHITECTURE.md ile karşılaştır. Plan, §6 "dışına çıkılmayacak tasarım kalıpları"ndan birini deliyorsa DUR ve kullanıcıya seçenekleriyle birlikte bildir.
    - Mimaride henüz tanımlı olmayan yenilikler (endpoint, servis, bağımlılık, event, şema alanı…) varsa bunları "doc-sync listesi" olarak not et.
 
@@ -28,5 +28,6 @@ Görev: `$ARGUMENTS` plan dosyasını uçtan uca uygula ve dokümantasyonu taze 
 
 5. **Plan durumunu işle:** `$ARGUMENTS` dosyasının en üstündeki durum bloğunu güncelle:
    `> **Durum:** Uygulandı — <tarih> · Sapmalar: <planla uygulama arasındaki farklar; yoksa "yok">`
+   Ardından dosyayı `plans/done/` altına taşı ve dosyaya işaret eden linkleri (AGENTS.md, ARCHITECTURE.md, plans/README.md) yeni yola güncelle.
 
 6. **Raporla:** ne uygulandı, neler doğrulandı, hangi doküman bölümleri güncellendi, sapmalar ve açık işler.

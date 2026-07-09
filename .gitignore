@@ -2,3 +2,12 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Ortam / secrets — gerçek API anahtarları asla commit'lenmez
+.env
+.env.local
+code/.env
+code/.env.local
+
+# OS junk
+.DS_Store

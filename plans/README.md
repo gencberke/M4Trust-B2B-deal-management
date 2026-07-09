@@ -1,20 +1,21 @@
 # plans/ — Plan Yaşam Döngüsü
 
-Bu klasör projenin planlama dokümanlarını tutar. Bağlayıcı teknik çerçeve her zaman [ARCHITECTURE.md](../ARCHITECTURE.md)'dir; plan ile mimari çelişirse ya plan mimariye uyarlanır ya da ekip mutabakatıyla mimari güncellenir.
+Bu klasör projenin planlama dokümanlarını tutar; **planın durumu bulunduğu klasörle ifade edilir.** Bağlayıcı teknik çerçeve her zaman [ARCHITECTURE.md](../ARCHITECTURE.md)'dir; plan ile mimari çelişirse ya plan mimariye uyarlanır ya da ekip mutabakatıyla mimari güncellenir.
 
 ## Klasörler
 
-- **v1/** — İlk, kesinleşmemiş öneriler. Ton: "bu plan neden ortaya çıktı, nasıl yaklaşabiliriz". Bağlayıcı değildir; araştırma ve tartışma zeminidir.
-- **v2/** — Olgunlaşmış, uygulanmaya hazır planlar. Bir v1 planı ekipçe netleşince `v2_<ad>.md` adıyla buraya taşınır; kapsam, kabul kriterleri ve dokunacağı mimari bölümler netleştirilir.
+- **planning/** — Üzerinde hâlâ çalışılan taslaklar. Öneri tonundadır ("neden ortaya çıktı, nasıl yaklaşabiliriz"), açık soruları/engelleri olabilir. Bağlayıcı değildir.
+- **ready/** — Ekipçe netleşmiş, **uygulanmaya hazır** planlar: kapsam, iş kalemleri ve dokunacağı mimari bölümler bellidir, önlerinde engel yoktur.
+- **done/** — **Uygulaması tamamlanmış** planlar. En üstlerindeki durum bloğu uygulama tarihini ve sapmaları taşır; tarihçe/kanıt olarak saklanır.
 
-## Uygulama akışı
+## Akış
 
-1. Plan `v2/`'ye konur.
-2. Ajana `/plan-uygula plans/v2/<dosya>.md` denir (komut yoksa plan dosyası işaret edilir; AGENTS.md'deki protokol her durumda geçerlidir).
-3. Ajan sırasıyla: ARCHITECTURE.md ile çelişki kontrolü → implementasyon + doğrulama → **doc-sync** (ARCHITECTURE.md / AGENTS.md güncellenir) → plan durum bloğunu işler.
+1. Plan `planning/`'de olgunlaştırılır; netleşince `ready/`'ye taşınır.
+2. Uygulama tercihen `/plan-uygula plans/ready/<dosya>.md` komutuyla yapılır (komutsuz da AGENTS.md'deki doc-sync protokolü geçerlidir).
+3. Uygulamayı yapan ajan: ARCHITECTURE.md ile çelişki kontrolü → implementasyon + doğrulama → **doc-sync** (ARCHITECTURE.md / AGENTS.md güncellenir) → durum bloğunu işler ve dosyayı `done/`'a taşır.
 
 ## Durum bloğu formatı
 
-Her planın en üstünde tutulur ve uygulamayı yapan ajan tarafından güncellenir:
+> **Durum:** Uygulandı — YYYY-AA-GG · Sapmalar: … (yoksa "yok")
 
-> **Durum:** Taslak | Olgunlaştı | Uygulanıyor | Uygulandı — YYYY-AA-GG · Sapmalar: …
+Not: [Hackathon yol haritası](../YOL_HARITASI.md) tek seferlik bir plan değil sürekli referans olduğu için proje kökünde yaşar.

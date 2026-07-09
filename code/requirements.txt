@@ -1,5 +1,9 @@
 chromadb==1.5.9
 FlagEmbedding==1.4.0
+pydantic>=2,<3
+
+# LLM adapter (ExtractionService — canlı OpenAI-uyumlu sağlayıcı, lazy import)
+openai>=1.40
 
 # runtime document parser (scripts/document_parser)
 pymupdf==1.28.0
