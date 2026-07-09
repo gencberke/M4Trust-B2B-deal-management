@@ -1,0 +1,63 @@
+"""Uygulama ayarları — env'den okunur, kod her yerde bu tek kaynağı kullanır.
+
+Dış bağımlılık seçimleri (LLM sağlayıcı) ve yerel yollar burada toplanır; §3
+adapter'ları `llm_provider` env'i ile seçilir. `llm_api_key` yalnızca env/.env'den
+gelir ve ASLA loglanmaz/repr'e sızmaz (§secrets kuralı).
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+# config.py -> app/ -> backend/ -> code/
+_CODE_ROOT = Path(__file__).resolve().parent.parent.parent
+_DEFAULT_CHROMA_DIR = _CODE_ROOT / "data" / "processed" / "embeddings" / "chroma"
+
+
+def _env(name: str, default: str) -> str:
+    """Env değişkenini oku; tanımsız VEYA boş string ise default'a düş."""
+    value = os.environ.get(name)
+    return value if value else default
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Tüm runtime ayarları. `Settings.from_env()` ile env'den kurulur."""
+
+    llm_provider: str = "fake"                       # "fake" (demo-güvenli) | "openai" (canlı)
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-5.4-mini"                  # ekip kararı; env ile override edilebilir
+    llm_api_key: str = ""
+    llm_timeout: float = 60.0
+    chroma_dir: Path = _DEFAULT_CHROMA_DIR
+    rag_model_name: str = "BAAI/bge-m3"
+    legal_collection: str = "legal_articles"
+    contract_collection: str = "contract_examples"
+
+    @classmethod
+    def from_env(cls) -> "Settings":
+        chroma = os.environ.get("CHROMA_DIR")
+        return cls(
+            llm_provider=_env("LLM_PROVIDER", "fake"),
+            llm_base_url=_env("LLM_BASE_URL", "https://api.openai.com/v1"),
+            llm_model=_env("LLM_MODEL", "gpt-5.4-mini"),
+            llm_api_key=os.environ.get("LLM_API_KEY", ""),
+            llm_timeout=float(_env("LLM_TIMEOUT", "60")),
+            chroma_dir=Path(chroma).resolve() if chroma else _DEFAULT_CHROMA_DIR,
+            rag_model_name=_env("RAG_MODEL", "BAAI/bge-m3"),
+            legal_collection=_env("RAG_LEGAL_COLLECTION", "legal_articles"),
+            contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples"),
+        )
+
+    def __repr__(self) -> str:
+        # API anahtarını asla açık yazma — log/traceback sızıntısını önler.
+        masked = "***" if self.llm_api_key else ""
+        return (
+            f"Settings(llm_provider={self.llm_provider!r}, llm_base_url={self.llm_base_url!r}, "
+            f"llm_model={self.llm_model!r}, llm_api_key={masked!r}, "
+            f"llm_timeout={self.llm_timeout!r}, chroma_dir={str(self.chroma_dir)!r}, "
+            f"rag_model_name={self.rag_model_name!r}, legal_collection={self.legal_collection!r}, "
+            f"contract_collection={self.contract_collection!r})"
+        )
