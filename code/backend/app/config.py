@@ -14,6 +14,7 @@ from pathlib import Path
 # config.py -> app/ -> backend/ -> code/
 _CODE_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_CHROMA_DIR = _CODE_ROOT / "data" / "processed" / "embeddings" / "chroma"
+_DEFAULT_DB_PATH = _CODE_ROOT / "data" / "runtime" / "m4trust.db"
 
 
 def _env(name: str, default: str) -> str:
@@ -36,10 +37,15 @@ class Settings:
     legal_collection: str = "legal_articles"
     contract_collection: str = "contract_examples"
     security_collection: str = "security_controls"
+    payment_provider: str = "mock"                   # "mock" (§3.3 MockMokaProvider) | ileride "real"
+    video_analyzer: str = "fake"                      # "fake" (§3.4 FakeVideoAnalyzer)
+    db_path: Path = _DEFAULT_DB_PATH                   # sqlite3 dosya yolu (§5)
+    validator_confidence_threshold: float = 0.7        # validator NEEDS_REVIEW eşiği (§6.2)
 
     @classmethod
     def from_env(cls) -> "Settings":
         chroma = os.environ.get("CHROMA_DIR")
+        db_path = os.environ.get("DB_PATH")
         return cls(
             llm_provider=_env("LLM_PROVIDER", "fake"),
             llm_base_url=_env("LLM_BASE_URL", "https://api.openai.com/v1"),
@@ -51,6 +57,10 @@ class Settings:
             legal_collection=_env("RAG_LEGAL_COLLECTION", "legal_articles"),
             contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples"),
             security_collection=_env("RAG_SECURITY_COLLECTION", "security_controls"),
+            payment_provider=_env("PAYMENT_PROVIDER", "mock"),
+            video_analyzer=_env("VIDEO_ANALYZER", "fake"),
+            db_path=Path(db_path).resolve() if db_path else _DEFAULT_DB_PATH,
+            validator_confidence_threshold=float(_env("VALIDATOR_CONFIDENCE_THRESHOLD", "0.7")),
         )
 
     def __repr__(self) -> str:
@@ -62,5 +72,8 @@ class Settings:
             f"llm_timeout={self.llm_timeout!r}, chroma_dir={str(self.chroma_dir)!r}, "
             f"rag_model_name={self.rag_model_name!r}, legal_collection={self.legal_collection!r}, "
             f"contract_collection={self.contract_collection!r}, "
-            f"security_collection={self.security_collection!r})"
+            f"security_collection={self.security_collection!r}, "
+            f"payment_provider={self.payment_provider!r}, video_analyzer={self.video_analyzer!r}, "
+            f"db_path={str(self.db_path)!r}, "
+            f"validator_confidence_threshold={self.validator_confidence_threshold!r})"
         )
