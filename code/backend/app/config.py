@@ -36,6 +36,8 @@ class Settings:
     legal_collection: str = "legal_articles"
     contract_collection: str = "contract_examples"
     security_collection: str = "security_controls"
+    video_provider: str = "fake"                      # "fake" (demo-güvenli) | "roboflow" (canlı)
+    roboflow_api_key: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -51,16 +53,20 @@ class Settings:
             legal_collection=_env("RAG_LEGAL_COLLECTION", "legal_articles"),
             contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples"),
             security_collection=_env("RAG_SECURITY_COLLECTION", "security_controls"),
+            video_provider=_env("VIDEO_PROVIDER", "fake"),
+            roboflow_api_key=os.environ.get("ROBOFLOW_API_KEY", ""),
         )
 
     def __repr__(self) -> str:
-        # API anahtarını asla açık yazma — log/traceback sızıntısını önler.
-        masked = "***" if self.llm_api_key else ""
+        # API anahtarlarını asla açık yazma — log/traceback sızıntısını önler.
+        llm_masked = "***" if self.llm_api_key else ""
+        roboflow_masked = "***" if self.roboflow_api_key else ""
         return (
             f"Settings(llm_provider={self.llm_provider!r}, llm_base_url={self.llm_base_url!r}, "
-            f"llm_model={self.llm_model!r}, llm_api_key={masked!r}, "
+            f"llm_model={self.llm_model!r}, llm_api_key={llm_masked!r}, "
             f"llm_timeout={self.llm_timeout!r}, chroma_dir={str(self.chroma_dir)!r}, "
             f"rag_model_name={self.rag_model_name!r}, legal_collection={self.legal_collection!r}, "
             f"contract_collection={self.contract_collection!r}, "
-            f"security_collection={self.security_collection!r})"
+            f"security_collection={self.security_collection!r}, "
+            f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r})"
         )
