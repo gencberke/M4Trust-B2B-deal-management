@@ -1,8 +1,7 @@
-"""FastAPI app factory (Faz 1) — yalnızca `/health`; router'lar sonraki fazlarda eklenir.
+"""FastAPI app factory — `/health` + transactions/approvals router'ları (Faz 3B).
 
 `startup` hook'unda `init_db()` çalışır: uygulama ayağa kalktığında altı
-tablo (§5) hazır olur. Bu dosya bilerek minimal tutulur — Faz 1 scope'u
-yalnızca app iskeleti + DB kurulumudur (validator/router'lar dahil değil).
+tablo (§5) hazır olur. Delivery/evidence router'ları (Faz 4) henüz eklenmedi.
 """
 
 from __future__ import annotations
@@ -10,6 +9,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from backend.app.db import connect, init_db
+from backend.app.routers import approvals, transactions
 
 
 def create_app() -> FastAPI:
@@ -26,6 +26,9 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    app.include_router(transactions.router)
+    app.include_router(approvals.router)
 
     return app
 
