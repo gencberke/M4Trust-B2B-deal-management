@@ -55,7 +55,7 @@ Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo
 | Frontend | React · Vite · Tailwind |
 | Doküman | PyMuPDF/PyMuPDF4LLM (dijital PDF) · python-docx/mammoth (DOCX) · Tesseract (OCR) |
 | RAG | BAAI/bge-m3 + ChromaDB — koleksiyon `legal_articles`, `code/data/processed/embeddings/chroma/` |
-| LLM | "5.4 mini" API — structured output (JSON schema) zorunlu |
+| LLM | `gpt-5.4-mini` (OpenAI-uyumlu API, `openai>=1.40` SDK, lazy import) — structured output (`response_format=json_object` + Pydantic şema doğrulama, uymazsa 1 retry → NEEDS_REVIEW). `LLM_PROVIDER=fake\|openai` env ile seçilir (default `fake`) |
 | Video | OpenCV frame sampling + hafif detector |
 | Ödeme | Moka United havuz ödeme contract'ı (mock'lanır, bkz. §3.3) |
 
@@ -90,7 +90,7 @@ PaymentProvider
 ```
 
 - `PAYMENT_PROVIDER=mock|moka` (demo'da `mock`). `MockMokaProvider` cevapları **gerçek Moka response şeklindedir** (`ResultCode: "Success"`, `Data.IsSuccessful`, `VirtualPosOrderId`); bizim `transaction_id` Moka'ya `OtherTrxCode` olarak taşınır. Böylece v1'de gerçek entegrasyon yalnızca adapter altını değiştirir.
-- Release çağrısı yalnızca şu koşulda yapılır: `buyer_approved ∧ seller_approved ∧ decision==RELEASE ∧ state==FUNDS_HELD`. Ayrıntı ve gerekçe: `plans/v1/v1_moka_cüzdan_entegrasyonu.md`.
+- Release çağrısı yalnızca şu koşulda yapılır: `buyer_approved ∧ seller_approved ∧ decision==RELEASE ∧ state==FUNDS_HELD`. Ayrıntı ve gerekçe: `plans/planning/moka_cüzdan_entegrasyonu.md`.
 
 ### 3.4 Video — `VideoAnalyzer`
 
@@ -98,7 +98,9 @@ PaymentProvider
 
 ### 3.5 Dış LLM'e giden içeriğin sınırlandırılması
 
-`privacy.py`, markdown dönüşümünden sonra kişisel/hassas alanları (TCKN/vergi no, IBAN, telefon, adres…) tespit edip maskeler; maskeleme haritası lokalde kalır. Regülatif dayanak: TCMB Tebliğ md.9/21, Yönetmelik md.21(7)/62 (bkz. `plans/v1/v1_regulasyon_rag_genisletmesi.md`).
+`privacy.py`, markdown dönüşümünden sonra kişisel/hassas alanları (TCKN/vergi no, IBAN, telefon, adres…) tespit edip maskeler; maskeleme haritası lokalde kalır. Regülatif dayanak: TCMB Tebliğ md.9/21, Yönetmelik md.21(7)/62 (bkz. `plans/ready/regulasyon_rag_genisletmesi.md`).
+
+**Uygulama durumu (2026-07-08):** `privacy.py` **minimal** implement edildi — regex tabanlı PII: TCKN (11 hane), VKN (10 hane), IBAN (`TR`+24, boşluk/tire ayraçlı formlar dahil), telefon, e-posta. `mask(text) → (masked_text, mapping)` + recursive `restore(obj, mapping)` (LLM çıktısındaki placeholder'lar lokalde orijinaline döndürülür). Kapsam bilinçli olarak dar: isim/adres gibi bağlam-bağımlı alanların NER'i ve bare-local telefon/VKN ayrımı sonraya bırakıldı. CLI hattında (`scripts/extract_contract.py`) mask, canlı LLM çağrısından **önce** çalışır (§6.7 sırası garanti).
 
 ## 4. API contract
 
