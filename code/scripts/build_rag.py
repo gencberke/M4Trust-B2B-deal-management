@@ -30,12 +30,24 @@ CHROMA_DIR = ROOT / "data" / "processed" / "embeddings" / "chroma"
 BATCH_SIZE = 32
 
 
+def _collection_for(rel: Path) -> str:
+    top = rel.parts[0]
+    if top == "contracts":
+        return "contract_examples"
+    if top == "security":
+        return "security_controls"
+    return "legal_articles"
+
+
 def load_chunks_by_collection() -> dict[str, list[dict]]:
-    grouped: dict[str, list[dict]] = {"legal_articles": [], "contract_examples": []}
+    grouped: dict[str, list[dict]] = {
+        "legal_articles": [],
+        "contract_examples": [],
+        "security_controls": [],
+    }
     for path in sorted(CHUNKS_DIR.rglob("*.json")):
         rel = path.relative_to(CHUNKS_DIR)
-        collection = "contract_examples" if rel.parts[0] == "contracts" else "legal_articles"
-        grouped[collection].extend(json.loads(path.read_text(encoding="utf-8")))
+        grouped[_collection_for(rel)].extend(json.loads(path.read_text(encoding="utf-8")))
     return grouped
 
 

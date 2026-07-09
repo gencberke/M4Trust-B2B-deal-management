@@ -57,11 +57,11 @@ class SpyExtractionService:
 
     def __init__(self):
         self.received_masked_markdown: str | None = None
-        self.received_rag_context = None
+        self.received_context = None
 
-    def extract(self, masked_markdown: str, rag_context) -> ExtractionResult:
+    def extract(self, masked_markdown: str, context) -> ExtractionResult:
         self.received_masked_markdown = masked_markdown
-        self.received_rag_context = rag_context
+        self.received_context = context
         data = ExtractionJSON.model_validate(
             {
                 "contract_id": "test-sozlesme-001",
@@ -169,7 +169,10 @@ def test_broken_retriever_degrades_gracefully_with_empty_rag_context():
     )
 
     assert result.status == "ok"
-    assert extraction_service.received_rag_context == []
+    # ContextBuilder tüm query'lerde ImportError alır -> boş pack ile graceful devam.
+    assert extraction_service.received_context is not None
+    assert extraction_service.received_context.sources == []
+    assert extraction_service.received_context.formatted_for_llm == ""
 
 
 def test_restore_failure_degrades_to_needs_review(monkeypatch):
@@ -199,6 +202,69 @@ def test_restore_failure_degrades_to_needs_review(monkeypatch):
 
     assert result.status == "needs_review"
     assert "doğrulama" in (result.reason or "")
+
+
+def _markdown_with_cvv() -> str:
+    return "Ödeme kartla alınır. Kart doğrulama CVV: 123. Teslimatta %100 ödenir.\n"
+
+
+def test_blocking_live_provider_skips_extraction():
+    """SAD (CVV) + canlı provider -> extract() hiç çağrılmaz, deterministik needs_review."""
+    converter = FakeConverter(_markdown_with_cvv())
+    extraction_service = SpyExtractionService()
+    settings = Settings(llm_provider="openai")
+
+    result = run_extraction(
+        Path("herhangi.pdf"),
+        settings=settings,
+        converter=converter,
+        retriever=FakeRetriever(),
+        extraction_service=extraction_service,
+    )
+
+    assert result.status == "needs_review"
+    assert result.data is None
+    assert "atlandı" in (result.reason or "")
+    assert extraction_service.received_masked_markdown is None  # canlı çağrı yapılmadı
+
+
+def test_blocking_fake_provider_runs_but_flags_manual_review():
+    """SAD + fake provider -> fake çalışır (dışarı veri gitmez) ama needs_manual_review=true."""
+    converter = FakeConverter(_markdown_with_cvv())
+    extraction_service = SpyExtractionService()
+    settings = Settings(llm_provider="fake")
+
+    result = run_extraction(
+        Path("herhangi.pdf"),
+        settings=settings,
+        converter=converter,
+        retriever=FakeRetriever(),
+        extraction_service=extraction_service,
+    )
+
+    assert result.status == "ok"
+    assert extraction_service.received_masked_markdown is not None  # fake çalıştı
+    assert "123" not in extraction_service.received_masked_markdown  # CVV maskeli
+    assert result.data.needs_manual_review is True
+
+
+def test_pan_risk_flag_merged_into_output():
+    """PAN (blocking değil) tespiti risk_flags'e birleşir, needs_manual_review zorlanmaz."""
+    converter = FakeConverter("Kart no: 4111111111111111 ile ödeme yapılır.\n")
+    extraction_service = SpyExtractionService()
+    settings = Settings(llm_provider="fake")
+
+    result = run_extraction(
+        Path("herhangi.pdf"),
+        settings=settings,
+        converter=converter,
+        retriever=FakeRetriever(),
+        extraction_service=extraction_service,
+    )
+
+    assert result.status == "ok"
+    assert "PAN_DETECTED" in result.data.risk_flags
+    assert result.data.needs_manual_review is False  # PAN SAD değil
 
 
 def test_cli_main_smoke_end_to_end(tmp_path, capsys):

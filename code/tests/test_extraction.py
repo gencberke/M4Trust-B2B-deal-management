@@ -2,6 +2,7 @@ import json
 
 from backend.app.config import Settings
 from backend.app.schemas.extraction import ExtractionJSON
+from backend.app.services.context_builder import ContextPack, ContextSource
 from backend.app.services.extraction import (
     ExtractionResult,
     FakeExtractionService,
@@ -83,7 +84,7 @@ class _FakeClient:
 def test_fake_extraction_service_returns_ok_with_valid_schema():
     service = FakeExtractionService()
 
-    result = service.extract("herhangi bir maskelenmis metin", [])
+    result = service.extract("herhangi bir maskelenmis metin", None)
 
     assert result.status == "ok"
     assert isinstance(result.data, ExtractionJSON)
@@ -93,7 +94,7 @@ def test_live_adapter_valid_json_returns_ok():
     client = _FakeClient(contents=[json.dumps(_valid_payload())])
     service = OpenAICompatibleExtractionService(Settings(), client=client)
 
-    result = service.extract("maskelenmis metin", [])
+    result = service.extract("maskelenmis metin", None)
 
     assert result.status == "ok"
     assert result.data.contract_id == "sozlesme-001"
@@ -104,7 +105,7 @@ def test_live_adapter_retries_once_on_invalid_then_valid():
     client = _FakeClient(contents=["bozuk json {", json.dumps(_valid_payload())])
     service = OpenAICompatibleExtractionService(Settings(), client=client)
 
-    result = service.extract("maskelenmis metin", [])
+    result = service.extract("maskelenmis metin", None)
 
     assert result.status == "ok"
     assert len(client.completions.calls) == 2
@@ -114,7 +115,7 @@ def test_live_adapter_needs_review_when_invalid_twice():
     client = _FakeClient(contents=["bozuk json {", "hala bozuk {"])
     service = OpenAICompatibleExtractionService(Settings(), client=client)
 
-    result = service.extract("maskelenmis metin", [])
+    result = service.extract("maskelenmis metin", None)
 
     assert result.status == "needs_review"
     assert result.reason
@@ -125,7 +126,7 @@ def test_live_adapter_needs_review_when_client_raises():
     client = _FakeClient(error=RuntimeError("baglanti koptu"))
     service = OpenAICompatibleExtractionService(Settings(), client=client)
 
-    result = service.extract("maskelenmis metin", [])
+    result = service.extract("maskelenmis metin", None)
 
     assert result.status == "needs_review"
     assert "baglanti koptu" in result.reason
@@ -144,3 +145,43 @@ def test_make_extraction_service_returns_live_for_openai_provider():
 
     factory_service = make_extraction_service(settings)
     assert isinstance(factory_service, OpenAICompatibleExtractionService)
+
+
+def _context_pack_with_one_source() -> ContextPack:
+    source = ContextSource(
+        source_type="legal",
+        source="6098kk",
+        text="MADDE 21 - teslimat hükmü",
+        score=0.2,
+        collection="legal_articles",
+        madde_no="21",
+    )
+    return ContextPack(
+        queries=[],
+        sources=[source],
+        formatted_for_llm="[LEGAL_SOURCE_1] source: 6098kk\nMADDE 21 - teslimat hükmü",
+        risk_flags=[],
+    )
+
+
+def test_live_adapter_injects_context_as_system_message():
+    client = _FakeClient(contents=[json.dumps(_valid_payload())])
+    service = OpenAICompatibleExtractionService(Settings(), client=client)
+
+    service.extract("maskelenmis metin", _context_pack_with_one_source())
+
+    messages = client.completions.calls[0]["messages"]
+    system_texts = "\n".join(m["content"] for m in messages if m["role"] == "system")
+    assert "MADDE 21 - teslimat hükmü" in system_texts
+    assert "retrieval sistemi tarafından seçilmiştir" in system_texts  # yönerge satırı
+
+
+def test_live_adapter_no_context_message_when_pack_empty():
+    client = _FakeClient(contents=[json.dumps(_valid_payload())])
+    service = OpenAICompatibleExtractionService(Settings(), client=client)
+
+    service.extract("maskelenmis metin", ContextPack())  # boş pack
+
+    messages = client.completions.calls[0]["messages"]
+    # Yalnızca ana system prompt + user; kaynaklı ikinci system mesajı yok.
+    assert sum(1 for m in messages if m["role"] == "system") == 1
