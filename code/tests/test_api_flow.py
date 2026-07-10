@@ -61,7 +61,11 @@ def _upload_sample(client: TestClient, tmp_path: Path) -> dict:
     return response.json()
 
 
-def test_upload_passthrough_settles_to_awaiting_approval(client: TestClient, tmp_path: Path) -> None:
+def test_upload_passthrough_settles_to_awaiting_approval(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Liste ucu artık DEMO_PUBLIC_DASHBOARD kapısının arkasında (H0 hotfix).
+    monkeypatch.setenv("DEMO_PUBLIC_DASHBOARD", "true")
     created = _upload_sample(client, tmp_path)
     assert "id" in created
     assert created["buyer_link"].startswith(f"/t/{created['id']}/party?token=")
@@ -193,17 +197,21 @@ def test_approval_with_wrong_token_returns_403(client: TestClient, tmp_path: Pat
 # --- Demo senaryoları (YOL_HARITASI §3) -------------------------------------
 
 
-def _post_video(client: TestClient, tx_id: str, filename: str):
+def _post_video(client: TestClient, tx_id: str, filename: str, *, token: str):
+    """`token` zorunlu (H0 hotfix): teslimat kanıtı yalnız seller/manager kabul edilir."""
     return client.post(
         f"/api/transactions/{tx_id}/delivery-video",
         files={"file": (filename, io.BytesIO(b"fake-video-bytes"), "video/mp4")},
+        params={"token": token},
     )
 
 
-def _post_e_irsaliye(client: TestClient, tx_id: str, quantity: float):
+def _post_e_irsaliye(client: TestClient, tx_id: str, quantity: float, *, token: str):
+    """`token` zorunlu (H0 hotfix): teslimat kanıtı yalnız seller/manager kabul edilir."""
     return client.post(
         f"/api/transactions/{tx_id}/events/e-irsaliye",
         json={"delivered_quantity": quantity},
+        params={"token": token},
     )
 
 
@@ -246,12 +254,16 @@ def test_demo_b_physical_goods_document_only_capture(client: TestClient, tmp_pat
     created = _upload_sample(client, tmp_path)
     _lock_policy(client, created, mode="document_only")
     _approve_both(client, created)
+    seller_token = _extract_token(created["seller_link"])
 
-    body = _post_e_irsaliye(client, created["id"], 10).json()
+    body = _post_e_irsaliye(client, created["id"], 10, token=seller_token).json()
 
     assert body["state"] == "decided"
     assert body["decision"]["action"] == "capture"
-    assert _post_video(client, created["id"], "teslimat.mp4").status_code == 409
+    assert (
+        _post_video(client, created["id"], "teslimat.mp4", token=seller_token).status_code
+        == 409
+    )
 
     detail = client.get(f"/api/transactions/{created['id']}").json()
     assert detail["payment"][0]["status"] == "released"
@@ -262,9 +274,13 @@ def test_demo_c_advisory_video_supports_capture(client: TestClient, tmp_path: Pa
     created = _upload_sample(client, tmp_path)
     _lock_policy(client, created, mode="document_and_video")
     _approve_both(client, created)
+    seller_token = _extract_token(created["seller_link"])
 
-    assert _post_video(client, created["id"], "teslimat.mp4").status_code == 200
-    body = _post_e_irsaliye(client, created["id"], 10).json()
+    assert (
+        _post_video(client, created["id"], "teslimat.mp4", token=seller_token).status_code
+        == 200
+    )
+    body = _post_e_irsaliye(client, created["id"], 10, token=seller_token).json()
 
     assert body["state"] == "decided"
     assert body["decision"]["action"] == "capture"
@@ -283,9 +299,10 @@ def test_demo_d_high_confidence_anomaly_holds_without_release_or_dispute(
     created = _upload_sample(client, tmp_path)
     _lock_policy(client, created, mode="document_and_video")
     _approve_both(client, created)
+    seller_token = _extract_token(created["seller_link"])
 
-    _post_video(client, created["id"], "teslimat_hasarli.mp4")
-    body = _post_e_irsaliye(client, created["id"], 10).json()
+    _post_video(client, created["id"], "teslimat_hasarli.mp4", token=seller_token)
+    body = _post_e_irsaliye(client, created["id"], 10, token=seller_token).json()
 
     assert body["decision"]["action"] == "hold"
     assert body["decision"]["manual_review_required"] is True
@@ -321,7 +338,9 @@ def test_demo_e_contractual_video_survives_manager_preference(
     _lock_policy(client, created, mode="document_and_video")
     _approve_both(client, created)
 
-    body = _post_e_irsaliye(client, created["id"], 10).json()
+    body = _post_e_irsaliye(
+        client, created["id"], 10, token=_extract_token(created["seller_link"])
+    ).json()
     assert body["decision"]["action"] == "hold"
     assert "MISSING_REQUIRED_EVIDENCE" in _finding_codes(body["decision"])
 
