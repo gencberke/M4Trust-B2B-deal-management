@@ -1,7 +1,7 @@
 # M4Trust — Sıfır-Context Ajan Handoff Dokümanı
 
 > **Bu doküman kimin için:** Proje hakkında hiçbir bilgisi ve kod tarafında hiçbir context'i olmayan bir ajan/geliştirici. Amaç: bu dokümanı okuyan ajan, başka hiçbir şey okumadan projenin ne olduğunu, neyin nerede olduğunu, neyin bitip neyin eksik olduğunu ve hangi kurallara uyması gerektiğini bilir hale gelir.
-> **Güncellik:** 10.07.2026. Son güncelleme: *opsiyonel fiziksel teslimat ve video takip politikası* planının backend uygulaması ([plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md](../plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md)). Test durumu: **211 passed / 0 failed**. Önceki sürümde kayıtlı "video counts şekli" kırığı **giderildi** (decision engine artık `unit_count` okur).
+> **Güncellik:** 10.07.2026. Son güncelleme: *opsiyonel fiziksel teslimat ve video takip politikası* planının backend uygulaması ([plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md](../plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md)). Test durumu: **214 passed / 0 failed**. Önceki sürümde kayıtlı "video counts şekli" kırığı **giderildi** (decision engine artık `unit_count` okur).
 > **Öncelik sırası:** Bu doküman anlatıcıdır; bir çelişki durumunda bağlayıcı kaynak her zaman repo kökündeki **ARCHITECTURE.md**'dir, süreç kuralları **AGENTS.md**'dedir.
 
 ---
@@ -191,7 +191,7 @@ Not: `get_db()` FastAPI dependency'si tanımlı ama **hiçbir endpoint kullanmı
 **Kanıt sözleşmesi:** `analyze()` → `{counts, unit_count, damage_signals, confidence}`. `counts` sınıf başına ham dökümdür (kanıt/UI); **`unit_count`** taşıyıcı sınıfları (palet) dışlayan teslim birimi sayısıdır ve karar motorunun okuduğu tek sayıdır — böylece `decision.py` model sınıf adlarını bilmez. `FakeVideoAnalyzer` dosya-adı ipuçları: `eksik` → `unit_count=7` (nicel ayrışma), `hasarli` → eşleşmiş hasar sinyali, `dusuk_guven` → `confidence=0.5` (eşik altı). ⚠️ Eski `services/video.py` dosyası hâlâ diskte ama `video/` paketi onu **gölgeler** — ölü koddur, silinmesi bekliyor.
 
 ### evidence.py — kanıt paketi
-`build_bundle(conn, transaction_id) → dict`: transaction özeti (**yalnızca id/state/created_at** — markdown/token'lar girmez), en son extraction, validator raporu, onaylar, tüm event zinciri, mock ödeme kayıtları, en son karar payload'ı, `generated_at`. **Girmeyenler:** ham markdown, masked_markdown, token'lar, maskeleme haritası (zaten persist edilmez), `tax_id`. Extraction `services/extraction_projection.py`den geçer; `source_quote` **korunur ama `privacy.analyze()` ile maskelenir** — taraf kuralın sözleşmedeki dayanağını görür, PII/kart verisi görmez.
+`build_bundle(conn, transaction_id) → dict`: transaction özeti (**yalnızca id/state/created_at** — markdown/token'lar girmez), en son extraction, validator raporu, onaylar, tüm event zinciri, mock ödeme kayıtları, en son karar payload'ı, `generated_at`. **Girmeyenler:** ham markdown, masked_markdown, token'lar, maskeleme haritası (zaten persist edilmez), `tax_id`. Extraction `services/extraction_projection.py`den geçer; `source_quote` **maskelenmiş** biçimde korunur (`privacy.analyze()`) çünkü bundle capability token'ıyla indirilir. Token istemeyen `GET /{id}` ucu alıntıyı hiç döndürmez: maskeleme desen tabanlıdır, NER değildir.
 
 ### Router'lar — §4.1'in 11 endpoint'i
 
@@ -199,7 +199,7 @@ Not: `get_db()` FastAPI dependency'si tanımlı ama **hiçbir endpoint kullanmı
 |---|---|
 | `POST /api/transactions` (multipart `file`) | İzinli uzantılar: `.pdf .docx .png .jpg .jpeg` + `.md .txt` (passthrough); değilse **400**. Cevap hemen: `{id, buyer_link, seller_link, manager_link}`; draft/off policy açılır; pipeline arka planda |
 | `GET /api/transactions` | Liste: id, state, created_at, taraf adları (extraction'dan) |
-| `GET /api/transactions/{id}` | Detay: **redacted** extraction, validator, event timeline, ödeme; yoksa **404** |
+| `GET /api/transactions/{id}` | Detay: **redacted** extraction (token istemez ⇒ `source_quote` DÖNMEZ), validator, event timeline, ödeme; yoksa **404** |
 | `GET .../party-view?token=…` | Token → party çözümü; kural özeti + validator bulguları + onay durumu + `tracking_summary`; yanlış token **403** |
 | `GET .../manager-view?token=…` | Sistem önerisi + reason code'lar, policy durumu, sözleşmesel kanıt şartları, `ready_for_policy`; **taraf token'ı 403** |
 | `PUT .../tracking-policy` body `{manager_token, physical_delivery_confirmed, tracking_mode}` | Taslak policy günceller (idempotent, aynı seçimde `updated=false`); yalnız validator PASS + state `awaiting_approval` iken; `tracking_policy_updated` event |
@@ -207,7 +207,7 @@ Not: `get_db()` FastAPI dependency'si tanımlı ama **hiçbir endpoint kullanmı
 | `POST .../approvals` body `{token}` | İdempotent onay + `{party}_approved` event; yanlış token **403**; `rejected` **409**; **policy kilitli değilse 409 `POLICY_NOT_LOCKED`**. İki onay → `create_pool_payment` + state=`active` → `evaluate_settlement` |
 | `POST .../events/e-irsaliye` body `{delivered_quantity}` | Kanal etkin değilse **409 `TRACKING_NOT_ENABLED`**; `decided` ise **409 `TRANSACTION_DECIDED`**; fonlanmamışsa **409**; `e_irsaliye_received` event + `evaluate_settlement` |
 | `POST .../delivery-video` (multipart) | Aynı guard'lar (**analizden önce**); **inline** analiz (cevap güncel kararı taşısın diye), orijinal dosya adı temp dosyada korunur; `delivery_video_analyzed` event + `evaluate_settlement` |
-| `GET .../evidence` | Bundle döner (tracking policy snapshot'ı dahil) + her çağrıda `evidence` tablosuna snapshot yazar; yoksa **404** |
+| `GET .../evidence?token=…` | Bundle döner (tracking policy snapshot'ı dahil) + her çağrıda `evidence` tablosuna snapshot yazar; buyer/seller/manager token'larından biri zorunlu (**403**), işlem yoksa **404** |
 
 Policy/delivery 409'ları her zaman `detail: {code, message, conflicts[]}` gövdesiyle döner (`POLICY_NOT_CONFIGURABLE` · `POLICY_LOCKED` · `POLICY_INVALID` · `POLICY_CONTRACT_CONFLICT` · `POLICY_NOT_LOCKED` · `TRACKING_NOT_ENABLED` · `TRANSACTION_DECIDED`).
 
@@ -238,15 +238,15 @@ Offline hazırlık zinciri (korpus değişince elle çalıştırılır):
 - `runtime/m4trust.db` — SQLite runtime DB (gitignored).
 - `synthetic/`, `processed/cleaned/` — boş.
 
-## 9. Test katmanı (`code/tests/`) — 211 test (211 passed / 0 failed)
+## 9. Test katmanı (`code/tests/`) — 214 test (214 passed / 0 failed)
 
-Çalıştırma: `cd code && ./.venv/bin/python -m pytest -q` → **211 passed** (10.07.2026'da doğrulandı; video bağımlılıkları `requests`/`opencv-python-headless`/`python-dotenv` venv'e kurulu olmalı, yoksa 4 video test modülü collect edilemez). Ayrı pytest config dosyası yok; sys.path düzeni `conftest.py`'de. Paylaşılan E2E fixture'ları: `tests/extraction_fixtures.py` (sözleşmesel video · bozuk yüzde · `patch_extraction` yardımcısı).
+Çalıştırma: `cd code && ./.venv/bin/python -m pytest -q` → **214 passed** (10.07.2026'da doğrulandı; video bağımlılıkları `requests`/`opencv-python-headless`/`python-dotenv` venv'e kurulu olmalı, yoksa 4 video test modülü collect edilemez). Ayrı pytest config dosyası yok; sys.path düzeni `conftest.py`'de. Paylaşılan E2E fixture'ları: `tests/extraction_fixtures.py` (sözleşmesel video · bozuk yüzde · `patch_extraction` yardımcısı).
 
 | Dosya | Kapsam |
 |---|---|
 | `test_api_flow.py` (11) | TestClient uçtan uca: upload→pipeline→policy kilidi→onay→havuz; 404/403; **altı demo senaryosu** (A approval-only · B document-only · C uyumlu video · D anomali→hold · E sözleşmesel video · F REJECT) |
 | `test_delivery_flow.py` (15) | Kanal guard'ları (`TRACKING_NOT_ENABLED`/`TRANSACTION_DECIDED`), e-irsaliyeden capture/partial, advisory video dalları, ikinci release olmadığı, bundle'da ham markdown/token olmadığı |
-| `test_tracking_policy.py` (6) / `test_effective_requirements.py` (3) / `test_manager_policy_api.py` (6) | Draft/off default + manager token sızmaması · öneri reason code'ları · saf resolver matrisi · manager capability, lock idempotency, contract conflict, public redaksiyon |
+| `test_tracking_policy.py` (6) / `test_effective_requirements.py` (3) / `test_manager_policy_api.py` (9) | Draft/off default + manager token sızmaması · öneri reason code'ları · saf resolver matrisi · manager capability, lock idempotency, contract conflict, public redaksiyon |
 | `test_validator.py` (19) | Tüm validator kontrolleri + tolerans sınırları + reject>review önceliği |
 | `test_decision.py` (12) | Policy-aware karar matrisi: approval-only capture, e-irsaliye full/partial, video-only hold, düşük/yüksek güvenli anomali, sözleşmesel video, eşik env override'ı |
 | `test_payment_provider.py` (10) | Mock ledger: create idempotent, full/partial release, undo, refund, failure şekilleri |
@@ -296,7 +296,7 @@ Demo curl sırası: `POST /api/transactions` (dosya) → `GET /api/transactions/
 
 **Git durumu:** `master`'dayız; PR #4 (`yusuf-video-analyzer`) ve PR #5 (`feature/backend-iskeleti`) merge edilmiş. Tracking policy işi working tree'de commit'lenmemiş durumda (commit sahipliği kullanıcıdadır).
 
-**✅ Önceki "video counts" kırığı giderildi:** analyzer `unit_count` (taşıyıcı sınıflar hariç teslim birimi) döndürüyor ve `decision.py` yalnızca onu okuyor; `FakeVideoAnalyzer` dosya-adı ipuçları `eksik` (nicel ayrışma) · `hasarli` (eşleşmiş hasar) · `dusuk_guven` (eşik altı güven) demo dallarını sürüyor. Suite tamamen yeşil (211 passed).
+**✅ Önceki "video counts" kırığı giderildi:** analyzer `unit_count` (taşıyıcı sınıflar hariç teslim birimi) döndürüyor ve `decision.py` yalnızca onu okuyor; `FakeVideoAnalyzer` dosya-adı ipuçları `eksik` (nicel ayrışma) · `hasarli` (eşleşmiş hasar) · `dusuk_guven` (eşik altı güven) demo dallarını sürüyor. Suite tamamen yeşil (214 passed).
 
 **Eksik / sıradaki işler (öncelik sırasıyla):**
 1. **Frontend — hiç yok.** React+Vite+Tailwind; route'lar ARCHITECTURE §1'de tanımlı: `/` (dashboard+upload), `/t/:id` (detay+demo aksiyonları), `/t/:id/party?token=…` (taraf onayı), `/t/:id/manager?token=…` (yönetici policy paneli). Tüketeceği API hazır; **ayrı bir plan yazılacak** (video-merkezli anlatımın kaldırılması, koşullu delivery/video kontrolleri, 409 kodlarının anlaşılır gösterimi).

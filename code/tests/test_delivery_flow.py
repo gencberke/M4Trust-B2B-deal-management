@@ -378,7 +378,10 @@ def test_evidence_bundle_carries_policy_snapshot_without_raw_markdown_or_tokens(
     created = _prepare(client, tmp_path, mode="document_only")
     _post_e_irsaliye(client, created["id"], 10)
 
-    response = client.get(f"/api/transactions/{created['id']}/evidence")
+    response = client.get(
+        f"/api/transactions/{created['id']}/evidence",
+        params={"token": _extract_token(created["buyer_link"])},
+    )
     assert response.status_code == 200, response.text
     bundle = response.json()
 

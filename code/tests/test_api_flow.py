@@ -365,5 +365,8 @@ def test_demo_f_broken_contract_reject_blocks_policy_and_approval(
     )
     assert approval_resp.status_code == 409
 
-    evidence_resp = client.get(f"/api/transactions/{tx_id}/evidence")
+    evidence_resp = client.get(
+        f"/api/transactions/{tx_id}/evidence",
+        params={"token": _extract_token(created["buyer_link"])},
+    )
     assert evidence_resp.status_code == 200

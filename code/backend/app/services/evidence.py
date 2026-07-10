@@ -43,8 +43,10 @@ def build_bundle(conn: Connection, transaction_id: str) -> dict:
     validator_report = None
     if extraction_row is not None:
         if extraction_row["extraction_json"]:
+            # Bundle yalnızca capability token'ıyla indirilebilir (routers/evidence.py)
+            # ve kanıt paketinin amacı kuralın sözleşmedeki dayanağını göstermektir.
             extraction = redacted_extraction_projection(
-                json.loads(extraction_row["extraction_json"])
+                json.loads(extraction_row["extraction_json"]), include_source_quote=True
             )
         findings = extraction_row["validator_report"]
         if findings:

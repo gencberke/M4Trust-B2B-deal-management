@@ -38,6 +38,7 @@ code/frontend/    React + Vite + Tailwind (ARCHITECTURE §1'e göre kurulacak)
 - **Takip politikası taraf onaylarından önce kilitlenir**; sözleşmesel kanıt şartı (`required_evidence`) yönetici tercihiyle kapatılamaz veya zayıflatılamaz (sözleşmesel video ⇒ `document_and_video` zorunlu).
 - **Release guard tek yerdedir** (`services/settlement.py`); `decision.py` saf fonksiyon kalır, router'lar ödeme mantığının sahibi değildir.
 - **Capability token'ları (buyer/seller/manager) log, event ve evidence'a girmez.**
+- **Sözleşme alıntısı (`source_quote`) yalnızca token'lı uçlarda ve maskelenmiş olarak döner.** Maskeleme NER değildir; token istemeyen uçlar alıntıyı hiç görmez.
 - Dokümantasyon ve UI dili **Türkçe**dir.
 
 ## Plan yaşam döngüsü ve doc-sync protokolü

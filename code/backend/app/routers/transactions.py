@@ -324,6 +324,8 @@ def get_transaction(transaction_id: str) -> dict:
             "id": row["id"],
             "state": row["state"],
             "created_at": row["created_at"],
+            # Token istemeyen genel detay: `source_quote` DÖNMEZ (maskeleme NER
+            # olmadığı için alıntıdaki isim/adres/ticari ifade temizlenmiyor).
             "extraction": redacted_extraction_projection(_load_extraction(conn, transaction_id)),
             "validator": _load_validator(conn, transaction_id),
             "events": events,
@@ -348,7 +350,8 @@ def get_party_view(transaction_id: str, token: str) -> dict:
             raise HTTPException(status_code=403, detail="Geçersiz token.")
 
         extraction = _load_extraction(conn, transaction_id)
-        public_extraction = redacted_extraction_projection(extraction)
+        # Taraf, onaylayacağı kuralın sözleşmedeki dayanağını görmelidir (§6.2).
+        public_extraction = redacted_extraction_projection(extraction, include_source_quote=True)
         extraction_summary = None
         if public_extraction is not None:
             commercial = public_extraction["commercial_terms"]
@@ -422,7 +425,7 @@ def get_manager_view(transaction_id: str, token: str) -> dict:
 
         return {
             "state": row["state"],
-            "extraction": redacted_extraction_projection(extraction),
+            "extraction": redacted_extraction_projection(extraction, include_source_quote=True),
             "validator": validator,
             "tracking_policy": policy.model_dump(mode="json") if policy is not None else None,
             "ready_for_policy": ready_for_policy,

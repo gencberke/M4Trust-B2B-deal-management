@@ -239,9 +239,9 @@ def test_policy_lock_is_idempotent_without_duplicate_event(client: TestClient, t
     assert event_count == 1
 
 
-def _public_responses(client: TestClient, created: dict) -> list:
+def _capability_responses(client: TestClient, created: dict) -> list:
+    """Capability token'ı gerektiren, dolayısıyla alıntıyı gösteren uçlar."""
     return [
-        client.get(f"/api/transactions/{created['id']}"),
         client.get(
             f"/api/transactions/{created['id']}/party-view",
             params={"token": _token(created["buyer_link"])},
@@ -250,17 +250,20 @@ def _public_responses(client: TestClient, created: dict) -> list:
             f"/api/transactions/{created['id']}/manager-view",
             params={"token": _token(created["manager_link"])},
         ),
-        client.get(f"/api/transactions/{created['id']}/evidence"),
+        client.get(
+            f"/api/transactions/{created['id']}/evidence",
+            params={"token": _token(created["seller_link"])},
+        ),
     ]
 
 
-def test_public_views_and_evidence_redact_tax_id_but_keep_source_quote(
+def test_capability_views_show_source_quote_but_never_tax_id(
     client: TestClient, tmp_path: Path
 ) -> None:
-    """Taraf, kuralın sözleşmedeki dayanağını görebilmeli; vergi no görmemeli."""
+    """Taraf, onaylayacağı kuralın sözleşmedeki dayanağını görebilmeli; vergi no görmemeli."""
     created = _upload(client, tmp_path)
 
-    for response in _public_responses(client, created):
+    for response in _capability_responses(client, created):
         assert response.status_code == 200, response.text
         body = json.dumps(response.json(), ensure_ascii=False)
         assert "tax_id" not in body
@@ -268,10 +271,35 @@ def test_public_views_and_evidence_redact_tax_id_but_keep_source_quote(
         assert "Tarafların onayıyla tutarın tamamı ödenir." in body
 
 
+def test_tokenless_transaction_detail_never_exposes_source_quote(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Genel detay token istemiyor; maskeleme NER olmadığı için alıntı dönmez."""
+    created = _upload(client, tmp_path)
+
+    response = client.get(f"/api/transactions/{created['id']}")
+
+    assert response.status_code == 200, response.text
+    body = json.dumps(response.json(), ensure_ascii=False)
+    assert "source_quote" not in body
+    assert "Tarafların onayıyla tutarın tamamı ödenir." not in body
+    assert "tax_id" not in body
+
+
+def test_evidence_bundle_requires_a_capability_token(client: TestClient, tmp_path: Path) -> None:
+    created = _upload(client, tmp_path)
+    url = f"/api/transactions/{created['id']}/evidence"
+
+    assert client.get(url).status_code == 422  # token query parametresi zorunlu
+    assert client.get(url, params={"token": "bogus-token"}).status_code == 403
+    for link in ("buyer_link", "seller_link", "manager_link"):
+        assert client.get(url, params={"token": _token(created[link])}).status_code == 200, link
+
+
 def test_source_quote_is_masked_before_leaving_the_backend(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Ham alıntı DB'de durur; public projection PII'yi placeholder'a çevirir."""
+    """Ham alıntı DB'de durur; capability projection'ı PII'yi placeholder'a çevirir."""
     from extraction_fixtures import patch_extraction
 
     payload = {
@@ -302,7 +330,7 @@ def test_source_quote_is_masked_before_leaving_the_backend(
     patch_extraction(monkeypatch, payload)
     created = _upload(client, tmp_path)
 
-    for response in _public_responses(client, created):
+    for response in _capability_responses(client, created):
         body = json.dumps(response.json(), ensure_ascii=False)
         assert "TR330006100519786457841326" not in body
         assert "[[PII_IBAN_1]]" in body
