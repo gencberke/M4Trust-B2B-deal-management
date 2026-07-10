@@ -7,6 +7,7 @@
 > **Demo hedefi:** M4Trust backend'in gerçek bir HTTP istemcisiyle, ayrı çalışan yerel Moka mock servisine Moka'nın yayımlanmış endpoint, request ve response şekilleriyle istek atması  
 > **Production hedefi:** Aynı HTTP client ve contract modellerinin yalnız base URL ve credentials değiştirilerek Moka test/canlı ortamına yönlendirilebilmesi  
 > **Önemli sınır:** Sandbox/canlı Moka hesabıyla doğrulama yapılmadan “gerçek Moka entegrasyonu tamamlandı” denmez. Demo, public contract-faithful mock olarak sunulur.
+> **Uygulama durumu (2026-07-11):** Wave M0–M1 ve demo yan paneli tamamlandı — frozen DTO/error kataloğu, provider-bağımsız gateway/domain, sync HTTP client, ayrı-process local mock, client↔mock E2E zinciri ve redacted demo driver master'dadır. Tam paket 303 test yeşildir. Ana ödeme/funding/settlement cutover'ı yapılmadı; M2–M3, Program 06'da uygulanacaktır.
 
 ---
 

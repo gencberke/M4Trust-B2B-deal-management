@@ -1,6 +1,6 @@
 # 01 — Moka Contract-Faithful Mock Server + HTTP Client (M0-M1)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** Moka planı §2, §4-§8, §14-§15, §21-§22, Wave M0-M1
+> **Durum:** Uygulandı — 2026-07-11 · Sapmalar: Sync `MokaPaymentDealerClient` ile async-only `httpx.ASGITransport` doğrudan eşleşmediği için E2E testleri lifespan-aware `TestClient` köprüsü kullandı; frozen detail DTO'su tutar/para birimi taşımadığından Berke domain detail alanları reconciliation için opsiyonel yapıldı. Sandbox/canlı Moka doğrulaması yapılmadı; ürün doğru biçimde “contract-faithful local mock” olarak etiketlenir. · **Master ref:** Moka planı §2, §4-§8, §14-§15, §21-§22, Wave M0-M1
 > **Bağımlılık:** 00 (H0) merge edilmiş olmalı. DEMO ÖNCESİ uygulanır; **tamamen additive**.
 > **Branch'ler:** aşağıda faz bazında → hepsi **master**'a PR
 > **Sahipler:** Berke = gateway port + HTTP client + demo driver · Yusuf = contract DTO'ları + mock server + E2E contract testleri
