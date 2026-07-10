@@ -1,13 +1,14 @@
 # Opsiyonel Fiziksel Teslimat ve Video Takip Politikası
 
-> **Durum:** Uygulandı (backend) — 2026-07-10 · Doğrulama: `cd code && ./.venv/bin/python -m pytest -q` → **209 passed, 0 failed** (baseline: 180 passed)
+> **Durum:** Uygulandı (backend) — 2026-07-10 · Doğrulama: `cd code && ./.venv/bin/python -m pytest -q` → **211 passed, 0 failed** (baseline: 180 passed). Kod incelemesi sonrası sözleşmesel-video açığı kapatıldı (bkz. sapma 2).
 >
 > **Sapmalar:**
 > 1. **Faz 6 (frontend) uygulanmadı** — bu iş bilinçli olarak yalnızca backend'i kapsar; `code/frontend/` hâlâ boştur ve UI ayrı bir planda ele alınacaktır. Dolayısıyla "Frontend build başarılıdır" kabul kriteri bu turda uygulanmaz.
-> 2. **Sözleşmesel video + `tracking_mode=off` kilidi reddedilir.** Plan §7 yalnızca "yönetici video zorunluluğunu kaldıramaz" diyordu; `off` modunda e-irsaliye kanalı da kapalı olacağından ve video tek başına miktar üretemediğinden işlem hiçbir zaman karara bağlanamazdı. Yönetici en az `document_only` seçmek zorundadır (`CONTRACTUAL_VIDEO_REQUIRES_TRACKING`).
+> 2. **Sözleşmesel video `tracking_mode=document_and_video` zorunlu kılar.** Plan §7 yalnızca "yönetici video zorunluluğunu kaldıramaz" diyordu. `off` modunda e-irsaliye kanalı da kapalı olacağından işlem karara bağlanamazdı; `document_only` modunda ise video `advisory_evidence`e girmediği için yalnızca varlığı sayılır, hasar ve sayım ayrışması hiç değerlendirilmezdi (kod incelemesinde yakalandı). Her ikisi de `CONTRACTUAL_VIDEO_REQUIRES_VIDEO_TRACKING` ile reddedilir; ayrıca `decide()` video sinyalini advisory **ve** sözleşmesel kanıt için aynı biçimde okur (saf katman upstream doğrulamaya bel bağlamaz).
 > 3. **Kanıt kanalı guard sırası:** "kanal etkin mi?" kontrolü `decided` kontrolünden **önce** gelir; böylece takip edilmeyen kanal işlemin durumundan bağımsız olarak `TRACKING_NOT_ENABLED` döner. Karar verilmiş işleme geç gelen video yine de **analizden önce** `TRANSACTION_DECIDED` ile reddedilir.
 > 4. **Şema snapshot'ı** JSON Schema literal'i yerine yapısal snapshot olarak yazıldı (alan adları + enum üyeleri, `tests/test_extraction_schema.py`) — pydantic sürüm oynamalarına karşı kırılgan olmasın diye. `ExtractionJSON` dosyası bu işte hiç değişmedi (`git diff` boş).
-> 5. `services/video.py` (paket tarafından gölgelenen ölü modül) bu iş kapsamında silinmedi; ayrı temizlik kalemi olarak duruyor.
+> 5. **`source_quote` public cevaplarda korunur, maskelenir.** İlk uygulamada tümden düşürülmüştü; bu, "AI önerir, taraflar dayanağı görüp onaylar" zincirini zayıflattığı için kod incelemesinde geri alındı. Artık `privacy.analyze()`den geçirilip döndürülüyor (ham alıntı yalnız DB'de).
+> 6. `services/video.py` (paket tarafından gölgelenen ölü modül) bu iş kapsamında silinmedi; ayrı temizlik kalemi olarak duruyor.
 >
 > **Tür:** Mimari düzeltme + backend uygulama planı  
 > **Bağlayıcı referans:** `ARCHITECTURE.md` (§1 · §3.4 · §4.1 · §4.3 · §5 · §6.9-6.11 doc-sync'lendi)

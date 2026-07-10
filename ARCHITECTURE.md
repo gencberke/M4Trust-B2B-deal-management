@@ -41,7 +41,7 @@ code/
 │       ├── context_builder.py # ContextBuilder: çoklu-query/çoklu-koleksiyon RAG orkestrasyonu → ContextPack
 │       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
-│       ├── extraction_projection.py # public API'ler için redacted extraction görünümü (tax_id/source_quote yok)
+│       ├── extraction_projection.py # public API'ler için redacted extraction görünümü (tax_id yok, source_quote maskeli)
 │       ├── validator.py       # deterministik kural kapısı
 │       ├── tracking_policy.py # TrackingPolicy persistence + deterministik fiziksel teslimat önerisi
 │       ├── effective_requirements.py # saf resolver: contractual + operational + advisory kanıt kümeleri
@@ -113,7 +113,7 @@ PaymentProvider
 - Teslim edilen miktarın kaynağı **olamaz**: `delivered_quantity = video.unit_count` yapılmaz; capture/partial oranı yalnız e-irsaliyeden (veya sözleşmesel başka bir birincil kanıttan) hesaplanır.
 - `VIDEO_ADVISORY_CONFIDENCE_THRESHOLD` (default `0.80`) altındaki güvende yalnızca **warning** üretir (`VIDEO_LOW_CONFIDENCE`); sayım ve hasar sinyalleri karar verdirmez.
 - Eşik üstünde: e-irsaliye ile sayım ayrışması sözleşme miktarının %10'unu aşarsa (`VIDEO_COUNT_DIVERGENCE`) veya ilgili koliyle **eşleşmiş** hasar sinyali varsa (`VIDEO_DAMAGE_MATCHED`) → `hold` + `manual_review_required`. **Otomatik `dispute` açılmaz**; dispute, yetkili insanın ticari kararıdır.
-- Sözleşme videoyu açıkça şart koşuyorsa (`required_evidence: ["video"]`) video advisory değil **zorunlu kanıttır** ve yönetici bunu kapatamaz (§6.10).
+- Sözleşme videoyu açıkça şart koşuyorsa (`required_evidence: ["video"]`) video advisory değil **zorunlu kanıttır**: yönetici bunu kapatamaz ve takip modu `document_and_video` olmak **zorundadır** (§6.10). Aksi halde video yalnızca "geldi mi?" diye sayılır, hasar ve sayım ayrışması hiç değerlendirilmezdi. Karar motoru video sinyalini advisory ve sözleşmesel kanıt için **aynı biçimde** okur.
 
 **Uygulama durumu (2026-07-09):** `RoboflowVideoAnalyzer`, uzantıya göre (`.mp4`/`.mov`/vb. → video, aksi → görsel) tek `analyze()` girişinden dispatch eder. İki Roboflow-hosted YOLOv8 modeli kullanılır (`inference-sdk` Python 3.13'ü henüz desteklemediği için resmi SDK yerine düz `requests` REST çağrısı, `roboflow_client.py`):
 
@@ -154,7 +154,7 @@ PaymentProvider
 
 **Kanıt kanalı guard'ı (`delivery.py`):** e-irsaliye yalnızca sözleşme onu şart koşuyorsa **veya** policy `document_only|document_and_video` ise kabul edilir; video yalnızca sözleşmesel video şartı varsa **veya** policy `document_and_video` ise kabul edilir. Karara bağlanmış (`decided`) işleme geç gelen kanıt, herhangi bir video analizi yapılmadan `TRANSACTION_DECIDED` ile reddedilir.
 
-**Public cevaplarda redaksiyon:** detay, party/manager view ve evidence bundle `services/extraction_projection.py` üzerinden geçer — `tax_id`, ham `source_quote`, capability token'ları ve ham markdown hiçbirinde bulunmaz.
+**Public cevaplarda redaksiyon:** detay, party/manager view ve evidence bundle `services/extraction_projection.py` üzerinden geçer — `tax_id`, capability token'ları ve ham markdown hiçbirinde bulunmaz. `source_quote` **korunur ama maskelenir** (`privacy.analyze()`): taraf, kuralın sözleşmedeki dayanağını görebilmelidir (§6.2, "UI her zaman gerekçeyi gösterir"); PII ve kart verisi placeholder'a döner. Ham alıntı yalnız DB'de kalır.
 
 ### 4.2 Extraction JSON şeması — **ikili sözleşme noktası**
 
@@ -237,5 +237,5 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 7. **Local-first.** Runtime'daki tek dış çağrı LLM API'sidir; o da yalnızca maskelenmiş içerik alır.
 8. **Gerçek para hareketi ve gerçek kart verisi yoktur** (demo). Prod anlatısı: lisanslı altyapının (Moka havuz/cüzdan) üstünde karar-kanıt katmanı.
 9. **Video tek başına para hareketi üretemez.** Opsiyonel (platform) videosu advisory'dir: teslim miktarını, kısmi ödeme oranını, release'i veya dispute'u belirleyemez; en fazla `hold` + manuel inceleme tetikler (§3.4).
-10. **Sözleşmesel kanıt platform tercihini yener.** Extraction'daki `required_evidence` yönetici policy'siyle devre dışı bırakılamaz; çelişkide policy kilidi 409 ile reddedilir. LLM/RAG takip politikasını **seçmez** — politika `ExtractionJSON` içine yazılmaz.
+10. **Sözleşmesel kanıt platform tercihini yener.** Extraction'daki `required_evidence` yönetici policy'siyle devre dışı bırakılamaz **veya zayıflatılamaz**; sözleşmesel video `tracking_mode=document_and_video` zorunlu kılar. Çelişkide policy kilidi 409 ile reddedilir. LLM/RAG takip politikasını **seçmez** — politika `ExtractionJSON` içine yazılmaz.
 11. **Takip politikası taraf onaylarından önce kilitlenir** ve iki tarafa da gösterilir. Kilitlenmemiş policy'de onay 409'dur; kilit sonrası policy değişmez (amendment akışı kapsam dışı — yeni transaction açılır).

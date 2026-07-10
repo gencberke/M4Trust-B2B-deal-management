@@ -269,18 +269,19 @@ def validate_manager_policy(
                 conflicts=conflicts,
             )
 
-    # Sözleşme videoyu zorunlu kılıyorsa takip kapatılamaz: `off` modunda
-    # e-irsaliye kanalı da kapalı olurdu ve video tek başına miktar üretemediği
-    # için işlem hiçbir zaman karara bağlanamazdı. Yönetici en az `document_only`
-    # seçerek e-irsaliyeyi birincil kanıt yapmalıdır.
-    if requires_video and tracking_mode is TrackingMode.off:
+    # Sözleşme videoyu zorunlu kılıyorsa takip modu `document_and_video` olmak
+    # ZORUNDADIR. `off` modunda e-irsaliye kanalı da kapalı olurdu ve video tek
+    # başına miktar üretemediği için işlem karara bağlanamazdı; `document_only`
+    # modunda ise video yalnızca "geldi mi?" diye sayılır, sayım ayrışması ve
+    # hasar sinyali hiç değerlendirilmezdi. İki mod da sessizce güvensizdir.
+    if requires_video and tracking_mode is not TrackingMode.document_and_video:
         return PolicyConflict(
             code=PolicyConflictCode.POLICY_CONTRACT_CONFLICT,
             message=(
-                "Sözleşme video kanıtı gerektiriyor; takip kapatılamaz. "
-                "En az 'document_only' seçilmelidir."
+                "Sözleşme video kanıtı gerektiriyor; takip modu "
+                "'document_and_video' olmalıdır."
             ),
-            conflicts=["CONTRACTUAL_VIDEO_REQUIRES_TRACKING"],
+            conflicts=["CONTRACTUAL_VIDEO_REQUIRES_VIDEO_TRACKING"],
         )
     return None
 

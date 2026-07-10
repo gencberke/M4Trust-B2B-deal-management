@@ -138,9 +138,14 @@ def test_approval_requires_a_locked_policy_before_recording_approval(
     assert approval_count == 0
 
 
-def test_video_only_contract_rejects_off_and_accepts_document_only(
+def test_video_only_contract_requires_document_and_video_tracking(
     client: TestClient, tmp_path: Path
 ) -> None:
+    """Sözleşmesel video: `off` da `document_only` da reddedilir.
+
+    `document_only` seçilebilseydi video yalnızca "geldi mi?" diye sayılır,
+    hasar/sayım ayrışması hiç değerlendirilmezdi.
+    """
     created = _upload(client, tmp_path)
     _replace_with_video_only_contract(created, tmp_path)
     url = f"/api/transactions/{created['id']}/tracking-policy"
@@ -157,7 +162,7 @@ def test_video_only_contract_rejects_off_and_accepts_document_only(
     assert off_response.status_code == 409
     assert off_response.json()["detail"]["code"] == "POLICY_CONTRACT_CONFLICT"
 
-    document_response = client.put(
+    document_only_response = client.put(
         url,
         json={
             "manager_token": manager_token,
@@ -165,8 +170,22 @@ def test_video_only_contract_rejects_off_and_accepts_document_only(
             "tracking_mode": "document_only",
         },
     )
-    assert document_response.status_code == 200, document_response.text
-    assert document_response.json()["updated"] is True
+    assert document_only_response.status_code == 409
+    assert document_only_response.json()["detail"]["code"] == "POLICY_CONTRACT_CONFLICT"
+    assert document_only_response.json()["detail"]["conflicts"] == [
+        "CONTRACTUAL_VIDEO_REQUIRES_VIDEO_TRACKING"
+    ]
+
+    accepted = client.put(
+        url,
+        json={
+            "manager_token": manager_token,
+            "physical_delivery_confirmed": True,
+            "tracking_mode": "document_and_video",
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["updated"] is True
 
 
 def test_contractual_document_and_video_reject_physical_delivery_off(
@@ -220,11 +239,8 @@ def test_policy_lock_is_idempotent_without_duplicate_event(client: TestClient, t
     assert event_count == 1
 
 
-def test_public_views_and_evidence_redact_tax_id_and_source_quote(
-    client: TestClient, tmp_path: Path
-) -> None:
-    created = _upload(client, tmp_path)
-    responses = [
+def _public_responses(client: TestClient, created: dict) -> list:
+    return [
         client.get(f"/api/transactions/{created['id']}"),
         client.get(
             f"/api/transactions/{created['id']}/party-view",
@@ -237,8 +253,64 @@ def test_public_views_and_evidence_redact_tax_id_and_source_quote(
         client.get(f"/api/transactions/{created['id']}/evidence"),
     ]
 
-    for response in responses:
+
+def test_public_views_and_evidence_redact_tax_id_but_keep_source_quote(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Taraf, kuralın sözleşmedeki dayanağını görebilmeli; vergi no görmemeli."""
+    created = _upload(client, tmp_path)
+
+    for response in _public_responses(client, created):
         assert response.status_code == 200, response.text
         body = json.dumps(response.json(), ensure_ascii=False)
         assert "tax_id" not in body
-        assert "source_quote" not in body
+        assert "1234567890" not in body  # buyer tax_id
+        assert "Tarafların onayıyla tutarın tamamı ödenir." in body
+
+
+def test_source_quote_is_masked_before_leaving_the_backend(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ham alıntı DB'de durur; public projection PII'yi placeholder'a çevirir."""
+    from extraction_fixtures import patch_extraction
+
+    payload = {
+        "contract_id": "pii-in-quote",
+        "parties": {
+            "buyer": {"name": "Alıcı A.Ş.", "tax_id": "1234567890"},
+            "seller": {"name": "Satıcı Ltd.", "tax_id": "9876543210"},
+        },
+        "commercial_terms": {
+            "currency": "TRY",
+            "total_amount": 100.0,
+            "goods": [{"name": "Endüstriyel pompa", "quantity": 1, "unit": "adet"}],
+            "delivery_deadline": None,
+        },
+        "payment_rules": [
+            {
+                "milestone": "Onay",
+                "trigger": "approval",
+                "percentage": 100.0,
+                "required_evidence": ["contract"],
+                "source_quote": "Ödeme TR330006100519786457841326 IBAN'ına yapılır.",
+                "confidence": 0.9,
+            }
+        ],
+        "risk_flags": [],
+        "needs_manual_review": False,
+    }
+    patch_extraction(monkeypatch, payload)
+    created = _upload(client, tmp_path)
+
+    for response in _public_responses(client, created):
+        body = json.dumps(response.json(), ensure_ascii=False)
+        assert "TR330006100519786457841326" not in body
+        assert "[[PII_IBAN_1]]" in body
+
+    # Ham alıntı karar/kanıt akışının girdisi olarak DB'de değişmeden durur.
+    with sqlite3.connect(tmp_path / "m4trust_manager_policy.db") as conn:
+        stored = conn.execute(
+            "SELECT extraction_json FROM extracted_rules WHERE transaction_id = ?",
+            (created["id"],),
+        ).fetchone()[0]
+    assert "TR330006100519786457841326" in stored

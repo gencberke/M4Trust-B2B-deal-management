@@ -320,18 +320,19 @@ def test_contractual_video_cannot_be_disabled_and_holds_until_video_arrives(
     created = _upload(client, tmp_path)
     manager_token = _extract_token(created["manager_link"])
 
-    off_attempt = client.put(
-        f"/api/transactions/{created['id']}/tracking-policy",
-        json={
-            "manager_token": manager_token,
-            "physical_delivery_confirmed": True,
-            "tracking_mode": "off",
-        },
-    )
-    assert off_attempt.status_code == 409
-    assert off_attempt.json()["detail"]["code"] == "POLICY_CONTRACT_CONFLICT"
+    for rejected_mode in ("off", "document_only"):
+        attempt = client.put(
+            f"/api/transactions/{created['id']}/tracking-policy",
+            json={
+                "manager_token": manager_token,
+                "physical_delivery_confirmed": True,
+                "tracking_mode": rejected_mode,
+            },
+        )
+        assert attempt.status_code == 409, rejected_mode
+        assert attempt.json()["detail"]["code"] == "POLICY_CONTRACT_CONFLICT"
 
-    _lock_policy(client, created, mode="document_only")
+    _lock_policy(client, created, mode="document_and_video")
     _approve_both(client, created)
 
     # Sözleşmesel video hâlâ zorunlu: e-irsaliye tek başına release üretmez.
@@ -339,10 +340,33 @@ def test_contractual_video_cannot_be_disabled_and_holds_until_video_arrives(
     assert e_irsaliye["decision"]["action"] == "hold"
     assert "MISSING_REQUIRED_EVIDENCE" in _finding_codes(e_irsaliye["decision"])
 
-    # Video kanalı sözleşme gereği açıktır (policy `document_only` olsa bile).
     video = _post_video(client, created["id"], "teslimat.mp4")
     assert video.status_code == 200, video.text
     assert video.json()["decision"]["action"] == "capture"
+
+
+def test_contractual_video_anomaly_blocks_release(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zorunlu video yalnızca "geldi mi?" diye sayılmaz; hasar sinyali release'i durdurur."""
+    patch_extraction(monkeypatch, contractual_video_contract())
+    created = _upload(client, tmp_path)
+    _lock_policy(client, created, mode="document_and_video")
+    _approve_both(client, created)
+
+    _post_e_irsaliye(client, created["id"], 10)
+    body = _post_video(client, created["id"], "teslimat_hasarli.mp4").json()
+
+    assert body["decision"]["action"] == "hold"
+    assert body["decision"]["manual_review_required"] is True
+    assert "VIDEO_DAMAGE_MATCHED" in _finding_codes(body["decision"])
+    assert body["state"] == "evidence_pending"
+
+    detail = client.get(f"/api/transactions/{created['id']}").json()
+    event_types = [event["event_type"] for event in detail["events"]]
+    assert "mock_payment_executed" not in event_types
+    assert "dispute_opened" not in event_types
+    assert all(payment["status"] == "pool" for payment in detail["payment"])
 
 
 # --- evidence bundle ---------------------------------------------------------

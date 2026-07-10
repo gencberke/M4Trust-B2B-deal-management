@@ -92,7 +92,7 @@ def _damage_types(damage_signals: list[object]) -> str:
     return ", ".join(sorted(set(types)))
 
 
-def _advisory_video_findings(
+def _video_signal_findings(
     *,
     requirements: EffectiveEvidenceRequirements,
     evidence: DeliveryEvidence,
@@ -101,12 +101,17 @@ def _advisory_video_findings(
     video_confidence_threshold: float,
     divergence_threshold: float,
 ) -> tuple[list[DecisionFinding], str | None]:
-    """İkincil video sinyalini değerlendirir; ödeme oranı üretmez.
+    """Video sinyalini değerlendirir; hiçbir dalda ödeme oranı üretmez.
+
+    Sinyal, video ister ikincil (advisory) ister sözleşmesel zorunlu kanıt olsun
+    aynı biçimde okunur: zorunlu bir videonun yalnızca varlığını saymak, hasar ve
+    sayım ayrışmasını görmezden gelmek anlamına gelirdi.
 
     Dönüşteki ikinci değer varsa karar, video kaynaklı manual-review hold'dur.
     """
 
-    if RequiredEvidence.video not in requirements.advisory_evidence:
+    considered = requirements.advisory_evidence | requirements.contractual_required_evidence
+    if RequiredEvidence.video not in considered:
         return [], None
     if evidence.video is None:
         return [
@@ -276,7 +281,7 @@ def decide(
             ],
         )
 
-    advisory_findings, manual_review_rationale = _advisory_video_findings(
+    advisory_findings, manual_review_rationale = _video_signal_findings(
         requirements=requirements,
         evidence=evidence,
         e_irsaliye_quantity=delivered_quantity,

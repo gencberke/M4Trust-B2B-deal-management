@@ -1,7 +1,7 @@
 # M4Trust — Sıfır-Context Ajan Handoff Dokümanı
 
 > **Bu doküman kimin için:** Proje hakkında hiçbir bilgisi ve kod tarafında hiçbir context'i olmayan bir ajan/geliştirici. Amaç: bu dokümanı okuyan ajan, başka hiçbir şey okumadan projenin ne olduğunu, neyin nerede olduğunu, neyin bitip neyin eksik olduğunu ve hangi kurallara uyması gerektiğini bilir hale gelir.
-> **Güncellik:** 10.07.2026. Son güncelleme: *opsiyonel fiziksel teslimat ve video takip politikası* planının backend uygulaması ([plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md](../plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md)). Test durumu: **207 passed / 0 failed**. Önceki sürümde kayıtlı "video counts şekli" kırığı **giderildi** (decision engine artık `unit_count` okur).
+> **Güncellik:** 10.07.2026. Son güncelleme: *opsiyonel fiziksel teslimat ve video takip politikası* planının backend uygulaması ([plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md](../plans/done/opsiyonel_fiziksel_teslimat_ve_video_takip_politikasi.md)). Test durumu: **211 passed / 0 failed**. Önceki sürümde kayıtlı "video counts şekli" kırığı **giderildi** (decision engine artık `unit_count` okur).
 > **Öncelik sırası:** Bu doküman anlatıcıdır; bir çelişki durumunda bağlayıcı kaynak her zaman repo kökündeki **ARCHITECTURE.md**'dir, süreç kuralları **AGENTS.md**'dedir.
 
 ---
@@ -27,7 +27,7 @@ Sözleşme yüklenir → AI (LLM) okur ve ödeme kuralları ÖNERİR
 
 Fiziksel teslimat ve video artık varsayılan yol değildir: sistem sözleşmeden fiziksel teslimatı yalnızca **önerir**, takibi yönetici açar. Hizmet/danışmanlık/lisans gibi anlaşmalar iki onayla, hiçbir teslimat kanıtı beklemeden ilerler.
 
-Jüri demosunun senaryoları (`code/tests/test_api_flow.py`de uçtan uca test edilir): (A) hizmet/approval-only → capture, (B) fiziksel mal + `document_only` → e-irsaliyeden capture, (C) `document_and_video` uyumlu video → destekleyici bulgu + capture, (D) yüksek güvenli video anomalisi → **hold + manuel inceleme** (release yok, otomatik dispute yok), (E) sözleşmesel video → yönetici kapatamaz, video gelene kadar hold, (F) **"altın an"**: yüzdeleri 100 etmeyen bozuk sözleşme → validator REJECT + gerekçe.
+Jüri demosunun senaryoları (`code/tests/test_api_flow.py`de uçtan uca test edilir): (A) hizmet/approval-only → capture, (B) fiziksel mal + `document_only` → e-irsaliyeden capture, (C) `document_and_video` uyumlu video → destekleyici bulgu + capture, (D) yüksek güvenli video anomalisi → **hold + manuel inceleme** (release yok, otomatik dispute yok), (E) sözleşmesel video → yönetici kapatamaz/zayıflatamaz (`document_and_video` zorunlu), video gelene kadar hold, (F) **"altın an"**: yüzdeleri 100 etmeyen bozuk sözleşme → validator REJECT + gerekçe.
 
 ## 2. Değişmez kurallar (bunları asla delme)
 
@@ -43,7 +43,7 @@ ARCHITECTURE.md §6'nın özeti — koda dokunan her iş bunlara uymak zorunda:
 8. **Gerçek para hareketi ve gerçek kart verisi yoktur** (demo).
 9. **`schemas/extraction.py` (§4.2 şeması) donmuş ikili sözleşmedir** — alan ekleme/çıkarma/yeniden adlandırma ekip mutabakatı gerektirir. Platformun takip tercihi bu şemaya **yazılmaz** (`schemas/tracking.py`de yaşar).
 10. **Video advisory'dir.** Opsiyonel video `required_evidence`e girmez, yokluğu bloklamaz, `delivered_quantity` fallback'i değildir; en fazla `hold` + manuel inceleme tetikler.
-11. **Takip politikası taraf onaylarından önce kilitlenir.** Kilitsiz onay 409'dur; sözleşmesel kanıt şartı yönetici tercihiyle kapatılamaz.
+11. **Takip politikası taraf onaylarından önce kilitlenir.** Kilitsiz onay 409'dur; sözleşmesel kanıt şartı yönetici tercihiyle kapatılamaz **veya zayıflatılamaz** (sözleşmesel video ⇒ `document_and_video` zorunlu).
 12. **Release guard tek yerdedir** (`services/settlement.py`); `decision.py` saf kalır.
 13. Dokümantasyon ve UI dili **Türkçe**; kod tanımlayıcıları İngilizce.
 
@@ -173,8 +173,8 @@ Not: `get_db()` FastAPI dependency'si tanımlı ama **hiçbir endpoint kullanmı
 
 ### tracking_policy.py + effective_requirements.py — takip politikası
 - `recommend_physical_delivery(extraction) → PhysicalDeliveryRecommendationResult` **saf**: fiziksel birim/mal terimleri, sözleşmesel e-irsaliye, teslim/sevkiyat sözcükleri → `yes|no|uncertain` + güvenli reason code'lar (**sözleşme metni taşımaz**). Yalnız öneridir; takip modunu açmaz. `video` tek başına fiziksel teslimat sinyali değildir.
-- `create_draft_policy` / `load_tracking_policy` / `update_system_recommendation` / `update_manager_policy` / `lock_manager_policy` — persistence; `validate_manager_policy` saf çatışma denetimi (`physical_delivery=false` ⇒ mode `off`; sözleşmesel kanıt varken fiziksel teslimat kapatılamaz; **sözleşmesel video varken `off` kilitlenemez**).
-- `resolve_effective_requirements(extraction, policy) → EffectiveEvidenceRequirements` **saf**: `contractual` (extraction'dan aynen) · `operational` (`document_only`/`document_and_video` → `e_irsaliye`) · `advisory` (`document_and_video` → `video`) · `effective = contractual | operational`. **Advisory video efektif kanıt değildir.**
+- `create_draft_policy` / `load_tracking_policy` / `update_system_recommendation` / `update_manager_policy` / `lock_manager_policy` — persistence; `validate_manager_policy` saf çatışma denetimi (`physical_delivery=false` ⇒ mode `off`; sözleşmesel kanıt varken fiziksel teslimat kapatılamaz; **sözleşmesel video `document_and_video` zorunlu kılar**).
+- `resolve_effective_requirements(extraction, policy) → EffectiveEvidenceRequirements` **saf**: `contractual` (extraction'dan aynen) · `operational` (`document_only`/`document_and_video` → `e_irsaliye`) · `advisory` (`document_and_video` → `video`) · `effective = contractual | operational`. **Advisory video efektif kanıt değildir**; buna karşılık sözleşmesel video hem efektif kanıttır hem de anomali için değerlendirilir (`decide()` video sinyalini advisory ∪ contractual kümesinde arar).
 
 ### decision.py — karar motoru (saf fonksiyon)
 `decide(extraction, requirements, DeliveryEvidence(e_irsaliye, video), *, video_confidence_threshold, divergence_threshold=0.10) → DecisionResult(action, capture_ratio, rationale, findings, manual_review_required)`. Sıra (ilk eşleşen kazanır): harici efektif kanıt yok → **capture (1.0)** (approval-only) · efektif kanıt eksik → **hold** (`MISSING_REQUIRED_EVIDENCE`) · e-irsaliye yok → **hold** (`PRIMARY_EVIDENCE_MISSING`; video tek başına miktar üretmez) · sözleşme miktarı ≤ 0 → **hold** · teslim miktarı ≤ 0 → **hold** · advisory video yüksek güvenli ayrışma (>%10) veya eşleşmiş hasar → **hold + manual_review_required** (`dispute` DEĞİL) · teslim < sözleşme → **partial_capture** (oran yalnız e-irsaliyeden) · aksi → **capture**. Düşük güvenli video yalnızca `VIDEO_LOW_CONFIDENCE` warning'idir.
@@ -191,7 +191,7 @@ Not: `get_db()` FastAPI dependency'si tanımlı ama **hiçbir endpoint kullanmı
 **Kanıt sözleşmesi:** `analyze()` → `{counts, unit_count, damage_signals, confidence}`. `counts` sınıf başına ham dökümdür (kanıt/UI); **`unit_count`** taşıyıcı sınıfları (palet) dışlayan teslim birimi sayısıdır ve karar motorunun okuduğu tek sayıdır — böylece `decision.py` model sınıf adlarını bilmez. `FakeVideoAnalyzer` dosya-adı ipuçları: `eksik` → `unit_count=7` (nicel ayrışma), `hasarli` → eşleşmiş hasar sinyali, `dusuk_guven` → `confidence=0.5` (eşik altı). ⚠️ Eski `services/video.py` dosyası hâlâ diskte ama `video/` paketi onu **gölgeler** — ölü koddur, silinmesi bekliyor.
 
 ### evidence.py — kanıt paketi
-`build_bundle(conn, transaction_id) → dict`: transaction özeti (**yalnızca id/state/created_at** — markdown/token'lar girmez), en son extraction, validator raporu, onaylar, tüm event zinciri, mock ödeme kayıtları, en son karar payload'ı, `generated_at`. **Girmeyenler:** ham markdown, masked_markdown, token'lar, maskeleme haritası (zaten persist edilmez).
+`build_bundle(conn, transaction_id) → dict`: transaction özeti (**yalnızca id/state/created_at** — markdown/token'lar girmez), en son extraction, validator raporu, onaylar, tüm event zinciri, mock ödeme kayıtları, en son karar payload'ı, `generated_at`. **Girmeyenler:** ham markdown, masked_markdown, token'lar, maskeleme haritası (zaten persist edilmez), `tax_id`. Extraction `services/extraction_projection.py`den geçer; `source_quote` **korunur ama `privacy.analyze()` ile maskelenir** — taraf kuralın sözleşmedeki dayanağını görür, PII/kart verisi görmez.
 
 ### Router'lar — §4.1'in 11 endpoint'i
 
@@ -238,17 +238,17 @@ Offline hazırlık zinciri (korpus değişince elle çalıştırılır):
 - `runtime/m4trust.db` — SQLite runtime DB (gitignored).
 - `synthetic/`, `processed/cleaned/` — boş.
 
-## 9. Test katmanı (`code/tests/`) — 209 test (209 passed / 0 failed)
+## 9. Test katmanı (`code/tests/`) — 211 test (211 passed / 0 failed)
 
-Çalıştırma: `cd code && ./.venv/bin/python -m pytest -q` → **209 passed** (10.07.2026'da doğrulandı; video bağımlılıkları `requests`/`opencv-python-headless`/`python-dotenv` venv'e kurulu olmalı, yoksa 4 video test modülü collect edilemez). Ayrı pytest config dosyası yok; sys.path düzeni `conftest.py`'de. Paylaşılan E2E fixture'ları: `tests/extraction_fixtures.py` (sözleşmesel video · bozuk yüzde · `patch_extraction` yardımcısı).
+Çalıştırma: `cd code && ./.venv/bin/python -m pytest -q` → **211 passed** (10.07.2026'da doğrulandı; video bağımlılıkları `requests`/`opencv-python-headless`/`python-dotenv` venv'e kurulu olmalı, yoksa 4 video test modülü collect edilemez). Ayrı pytest config dosyası yok; sys.path düzeni `conftest.py`'de. Paylaşılan E2E fixture'ları: `tests/extraction_fixtures.py` (sözleşmesel video · bozuk yüzde · `patch_extraction` yardımcısı).
 
 | Dosya | Kapsam |
 |---|---|
 | `test_api_flow.py` (11) | TestClient uçtan uca: upload→pipeline→policy kilidi→onay→havuz; 404/403; **altı demo senaryosu** (A approval-only · B document-only · C uyumlu video · D anomali→hold · E sözleşmesel video · F REJECT) |
-| `test_delivery_flow.py` (14) | Kanal guard'ları (`TRACKING_NOT_ENABLED`/`TRANSACTION_DECIDED`), e-irsaliyeden capture/partial, advisory video dalları, ikinci release olmadığı, bundle'da ham markdown/token olmadığı |
+| `test_delivery_flow.py` (15) | Kanal guard'ları (`TRACKING_NOT_ENABLED`/`TRANSACTION_DECIDED`), e-irsaliyeden capture/partial, advisory video dalları, ikinci release olmadığı, bundle'da ham markdown/token olmadığı |
 | `test_tracking_policy.py` (6) / `test_effective_requirements.py` (3) / `test_manager_policy_api.py` (6) | Draft/off default + manager token sızmaması · öneri reason code'ları · saf resolver matrisi · manager capability, lock idempotency, contract conflict, public redaksiyon |
 | `test_validator.py` (19) | Tüm validator kontrolleri + tolerans sınırları + reject>review önceliği |
-| `test_decision.py` (11) | Policy-aware karar matrisi: approval-only capture, e-irsaliye full/partial, video-only hold, düşük/yüksek güvenli anomali, sözleşmesel video, eşik env override'ı |
+| `test_decision.py` (12) | Policy-aware karar matrisi: approval-only capture, e-irsaliye full/partial, video-only hold, düşük/yüksek güvenli anomali, sözleşmesel video, eşik env override'ı |
 | `test_payment_provider.py` (10) | Mock ledger: create idempotent, full/partial release, undo, refund, failure şekilleri |
 | `test_privacy.py` (10) / `test_privacy_card_data.py` (16) | PII mask/restore round-trip; PAN Luhn, kart token'ı restore edilmez, CVV/PIN/track blocking, CHD flag |
 | `test_context_builder.py` (12) | Query planlama, kota/dedupe/limit, kart sinyali→security, `BrokenRetriever` graceful |
@@ -296,7 +296,7 @@ Demo curl sırası: `POST /api/transactions` (dosya) → `GET /api/transactions/
 
 **Git durumu:** `master`'dayız; PR #4 (`yusuf-video-analyzer`) ve PR #5 (`feature/backend-iskeleti`) merge edilmiş. Tracking policy işi working tree'de commit'lenmemiş durumda (commit sahipliği kullanıcıdadır).
 
-**✅ Önceki "video counts" kırığı giderildi:** analyzer `unit_count` (taşıyıcı sınıflar hariç teslim birimi) döndürüyor ve `decision.py` yalnızca onu okuyor; `FakeVideoAnalyzer` dosya-adı ipuçları `eksik` (nicel ayrışma) · `hasarli` (eşleşmiş hasar) · `dusuk_guven` (eşik altı güven) demo dallarını sürüyor. Suite tamamen yeşil (207 passed).
+**✅ Önceki "video counts" kırığı giderildi:** analyzer `unit_count` (taşıyıcı sınıflar hariç teslim birimi) döndürüyor ve `decision.py` yalnızca onu okuyor; `FakeVideoAnalyzer` dosya-adı ipuçları `eksik` (nicel ayrışma) · `hasarli` (eşleşmiş hasar) · `dusuk_guven` (eşik altı güven) demo dallarını sürüyor. Suite tamamen yeşil (211 passed).
 
 **Eksik / sıradaki işler (öncelik sırasıyla):**
 1. **Frontend — hiç yok.** React+Vite+Tailwind; route'lar ARCHITECTURE §1'de tanımlı: `/` (dashboard+upload), `/t/:id` (detay+demo aksiyonları), `/t/:id/party?token=…` (taraf onayı), `/t/:id/manager?token=…` (yönetici policy paneli). Tüketeceği API hazır; **ayrı bir plan yazılacak** (video-merkezli anlatımın kaldırılması, koşullu delivery/video kontrolleri, 409 kodlarının anlaşılır gösterimi).

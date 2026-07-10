@@ -301,22 +301,24 @@ def test_demo_d_high_confidence_anomaly_holds_without_release_or_dispute(
 def test_demo_e_contractual_video_survives_manager_preference(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Demo E — sözleşmesel video: yönetici kapatamaz; video eksikken hold."""
+    """Demo E — sözleşmesel video: yönetici zayıflatamaz; video eksikken hold."""
     patch_extraction(monkeypatch, contractual_video_contract())
     created = _upload_sample(client, tmp_path)
 
-    off_attempt = client.put(
-        f"/api/transactions/{created['id']}/tracking-policy",
-        json={
-            "manager_token": _extract_token(created["manager_link"]),
-            "physical_delivery_confirmed": True,
-            "tracking_mode": "off",
-        },
-    )
-    assert off_attempt.status_code == 409
-    assert off_attempt.json()["detail"]["code"] == "POLICY_CONTRACT_CONFLICT"
+    # Sözleşmesel video, video analizini gerçekten yapan tek modu zorunlu kılar.
+    for rejected_mode in ("off", "document_only"):
+        attempt = client.put(
+            f"/api/transactions/{created['id']}/tracking-policy",
+            json={
+                "manager_token": _extract_token(created["manager_link"]),
+                "physical_delivery_confirmed": True,
+                "tracking_mode": rejected_mode,
+            },
+        )
+        assert attempt.status_code == 409, rejected_mode
+        assert attempt.json()["detail"]["code"] == "POLICY_CONTRACT_CONFLICT"
 
-    _lock_policy(client, created, mode="document_only")
+    _lock_policy(client, created, mode="document_and_video")
     _approve_both(client, created)
 
     body = _post_e_irsaliye(client, created["id"], 10).json()

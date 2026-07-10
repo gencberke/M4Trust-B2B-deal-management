@@ -205,6 +205,36 @@ def test_missing_contractual_video_holds() -> None:
     assert "MISSING_REQUIRED_EVIDENCE" in _finding_codes(result)
 
 
+def test_contractual_video_anomaly_is_evaluated_even_without_advisory_role() -> None:
+    """Zorunlu videonun yalnızca varlığını saymak, hasarı görmezden gelmek olurdu.
+
+    Policy katmanı bu kombinasyonu artık reddediyor; yine de saf karar motoru
+    kendi başına güvenli olmalı (upstream doğrulamaya bel bağlamamalı).
+    """
+    result = _decide(
+        _extraction(),
+        _requirements(
+            contractual={RequiredEvidence.contract, RequiredEvidence.video},
+            operational={RequiredEvidence.e_irsaliye},
+        ),
+        DeliveryEvidence(
+            e_irsaliye={"delivered_quantity": 10.0},
+            video={
+                "unit_count": 3,
+                "damage_signals": [
+                    {"type": "hasar_tespiti", "confidence": 0.95, "matched_box": True}
+                ],
+                "confidence": 0.95,
+            },
+        ),
+    )
+
+    assert result.action == "hold"
+    assert result.capture_ratio == 0.0
+    assert result.manual_review_required is True
+    assert "VIDEO_COUNT_DIVERGENCE" in _finding_codes(result)
+
+
 def test_video_advisory_confidence_threshold_has_safe_default_and_env_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
