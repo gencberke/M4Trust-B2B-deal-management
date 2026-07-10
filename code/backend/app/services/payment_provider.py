@@ -129,6 +129,8 @@ class MockMokaProvider(PaymentProvider):
         row = self._find_row(other_trx_code)
         if row is None:
             return _moka_failure("Kayıt bulunamadı")
+        if row["status"] != "pool":
+            return _moka_failure("Ödeme havuz durumunda değil")
 
         if capture_ratio >= 1.0:
             new_status = "released"

@@ -25,7 +25,7 @@ from sqlite3 import Connection, Row
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Import köprüsü: `document_parser` `code/scripts/` altında yaşar (bkz.
 # `scripts/extract_contract.py` aynı desen). Bu router `code/` kökünden
@@ -47,10 +47,27 @@ from backend.app.config import Settings  # noqa: E402
 from backend.app.db import connect  # noqa: E402
 from backend.app.eventbus import emit  # noqa: E402
 from backend.app.schemas.extraction import ExtractionJSON  # noqa: E402
+from backend.app.schemas.tracking import (  # noqa: E402
+    PolicyConflict,
+    PolicyConflictCode,
+    TrackingMode,
+    TrackingPolicyStatus,
+)
 from backend.app.services.context_builder import ContextBuilder  # noqa: E402
+from backend.app.services.extraction_projection import redacted_extraction_projection  # noqa: E402
 from backend.app.services.extraction import make_extraction_service  # noqa: E402
 from backend.app.services.privacy import analyze, restore  # noqa: E402
 from backend.app.services.rag import Retriever  # noqa: E402
+from backend.app.services.tracking_policy import (  # noqa: E402
+    contractual_required_evidence,
+    create_draft_policy,
+    load_tracking_policy,
+    lock_manager_policy,
+    recommend_physical_delivery,
+    tracking_summary,
+    update_manager_policy,
+    update_system_recommendation,
+)
 from backend.app.services.validator import validate  # noqa: E402
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
@@ -89,6 +106,13 @@ def resolve_party(row: Row, token: str) -> str | None:
     return None
 
 
+def resolve_manager(row: Row, token: str) -> bool:
+    """Sadece transaction'ın manager capability token'ını kabul eder."""
+    if not token or "manager_token" not in row.keys():
+        return False
+    return bool(row["manager_token"]) and token == row["manager_token"]
+
+
 def _load_extraction(conn: Connection, transaction_id: str) -> dict | None:
     """Persist edilmiş (RESTORE edilmiş) son extraction JSON'ını yükler."""
     row = conn.execute(
@@ -116,6 +140,54 @@ def _load_validator(conn: Connection, transaction_id: str) -> dict | None:
         except (json.JSONDecodeError, TypeError):
             pass  # düz metin gerekçe (pipeline hata/needs_review yolu) — olduğu gibi bırak
     return {"status": row["validator_status"], "findings": findings}
+
+
+def _validated_extraction(extraction: dict | None) -> ExtractionJSON | None:
+    """İç extraction dict'ini yalnız policy kuralları için doğrular."""
+    if extraction is None:
+        return None
+    try:
+        return ExtractionJSON.model_validate(extraction)
+    except ValidationError:
+        return None
+
+
+def _not_configurable_conflict(row: Row, validator: dict | None) -> PolicyConflict | None:
+    """Policy'nin değiştirilebildiği tek güvenli akış penceresini sınırlar."""
+    conflicts: list[str] = []
+    if row["state"] != "awaiting_approval":
+        conflicts.append("STATE_NOT_AWAITING_APPROVAL")
+    if validator is None or validator.get("status") != "PASS":
+        conflicts.append("VALIDATOR_NOT_PASS")
+    if not conflicts:
+        return None
+    return PolicyConflict(
+        code=PolicyConflictCode.POLICY_NOT_CONFIGURABLE,
+        message="Takip politikası yalnız doğrulama başarılıyken ve taraf onayı beklenirken yapılandırılabilir.",
+        conflicts=conflicts,
+    )
+
+
+def _raise_policy_conflict(conflict: PolicyConflict) -> None:
+    raise HTTPException(status_code=409, detail=conflict.model_dump(mode="json"))
+
+
+class TrackingPolicyUpdateRequest(BaseModel):
+    """Manager policy update contract'ı — beklenmeyen alan kabul edilmez."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manager_token: str
+    physical_delivery_confirmed: bool
+    tracking_mode: TrackingMode
+
+
+class TrackingPolicyLockRequest(BaseModel):
+    """Manager policy lock contract'ı — capability yalnız body'den gelir."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manager_token: str
 
 
 # --- POST / GET endpoint'leri -----------------------------------------------
@@ -151,15 +223,17 @@ async def create_transaction(
     transaction_id = uuid4().hex
     buyer_token = secrets.token_urlsafe(32)
     seller_token = secrets.token_urlsafe(32)
+    manager_token = secrets.token_urlsafe(32)
 
     conn = connect(settings)
     try:
         conn.execute(
             "INSERT INTO transactions "
-            "(id, state, buyer_token, seller_token, markdown, masked_markdown, created_at) "
-            "VALUES (?, 'uploaded', ?, ?, NULL, NULL, ?)",
-            (transaction_id, buyer_token, seller_token, _utc_now_iso()),
+            "(id, state, buyer_token, seller_token, manager_token, markdown, masked_markdown, created_at) "
+            "VALUES (?, 'uploaded', ?, ?, ?, NULL, NULL, ?)",
+            (transaction_id, buyer_token, seller_token, manager_token, _utc_now_iso()),
         )
+        create_draft_policy(conn, transaction_id)
         conn.commit()
     finally:
         conn.close()
@@ -170,6 +244,7 @@ async def create_transaction(
         "id": transaction_id,
         "buyer_link": f"/t/{transaction_id}/party?token={buyer_token}",
         "seller_link": f"/t/{transaction_id}/party?token={seller_token}",
+        "manager_link": f"/t/{transaction_id}/manager?token={manager_token}",
     }
 
 
@@ -249,7 +324,7 @@ def get_transaction(transaction_id: str) -> dict:
             "id": row["id"],
             "state": row["state"],
             "created_at": row["created_at"],
-            "extraction": _load_extraction(conn, transaction_id),
+            "extraction": redacted_extraction_projection(_load_extraction(conn, transaction_id)),
             "validator": _load_validator(conn, transaction_id),
             "events": events,
             "payment": payments or None,
@@ -273,22 +348,26 @@ def get_party_view(transaction_id: str, token: str) -> dict:
             raise HTTPException(status_code=403, detail="Geçersiz token.")
 
         extraction = _load_extraction(conn, transaction_id)
+        public_extraction = redacted_extraction_projection(extraction)
         extraction_summary = None
-        if extraction is not None:
-            commercial = extraction.get("commercial_terms") or {}
+        if public_extraction is not None:
+            commercial = public_extraction["commercial_terms"]
             extraction_summary = {
-                "parties": extraction.get("parties"),
+                "contract_id": public_extraction["contract_id"],
+                "parties": public_extraction["parties"],
                 "currency": commercial.get("currency"),
                 "total_amount": commercial.get("total_amount"),
-                "payment_rules": [
-                    {
-                        "milestone": rule.get("milestone"),
-                        "percentage": rule.get("percentage"),
-                        "source_quote": rule.get("source_quote"),
-                    }
-                    for rule in extraction.get("payment_rules") or []
-                ],
+                "commercial_terms": commercial,
+                "payment_rules": public_extraction["payment_rules"],
+                "risk_flags": public_extraction["risk_flags"],
+                "needs_manual_review": public_extraction["needs_manual_review"],
             }
+
+        parsed_extraction = _validated_extraction(extraction)
+        contractual_requirements = (
+            contractual_required_evidence(parsed_extraction) if parsed_extraction is not None else set()
+        )
+        policy = load_tracking_policy(conn, transaction_id)
 
         validator_report = _load_validator(conn, transaction_id)
         validator_findings = validator_report["findings"] if validator_report else None
@@ -310,7 +389,143 @@ def get_party_view(transaction_id: str, token: str) -> dict:
                 "buyer": "buyer" in approved_parties,
                 "seller": "seller" in approved_parties,
             },
+            "tracking_summary": tracking_summary(policy, contractual_requirements),
         }
+    finally:
+        conn.close()
+
+
+@router.get("/{transaction_id}/manager-view")
+def get_manager_view(transaction_id: str, token: str) -> dict:
+    """Manager capability ile policy hazırlık görünümü; token sızdırmaz."""
+    settings = Settings.from_env()
+    conn = connect(settings)
+    try:
+        row = load_transaction(conn, transaction_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+        if not resolve_manager(row, token):
+            raise HTTPException(status_code=403, detail="Geçersiz token.")
+
+        extraction = _load_extraction(conn, transaction_id)
+        parsed_extraction = _validated_extraction(extraction)
+        validator = _load_validator(conn, transaction_id)
+        policy = load_tracking_policy(conn, transaction_id)
+        ready_for_policy = (
+            _not_configurable_conflict(row, validator) is None
+            and policy is not None
+            and policy.status is TrackingPolicyStatus.draft
+        )
+        contractual_requirements = (
+            contractual_required_evidence(parsed_extraction) if parsed_extraction is not None else set()
+        )
+
+        return {
+            "state": row["state"],
+            "extraction": redacted_extraction_projection(extraction),
+            "validator": validator,
+            "tracking_policy": policy.model_dump(mode="json") if policy is not None else None,
+            "ready_for_policy": ready_for_policy,
+            "contractual_required_evidence": sorted(
+                kind.value for kind in contractual_requirements
+            ),
+        }
+    finally:
+        conn.close()
+
+
+@router.put("/{transaction_id}/tracking-policy")
+def update_tracking_policy(transaction_id: str, body: TrackingPolicyUpdateRequest) -> dict:
+    """Manager'ın taslak takip seçimini değiştirir; aynı seçim idempotenttir."""
+    settings = Settings.from_env()
+    conn = connect(settings)
+    try:
+        row = load_transaction(conn, transaction_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+        if not resolve_manager(row, body.manager_token):
+            raise HTTPException(status_code=403, detail="Geçersiz token.")
+
+        validator = _load_validator(conn, transaction_id)
+        gate_conflict = _not_configurable_conflict(row, validator)
+        if gate_conflict is not None:
+            _raise_policy_conflict(gate_conflict)
+
+        extraction = _validated_extraction(_load_extraction(conn, transaction_id))
+        if extraction is None:  # validator PASS iken olamaz; veri bütünlüğü için safe 409
+            _raise_policy_conflict(
+                PolicyConflict(
+                    code=PolicyConflictCode.POLICY_NOT_CONFIGURABLE,
+                    message="Doğrulanmış sözleşme kuralları bulunamadı.",
+                    conflicts=["EXTRACTION_NOT_AVAILABLE"],
+                )
+            )
+
+        policy, updated, conflict = update_manager_policy(
+            conn,
+            transaction_id,
+            extraction,
+            physical_delivery_confirmed=body.physical_delivery_confirmed,
+            tracking_mode=body.tracking_mode,
+        )
+        if conflict is not None:
+            _raise_policy_conflict(conflict)
+
+        if updated:
+            emit(
+                conn,
+                transaction_id,
+                "tracking_policy_updated",
+                {"tracking_policy": policy.model_dump(mode="json")},
+                "manager",
+            )
+        conn.commit()
+        return {"updated": updated, "tracking_policy": policy.model_dump(mode="json")}
+    finally:
+        conn.close()
+
+
+@router.post("/{transaction_id}/tracking-policy/lock")
+def lock_tracking_policy(transaction_id: str, body: TrackingPolicyLockRequest) -> dict:
+    """Manager'ın hazır policy'yi onaylardan önce değişmez hale getirmesi."""
+    settings = Settings.from_env()
+    conn = connect(settings)
+    try:
+        row = load_transaction(conn, transaction_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+        if not resolve_manager(row, body.manager_token):
+            raise HTTPException(status_code=403, detail="Geçersiz token.")
+
+        validator = _load_validator(conn, transaction_id)
+        gate_conflict = _not_configurable_conflict(row, validator)
+        if gate_conflict is not None:
+            _raise_policy_conflict(gate_conflict)
+
+        extraction = _validated_extraction(_load_extraction(conn, transaction_id))
+        if extraction is None:  # validator PASS iken olamaz; veri bütünlüğü için safe 409
+            _raise_policy_conflict(
+                PolicyConflict(
+                    code=PolicyConflictCode.POLICY_NOT_CONFIGURABLE,
+                    message="Doğrulanmış sözleşme kuralları bulunamadı.",
+                    conflicts=["EXTRACTION_NOT_AVAILABLE"],
+                )
+            )
+
+        policy, locked, conflict = lock_manager_policy(conn, transaction_id, extraction)
+        if conflict is not None:
+            _raise_policy_conflict(conflict)
+
+        if locked:
+            emit(
+                conn,
+                transaction_id,
+                "tracking_policy_locked",
+                {"tracking_policy": policy.model_dump(mode="json")},
+                "manager",
+            )
+        conn.commit()
+        return {"locked": locked, "tracking_policy": policy.model_dump(mode="json")}
     finally:
         conn.close()
 
@@ -381,6 +596,20 @@ def _persist_extraction(conn: Connection, transaction_id: str, extraction: Extra
         {"status": validator_report.status, "findings": findings_payload},
         "validator",
     )
+    if validator_report.status == "PASS":
+        recommendation = recommend_physical_delivery(extraction)
+        policy = update_system_recommendation(conn, transaction_id, recommendation)
+        if policy is not None:
+            emit(
+                conn,
+                transaction_id,
+                "tracking_policy_recommended",
+                {
+                    "recommendation": recommendation.recommendation.value,
+                    "reason_codes": [reason.value for reason in recommendation.reason_codes],
+                },
+                "tracking_policy",
+            )
 
 
 def _persist_no_extraction(conn: Connection, transaction_id: str, reason: str) -> None:

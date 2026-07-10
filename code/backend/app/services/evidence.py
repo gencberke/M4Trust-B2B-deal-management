@@ -13,6 +13,9 @@ import json
 from datetime import datetime, timezone
 from sqlite3 import Connection
 
+from backend.app.services.extraction_projection import redacted_extraction_projection
+from backend.app.services.tracking_policy import load_tracking_policy
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -40,7 +43,9 @@ def build_bundle(conn: Connection, transaction_id: str) -> dict:
     validator_report = None
     if extraction_row is not None:
         if extraction_row["extraction_json"]:
-            extraction = json.loads(extraction_row["extraction_json"])
+            extraction = redacted_extraction_projection(
+                json.loads(extraction_row["extraction_json"])
+            )
         findings = extraction_row["validator_report"]
         if findings:
             try:
@@ -93,10 +98,13 @@ def build_bundle(conn: Connection, transaction_id: str) -> dict:
             decision = ev["payload"]
             break
 
+    tracking_policy = load_tracking_policy(conn, transaction_id)
+
     return {
         "transaction": transaction_summary,
         "extraction": extraction,
         "validator_report": validator_report,
+        "tracking_policy": tracking_policy.model_dump(mode="json") if tracking_policy else None,
         "approvals": approvals,
         "events": events,
         "payments": payments,

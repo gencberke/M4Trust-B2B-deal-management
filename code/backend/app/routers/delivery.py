@@ -1,10 +1,15 @@
-"""Delivery router — teslimat kanıtı event'leri + paylaşımlı decision denemesi (§4.1, §6.1, §6.5, Faz 4B).
+"""Delivery router — teslimat kanıtı event'leri (§4.1, §6.1).
 
 İki endpoint (e-irsaliye simülasyonu, video upload) yalnızca işlem fonlanmışken
-(`active`/`evidence_pending`) kabul edilir. Her kanıt event'inden hemen sonra
-`_attempt_decision()` çağrılır: `decide()` saf fonksiyonuna girdi hazırlar,
-`hold` dışındaki her aksiyonda §6.1 release guard'ı (iki taraf da onaylamış +
-uygun state) sağlanmadan `PaymentProvider.approve_pool_payment` ASLA çağrılmaz.
+(`active`/`evidence_pending`) VE ilgili kanıt kanalı bu işlem için etkinken
+kabul edilir. Kanal, sözleşmesel zorunluluktan (extraction) veya yöneticinin
+kilitlediği takip politikasından gelir; ikisi de yoksa endpoint 409 döner.
+
+Ödeme/karar orkestrasyonunun sahibi bu router DEĞİLDİR: kanıt event'i yazıldıktan
+sonra `services/settlement.py::evaluate_settlement` çağrılır — release guard,
+provider çağrısı ve state geçişi orada tek yerde tutulur (§6.1). Bu yüzden
+opsiyonel video anomalisi buradan `dispute_opened` üretmez; karar `hold` +
+manuel inceleme olur.
 """
 
 from __future__ import annotations
@@ -21,9 +26,14 @@ from backend.app.config import Settings
 from backend.app.db import connect
 from backend.app.eventbus import emit
 from backend.app.routers.transactions import load_transaction
-from backend.app.schemas.extraction import ExtractionJSON
-from backend.app.services.decision import DeliveryEvidence, decide
-from backend.app.services.payment_provider import make_payment_provider
+from backend.app.schemas.extraction import ExtractionJSON, RequiredEvidence
+from backend.app.services.settlement import evaluate_settlement
+from backend.app.services.tracking_policy import (
+    contractual_required_evidence,
+    e_irsaliye_tracking_enabled,
+    load_tracking_policy,
+    video_tracking_enabled,
+)
 from backend.app.services.video import make_video_analyzer
 
 router = APIRouter(prefix="/api/transactions", tags=["delivery"])
@@ -42,14 +52,15 @@ class EIrsaliyeEvent(BaseModel):
     delivered_quantity: float
 
 
-def _load_extraction(conn: Connection, transaction_id: str) -> dict | None:
-    """Persist edilmiş (RESTORE edilmiş) son extraction JSON'ını yükler.
+def _conflict(code: str, message: str, conflicts: list[str]) -> HTTPException:
+    """Manager policy uçlarıyla aynı `{code, message, conflicts}` 409 gövdesi."""
+    return HTTPException(
+        status_code=409, detail={"code": code, "message": message, "conflicts": conflicts}
+    )
 
-    `routers/transactions.py::_load_extraction` ile aynı sorgu — `approvals.py`
-    da kendi kopyasını tutar (mevcut proje deseni); paylaşılan bir private
-    fonksiyonun router'lar arası import edilmesi yerine küçük tekrar tercih
-    edilmiştir.
-    """
+
+def _load_extraction(conn: Connection, transaction_id: str) -> ExtractionJSON | None:
+    """Persist edilmiş (restore edilmiş) son extraction'ı doğrulanmış olarak yükler."""
     row = conn.execute(
         "SELECT extraction_json FROM extracted_rules WHERE transaction_id = ? "
         "ORDER BY created_at DESC, rowid DESC LIMIT 1",
@@ -57,28 +68,15 @@ def _load_extraction(conn: Connection, transaction_id: str) -> dict | None:
     ).fetchone()
     if row is None or row["extraction_json"] is None:
         return None
-    return json.loads(row["extraction_json"])
-
-
-def _approved_parties(conn: Connection, transaction_id: str) -> set[str]:
-    return {
-        r["party"]
-        for r in conn.execute(
-            "SELECT DISTINCT party FROM approvals WHERE transaction_id = ?",
-            (transaction_id,),
-        ).fetchall()
-    }
-
-
-def _latest_event_payload(conn: Connection, transaction_id: str, event_type: str) -> dict | None:
-    row = conn.execute(
-        "SELECT payload FROM events WHERE transaction_id = ? AND event_type = ? "
-        "ORDER BY id DESC LIMIT 1",
-        (transaction_id, event_type),
-    ).fetchone()
-    if row is None or row["payload"] is None:
+    try:
+        return ExtractionJSON.model_validate(json.loads(row["extraction_json"]))
+    except (TypeError, ValueError):
         return None
-    return json.loads(row["payload"])
+
+
+def _contractual_requirements(conn: Connection, transaction_id: str) -> set[RequiredEvidence]:
+    extraction = _load_extraction(conn, transaction_id)
+    return set() if extraction is None else contractual_required_evidence(extraction)
 
 
 def _current_state(conn: Connection, transaction_id: str) -> str:
@@ -88,94 +86,56 @@ def _current_state(conn: Connection, transaction_id: str) -> str:
     return row["state"]
 
 
-def _attempt_decision(conn: Connection, transaction_id: str, settings: Settings) -> dict | None:
-    """Toplanmış kanıtlarla `decide()`'ı çağırır, karara göre ödeme aksiyonunu tetikler.
+def _guard_evidence_channel(conn: Connection, transaction_id: str, *, channel: str) -> None:
+    """404 / kanal kapalı / karar verilmiş / fonlanmamış kontrollerini sırayla uygular.
 
-    Dönen sözlük her zaman `{"action", "capture_ratio", "rationale"}` taşır
-    (guard başarısız olursa ek `"note"` alanı eklenir); hiç extraction yoksa
-    (henüz karar verilecek bir şey yoksa) `None` döner. Commit ÇAĞIRMAZ —
-    çağıran (endpoint) sorumludur (mevcut router deseniyle tutarlı).
+    Sıra bilinçlidir. Önce "bu işlem bu kanıtı hiç takip ediyor mu?" sorulur:
+    takip edilmeyen bir kanal, işlemin hangi durumda olduğundan bağımsız olarak
+    kapalıdır. Takip edilen bir kanalda ise karar verilmiş işleme geç gelen kanıt,
+    herhangi bir video analizi yapılmadan reddedilir.
     """
-    extraction_dict = _load_extraction(conn, transaction_id)
-    if extraction_dict is None:
-        return None
-    extraction = ExtractionJSON.model_validate(extraction_dict)
+    row = load_transaction(conn, transaction_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
 
-    e_irsaliye = _latest_event_payload(conn, transaction_id, "e_irsaliye_received")
-    video = _latest_event_payload(conn, transaction_id, "delivery_video_analyzed")
-    result = decide(extraction, DeliveryEvidence(e_irsaliye=e_irsaliye, video=video))
+    policy = load_tracking_policy(conn, transaction_id)
+    requirements = _contractual_requirements(conn, transaction_id)
 
-    decision_payload = {
-        "action": result.action,
-        "capture_ratio": result.capture_ratio,
-        "rationale": result.rationale,
-    }
-
-    if result.action == "hold":
-        # Durum `evidence_pending`de kalır; ek event üretilmez (§5 state machine).
-        return decision_payload
-
-    if result.action in {"capture", "partial_capture"}:
-        # §6.1 release guard: yalnızca iki taraf da onaylamışsa VE state uygunsa
-        # (buyer_approved ∧ seller_approved ∧ state ∈ {active, evidence_pending}).
-        approved = _approved_parties(conn, transaction_id)
-        state = _current_state(conn, transaction_id)
-        guard_ok = {"buyer", "seller"} <= approved and state in _FUNDED_STATES
-        if not guard_ok:
-            return {
-                **decision_payload,
-                "note": (
-                    "Ödeme aksiyonu uygulanmadı: her iki taraf onaylamamış "
-                    "veya işlem uygun durumda değil (§6.1 release guard)."
-                ),
-            }
-
-        emit(conn, transaction_id, "payment_decision_created", decision_payload, "decision")
-        provider = make_payment_provider(settings, conn)
-        provider.approve_pool_payment(
-            other_trx_code=transaction_id, capture_ratio=result.capture_ratio
+    if channel == "e_irsaliye":
+        if not e_irsaliye_tracking_enabled(policy, requirements):
+            raise _conflict(
+                "TRACKING_NOT_ENABLED",
+                "Bu işlemde e-irsaliye takibi etkin değil.",
+                ["E_IRSALIYE_TRACKING_DISABLED"],
+            )
+    elif not video_tracking_enabled(policy, requirements):
+        raise _conflict(
+            "TRACKING_NOT_ENABLED",
+            "Bu işlemde video takibi etkin değil.",
+            ["VIDEO_TRACKING_DISABLED"],
         )
-        payment_status = "released" if result.capture_ratio >= 1.0 else "partially_released"
-        emit(
-            conn,
-            transaction_id,
-            "mock_payment_executed",
-            {"status": payment_status, "capture_ratio": result.capture_ratio},
-            "payment_provider",
+
+    if row["state"] == "decided":
+        raise _conflict(
+            "TRANSACTION_DECIDED",
+            "İşlem karara bağlandı; yeni teslimat kanıtı kabul edilmiyor.",
+            ["TRANSACTION_ALREADY_DECIDED"],
         )
-        conn.execute("UPDATE transactions SET state = 'decided' WHERE id = ?", (transaction_id,))
-        return decision_payload
 
-    # result.action == "dispute" — capture çağrısı ASLA yapılmaz (§6.1).
-    emit(conn, transaction_id, "payment_decision_created", decision_payload, "decision")
-    emit(conn, transaction_id, "dispute_opened", {"rationale": result.rationale}, "decision")
-    conn.execute("UPDATE transactions SET state = 'decided' WHERE id = ?", (transaction_id,))
-    return decision_payload
-
-
-def _mark_evidence_pending_if_active(conn: Connection, transaction_id: str, state: str) -> None:
-    if state == "active":
-        conn.execute(
-            "UPDATE transactions SET state = 'evidence_pending' WHERE id = ?", (transaction_id,)
-        )
+    if row["state"] not in _FUNDED_STATES:
+        raise HTTPException(status_code=409, detail=_NOT_FUNDED_DETAIL)
 
 
 @router.post("/{transaction_id}/events/e-irsaliye")
 def receive_e_irsaliye(transaction_id: str, body: EIrsaliyeEvent) -> dict:
-    """E-irsaliye simülasyon event'i — kanıt kaydeder, ardından decision dener."""
+    """E-irsaliye simülasyon event'i — birincil nicel kanıt; ardından settlement."""
     settings = Settings.from_env()
     conn = connect(settings)
     try:
-        row = load_transaction(conn, transaction_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
-        if row["state"] not in _FUNDED_STATES:
-            raise HTTPException(status_code=409, detail=_NOT_FUNDED_DETAIL)
+        _guard_evidence_channel(conn, transaction_id, channel="e_irsaliye")
 
         emit(conn, transaction_id, "e_irsaliye_received", body.model_dump(), "e_irsaliye")
-        _mark_evidence_pending_if_active(conn, transaction_id, row["state"])
-
-        decision = _attempt_decision(conn, transaction_id, settings)
+        decision = evaluate_settlement(conn, transaction_id, settings)
         state = _current_state(conn, transaction_id)
         conn.commit()
 
@@ -186,19 +146,15 @@ def receive_e_irsaliye(transaction_id: str, body: EIrsaliyeEvent) -> dict:
 
 @router.post("/{transaction_id}/delivery-video")
 async def upload_delivery_video(transaction_id: str, file: UploadFile = File(...)) -> dict:
-    """Teslimat videosu upload'ı — fake analiz senkron/hafif olduğundan inline koşulur.
+    """Teslimat videosu upload'ı — analiz ikincil (advisory) sinyaldir, miktar üretmez.
 
-    Böylece cevap doğrudan güncel kararı yansıtır (BackgroundTask kullanılmaz,
-    aksi halde cevap dönerken karar henüz üretilmemiş olurdu).
+    Fake analiz senkron/hafif olduğundan inline koşulur; böylece cevap doğrudan
+    güncel kararı yansıtır.
     """
     settings = Settings.from_env()
     conn = connect(settings)
     try:
-        row = load_transaction(conn, transaction_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
-        if row["state"] not in _FUNDED_STATES:
-            raise HTTPException(status_code=409, detail=_NOT_FUNDED_DETAIL)
+        _guard_evidence_channel(conn, transaction_id, channel="video")
 
         contents = await file.read()
         original_name = file.filename or "delivery_video"
@@ -217,9 +173,7 @@ async def upload_delivery_video(transaction_id: str, file: UploadFile = File(...
             temp_path.unlink(missing_ok=True)
 
         emit(conn, transaction_id, "delivery_video_analyzed", analysis, "video")
-        _mark_evidence_pending_if_active(conn, transaction_id, row["state"])
-
-        decision = _attempt_decision(conn, transaction_id, settings)
+        decision = evaluate_settlement(conn, transaction_id, settings)
         state = _current_state(conn, transaction_id)
         conn.commit()
 

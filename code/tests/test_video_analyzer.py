@@ -199,25 +199,33 @@ def test_fake_video_analyzer_returns_canned_result_without_network(tmp_path):
 
 
 def test_fake_analyzer_filename_hints_drive_demo_scenarios(tmp_path):
-    """Dosya adı ipuçları dört demo senaryosunu sürer (§3.4): tam/kısmi/hasar."""
+    """Dosya adı ipuçları ikincil video dallarını sürer (§3.4): uyumlu/ayrışan/hasar/düşük güven."""
     analyzer = FakeVideoAnalyzer()
 
     default = analyzer.analyze(tmp_path / "teslimat.mp4")
     assert default["unit_count"] == 10
     assert default["damage_signals"] == []
+    assert default["confidence"] == 0.9
 
     eksik = analyzer.analyze(tmp_path / "teslimat_eksik.mp4")
     assert eksik["unit_count"] == 7
     assert eksik["damage_signals"] == []
+    assert eksik["confidence"] == 0.9
 
     hasarli = analyzer.analyze(tmp_path / "teslimat_hasarli.mp4")
     assert hasarli["unit_count"] == 10
     assert [s["type"] for s in hasarli["damage_signals"]] == ["hasar_tespiti"]
+    assert hasarli["damage_signals"][0]["matched_box"] is True
 
-    # İki ipucu birden: "hasarli" kazanır (hasar tek başına dispute tetikler).
+    # İki ipucu birden: "hasarli" kazanır (sayım ipucu ezilir).
     both = analyzer.analyze(tmp_path / "teslimat_eksik_hasarli.mp4")
     assert both["unit_count"] == 10
     assert both["damage_signals"]
+
+    # Düşük güven ipucu diğerlerinden bağımsızdır: sayım korunur, güven düşer.
+    dusuk = analyzer.analyze(tmp_path / "teslimat_eksik_dusuk_guven.mp4")
+    assert dusuk["unit_count"] == 7
+    assert dusuk["confidence"] == 0.5
 
 
 def test_make_video_analyzer_returns_fake_by_default():

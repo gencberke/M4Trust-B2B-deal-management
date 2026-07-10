@@ -1,20 +1,18 @@
-"""`TestClient` uçtan uca delivery/decision/evidence akışı testleri (Faz 4B).
+"""`TestClient` uçtan uca delivery/settlement/evidence akışı testleri.
 
-Kapsam: `POST .../events/e-irsaliye`, `POST .../delivery-video`,
-`GET .../evidence` — tam teslimat (capture), kısmi teslimat (partial_capture),
-çelişki (dispute + ödeme kilitli), fonlanmamış işlemde 409, evidence bundle'da
-ham markdown sızmaması.
+Kapsam: `POST .../events/e-irsaliye`, `POST .../delivery-video`, `GET .../evidence`
+— takip politikasına göre kanal guard'ları, e-irsaliye birincil kanıt olarak
+capture/partial_capture, ikincil (advisory) videonun karar üzerindeki sınırlı
+etkisi ve `hold` durumunda release/dispute üretilmemesi.
 
-`LLM_PROVIDER=fake` fixture'ı PASS + 100000 TRY + tek kalem (10 adet Endüstriyel
-Pompa) üretir, İKİ ödeme kuralı taşır: "Sipariş onayı" (`required_evidence=[contract]`)
-ve "Teslimat" (`required_evidence=[e_irsaliye, video]`) — bkz.
-`services/extraction.py::_fake_fixture`. `decide()`'ın kanıt birleşimi
-(`_required_evidence_union`) TÜM kuralların `required_evidence`'ını birleştirdiğinden
-(§ decision.py) bu fixture ile decision yalnızca hem e-irsaliye HEM video kanıtı
-toplandıktan sonra `hold` dışına çıkar — yalnızca e-irsaliye göndermek `hold`
-sonucu üretir (video eksik). Bu yüzden capture/partial senaryoları iki event'lik
-(e-irsaliye + video) bir akışla sürülür; dispute senaryosu görevde tarif edildiği
-gibi bu iki adımla zaten doğal olarak örtüşür.
+Varsayılan `LLM_PROVIDER=fake` fixture'ı PASS + 100000 TRY + tek kalem (10 adet
+Endüstriyel Pompa) + tek approval kuralı (`required_evidence=[contract]`) üretir.
+Yani sözleşme hiçbir harici teslimat kanıtı istemez; e-irsaliye/video yalnızca
+yöneticinin kilitlediği takip politikasıyla devreye girer.
+
+`FakeVideoAnalyzer` dosya adı ipuçları (bkz. `services/video/analyzer.py`):
+ipucu yok -> uyumlu (unit_count=10, güven 0.9) · `eksik` -> unit_count=7 ·
+`hasarli` -> eşleşmiş hasar sinyali · `dusuk_guven` -> güven eşiğin altında.
 """
 
 from __future__ import annotations
@@ -25,10 +23,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from extraction_fixtures import contractual_video_contract, patch_extraction
+
 _SAMPLE_MARKDOWN = (
     "# Örnek Sözleşme\n\n"
     "Alıcı ile Satıcı arasında endüstriyel pompa alım satımı sözleşmesidir.\n"
-    "Sipariş onayı ile %30, teslimatta %70 ödenir.\n"
+    "Tarafların onayıyla ödeme yapılır.\n"
 )
 
 
@@ -51,151 +51,321 @@ def _extract_token(link: str) -> str:
     return link.split("token=", 1)[1]
 
 
-def _upload_and_activate(client: TestClient, tmp_path: Path) -> dict:
-    """Upload + iki taraf onayı: state `active`, havuz ödemesi `pool` olarak döner."""
+def _upload(client: TestClient, tmp_path: Path) -> dict:
     md_path = tmp_path / "sozlesme.md"
     md_path.write_text(_SAMPLE_MARKDOWN, encoding="utf-8")
     with md_path.open("rb") as fh:
-        created = client.post(
+        response = client.post(
             "/api/transactions", files={"file": ("sozlesme.md", fh, "text/markdown")}
-        ).json()
-
-    buyer_token = _extract_token(created["buyer_link"])
-    seller_token = _extract_token(created["seller_link"])
-    tx_id = created["id"]
-
-    client.post(f"/api/transactions/{tx_id}/approvals", json={"token": buyer_token})
-    seller_resp = client.post(f"/api/transactions/{tx_id}/approvals", json={"token": seller_token})
-    assert seller_resp.status_code == 200
-    assert seller_resp.json()["state"] == "active"
-
-    return {"id": tx_id, "buyer_token": buyer_token, "seller_token": seller_token}
-
-
-def _post_video(client: TestClient, tx_id: str, filename: str) -> dict:
-    video_bytes = io.BytesIO(b"fake-video-bytes")
-    response = client.post(
-        f"/api/transactions/{tx_id}/delivery-video",
-        files={"file": (filename, video_bytes, "video/mp4")},
-    )
+        )
     assert response.status_code == 200, response.text
     return response.json()
 
 
-def test_full_delivery_triggers_capture(client: TestClient, tmp_path: Path) -> None:
-    tx = _upload_and_activate(client, tmp_path)
+def _lock_policy(
+    client: TestClient, created: dict, *, mode: str, physical: bool = True
+) -> None:
+    """Yönetici capability'siyle takip politikasını seçer ve kilitler."""
+    tx_id = created["id"]
+    manager_token = _extract_token(created["manager_link"])
 
-    # 1. adım: yalnızca e-irsaliye — video kanıtı henüz yok -> hold, state evidence_pending.
-    e_irsaliye_resp = client.post(
-        f"/api/transactions/{tx['id']}/events/e-irsaliye",
-        json={"delivered_quantity": 10},
+    update = client.put(
+        f"/api/transactions/{tx_id}/tracking-policy",
+        json={
+            "manager_token": manager_token,
+            "physical_delivery_confirmed": physical,
+            "tracking_mode": mode,
+        },
     )
-    assert e_irsaliye_resp.status_code == 200, e_irsaliye_resp.text
-    first_body = e_irsaliye_resp.json()
-    assert first_body["state"] == "evidence_pending"
-    assert first_body["decision"]["action"] == "hold"
+    assert update.status_code == 200, update.text
 
-    # 2. adım: uyumlu video (ipucu yok -> unit_count=10, hasar yok) -> capture.
-    video_body = _post_video(client, tx["id"], "teslimat.mp4")
-    assert video_body["analysis"]["unit_count"] == 10
-    assert video_body["state"] == "decided"
-    assert video_body["decision"]["action"] == "capture"
-    assert video_body["decision"]["capture_ratio"] == 1.0
-
-    detail = client.get(f"/api/transactions/{tx['id']}").json()
-    assert detail["state"] == "decided"
-    assert len(detail["payment"]) == 1
-    assert detail["payment"][0]["status"] == "released"
-
-    event_types = [ev["event_type"] for ev in detail["events"]]
-    assert "e_irsaliye_received" in event_types
-    assert "delivery_video_analyzed" in event_types
-    assert "payment_decision_created" in event_types
-    assert "mock_payment_executed" in event_types
+    lock = client.post(
+        f"/api/transactions/{tx_id}/tracking-policy/lock",
+        json={"manager_token": manager_token},
+    )
+    assert lock.status_code == 200, lock.text
 
 
-def test_partial_delivery_triggers_partial_capture(client: TestClient, tmp_path: Path) -> None:
-    tx = _upload_and_activate(client, tmp_path)
-
+def _approve_both(client: TestClient, created: dict) -> str:
+    tx_id = created["id"]
     client.post(
-        f"/api/transactions/{tx['id']}/events/e-irsaliye",
-        json={"delivered_quantity": 6},
+        f"/api/transactions/{tx_id}/approvals",
+        json={"token": _extract_token(created["buyer_link"])},
     )
-    # "eksik" ipucu -> video unit_count=7, hasar yok; |6-7|/10 = %10 ayrışma (eşiğin
-    # ÜSTÜNDE değil, eşitse dispute tetiklenmez) -> partial_capture, oran=6/10.
-    video_body = _post_video(client, tx["id"], "teslimat_eksik.mp4")
-    assert video_body["decision"]["action"] == "partial_capture"
-    assert video_body["decision"]["capture_ratio"] == pytest.approx(0.6)
+    seller = client.post(
+        f"/api/transactions/{tx_id}/approvals",
+        json={"token": _extract_token(created["seller_link"])},
+    )
+    assert seller.status_code == 200, seller.text
+    return seller.json()["state"]
 
-    detail = client.get(f"/api/transactions/{tx['id']}").json()
+
+def _prepare(client: TestClient, tmp_path: Path, *, mode: str) -> dict:
+    created = _upload(client, tmp_path)
+    _lock_policy(client, created, mode=mode)
+    _approve_both(client, created)
+    return created
+
+
+def _post_e_irsaliye(client: TestClient, tx_id: str, quantity: float):
+    return client.post(
+        f"/api/transactions/{tx_id}/events/e-irsaliye",
+        json={"delivered_quantity": quantity},
+    )
+
+
+def _post_video(client: TestClient, tx_id: str, filename: str):
+    return client.post(
+        f"/api/transactions/{tx_id}/delivery-video",
+        files={"file": (filename, io.BytesIO(b"fake-video-bytes"), "video/mp4")},
+    )
+
+
+def _finding_codes(decision: dict) -> list[str]:
+    return [finding["code"] for finding in decision["findings"]]
+
+
+def _event_types(client: TestClient, tx_id: str) -> list[str]:
+    detail = client.get(f"/api/transactions/{tx_id}").json()
+    return [event["event_type"] for event in detail["events"]]
+
+
+# --- document_only: e-irsaliye birincil nicel kanıt --------------------------
+
+
+def test_document_only_full_delivery_captures_without_any_video(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_only")
+
+    response = _post_e_irsaliye(client, created["id"], 10)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["state"] == "decided"
+    assert body["decision"]["action"] == "capture"
+    assert body["decision"]["capture_ratio"] == 1.0
+
+    detail = client.get(f"/api/transactions/{created['id']}").json()
+    assert detail["payment"][0]["status"] == "released"
+    assert "delivery_video_analyzed" not in [e["event_type"] for e in detail["events"]]
+
+
+def test_document_only_partial_delivery_ratio_comes_from_e_irsaliye(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_only")
+
+    body = _post_e_irsaliye(client, created["id"], 6).json()
+
+    assert body["decision"]["action"] == "partial_capture"
+    assert body["decision"]["capture_ratio"] == pytest.approx(0.6)
+
+    detail = client.get(f"/api/transactions/{created['id']}").json()
     assert detail["payment"][0]["status"] == "partially_released"
 
 
-def test_damaged_video_triggers_dispute_without_release(client: TestClient, tmp_path: Path) -> None:
-    tx = _upload_and_activate(client, tmp_path)
+def test_document_only_rejects_video_upload(client: TestClient, tmp_path: Path) -> None:
+    created = _prepare(client, tmp_path, mode="document_only")
 
-    e_irsaliye_resp = client.post(
-        f"/api/transactions/{tx['id']}/events/e-irsaliye",
-        json={"delivered_quantity": 10},
-    )
-    assert e_irsaliye_resp.status_code == 200
-    assert e_irsaliye_resp.json()["decision"]["action"] == "hold"
+    response = _post_video(client, created["id"], "teslimat.mp4")
 
-    video_body = _post_video(client, tx["id"], "teslimat_hasarli.mp4")
-    damage_types = [s["type"] for s in video_body["analysis"]["damage_signals"]]
-    assert damage_types == ["hasar_tespiti"]
-    assert video_body["decision"]["action"] == "dispute"
-
-    detail = client.get(f"/api/transactions/{tx['id']}").json()
-    assert detail["state"] == "decided"
-    event_types = [ev["event_type"] for ev in detail["events"]]
-    assert "dispute_opened" in event_types
-    assert "payment_decision_created" in event_types
-    # Dispute'ta capture ASLA yapılmaz — havuz durumu değişmeden kalır, hiçbir
-    # `mock_payment_executed` event'i üretilmez.
-    assert not any(ev["event_type"] == "mock_payment_executed" for ev in detail["events"])
-    assert all(p["status"] == "pool" for p in detail["payment"])
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "TRACKING_NOT_ENABLED"
 
 
-def test_premature_evidence_before_approval_returns_409(client: TestClient, tmp_path: Path) -> None:
-    md_path = tmp_path / "sozlesme.md"
-    md_path.write_text(_SAMPLE_MARKDOWN, encoding="utf-8")
-    with md_path.open("rb") as fh:
-        created = client.post(
-            "/api/transactions", files={"file": ("sozlesme.md", fh, "text/markdown")}
-        ).json()
+# --- document_and_video: video yalnızca ikincil sinyal -----------------------
+
+
+def test_missing_advisory_video_does_not_block_capture(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_and_video")
+
+    body = _post_e_irsaliye(client, created["id"], 10).json()
+
+    assert body["decision"]["action"] == "capture"
+    assert "VIDEO_NOT_PROVIDED" in _finding_codes(body["decision"])
+    assert body["state"] == "decided"
+
+
+def test_aligned_advisory_video_supports_capture_without_changing_ratio(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_and_video")
+
+    video = _post_video(client, created["id"], "teslimat.mp4")
+    assert video.status_code == 200, video.text
+    # Video tek başına miktar üretemez: birincil kanıt gelene kadar hold.
+    assert video.json()["decision"]["action"] == "hold"
+    assert "MISSING_REQUIRED_EVIDENCE" in _finding_codes(video.json()["decision"])
+
+    body = _post_e_irsaliye(client, created["id"], 10).json()
+
+    assert body["decision"]["action"] == "capture"
+    assert body["decision"]["capture_ratio"] == 1.0
+    assert "VIDEO_COUNT_ALIGNED" in _finding_codes(body["decision"])
+
+
+def test_low_confidence_video_divergence_only_warns(client: TestClient, tmp_path: Path) -> None:
+    created = _prepare(client, tmp_path, mode="document_and_video")
+
+    # unit_count=7 ama güven eşiğin altında -> sayım sinyali karar verdirmez.
+    _post_video(client, created["id"], "teslimat_eksik_dusuk_guven.mp4")
+    body = _post_e_irsaliye(client, created["id"], 10).json()
+
+    assert body["decision"]["action"] == "capture"
+    assert body["decision"]["manual_review_required"] is False
+    assert "VIDEO_LOW_CONFIDENCE" in _finding_codes(body["decision"])
+
+
+def test_high_confidence_divergence_holds_without_release_or_dispute(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_and_video")
+
+    # unit_count=7, güven 0.9; e-irsaliye 10 -> |10-7|/10 = %30 > %10 eşiği.
+    _post_video(client, created["id"], "teslimat_eksik.mp4")
+    body = _post_e_irsaliye(client, created["id"], 10).json()
+
+    assert body["decision"]["action"] == "hold"
+    assert body["decision"]["capture_ratio"] == 0.0
+    assert body["decision"]["manual_review_required"] is True
+    assert "VIDEO_COUNT_DIVERGENCE" in _finding_codes(body["decision"])
+    assert body["state"] == "evidence_pending"
 
     detail = client.get(f"/api/transactions/{created['id']}").json()
-    assert detail["state"] == "awaiting_approval"
+    event_types = [event["event_type"] for event in detail["events"]]
+    assert "dispute_opened" not in event_types
+    assert "mock_payment_executed" not in event_types
+    assert all(payment["status"] == "pool" for payment in detail["payment"])
 
-    response = client.post(
-        f"/api/transactions/{created['id']}/events/e-irsaliye",
-        json={"delivered_quantity": 10},
-    )
+
+def test_matched_high_confidence_damage_holds_for_manual_review(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_and_video")
+
+    _post_video(client, created["id"], "teslimat_hasarli.mp4")
+    body = _post_e_irsaliye(client, created["id"], 10).json()
+
+    assert body["decision"]["action"] == "hold"
+    assert body["decision"]["manual_review_required"] is True
+    assert "VIDEO_DAMAGE_MATCHED" in _finding_codes(body["decision"])
+    assert "dispute_opened" not in _event_types(client, created["id"])
+
+
+# --- kanal guard'ları ve idempotency ----------------------------------------
+
+
+def test_approval_only_transaction_rejects_e_irsaliye_channel(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _upload(client, tmp_path)
+    _lock_policy(client, created, mode="off")
+    assert _approve_both(client, created) == "decided"
+
+    response = _post_e_irsaliye(client, created["id"], 10)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "TRACKING_NOT_ENABLED"
+
+
+def test_late_video_on_decided_transaction_is_rejected_before_analysis(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_and_video")
+    assert _post_e_irsaliye(client, created["id"], 10).json()["state"] == "decided"
+
+    response = _post_video(client, created["id"], "teslimat.mp4")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "TRANSACTION_DECIDED"
+    assert "delivery_video_analyzed" not in _event_types(client, created["id"])
+
+
+def test_premature_evidence_before_approval_returns_409(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _upload(client, tmp_path)
+    _lock_policy(client, created, mode="document_only")
+
+    response = _post_e_irsaliye(client, created["id"], 10)
+
     assert response.status_code == 409
 
 
-def test_evidence_bundle_excludes_raw_markdown(client: TestClient, tmp_path: Path) -> None:
-    tx = _upload_and_activate(client, tmp_path)
+def test_repeated_e_irsaliye_does_not_produce_a_second_release(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_only")
+    assert _post_e_irsaliye(client, created["id"], 10).status_code == 200
 
-    client.post(
-        f"/api/transactions/{tx['id']}/events/e-irsaliye",
-        json={"delivered_quantity": 10},
+    repeat = _post_e_irsaliye(client, created["id"], 10)
+
+    assert repeat.status_code == 409
+    detail = client.get(f"/api/transactions/{created['id']}").json()
+    assert len(detail["payment"]) == 1
+    executed = [e for e in detail["events"] if e["event_type"] == "mock_payment_executed"]
+    assert len(executed) == 1
+
+
+# --- sözleşmesel video: yönetici kapatamaz -----------------------------------
+
+
+def test_contractual_video_cannot_be_disabled_and_holds_until_video_arrives(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patch_extraction(monkeypatch, contractual_video_contract())
+    created = _upload(client, tmp_path)
+    manager_token = _extract_token(created["manager_link"])
+
+    off_attempt = client.put(
+        f"/api/transactions/{created['id']}/tracking-policy",
+        json={
+            "manager_token": manager_token,
+            "physical_delivery_confirmed": True,
+            "tracking_mode": "off",
+        },
     )
-    video_body = _post_video(client, tx["id"], "teslimat.mp4")
-    assert video_body["decision"]["action"] == "capture"
+    assert off_attempt.status_code == 409
+    assert off_attempt.json()["detail"]["code"] == "POLICY_CONTRACT_CONFLICT"
 
-    response = client.get(f"/api/transactions/{tx['id']}/evidence")
+    _lock_policy(client, created, mode="document_only")
+    _approve_both(client, created)
+
+    # Sözleşmesel video hâlâ zorunlu: e-irsaliye tek başına release üretmez.
+    e_irsaliye = _post_e_irsaliye(client, created["id"], 10).json()
+    assert e_irsaliye["decision"]["action"] == "hold"
+    assert "MISSING_REQUIRED_EVIDENCE" in _finding_codes(e_irsaliye["decision"])
+
+    # Video kanalı sözleşme gereği açıktır (policy `document_only` olsa bile).
+    video = _post_video(client, created["id"], "teslimat.mp4")
+    assert video.status_code == 200, video.text
+    assert video.json()["decision"]["action"] == "capture"
+
+
+# --- evidence bundle ---------------------------------------------------------
+
+
+def test_evidence_bundle_carries_policy_snapshot_without_raw_markdown_or_tokens(
+    client: TestClient, tmp_path: Path
+) -> None:
+    created = _prepare(client, tmp_path, mode="document_only")
+    _post_e_irsaliye(client, created["id"], 10)
+
+    response = client.get(f"/api/transactions/{created['id']}/evidence")
     assert response.status_code == 200, response.text
     bundle = response.json()
 
-    assert bundle["transaction"]["id"] == tx["id"]
-    assert bundle["extraction"] is not None
-    assert len(bundle["events"]) > 0
-    assert len(bundle["payments"]) == 1
+    assert bundle["transaction"]["id"] == created["id"]
     assert bundle["decision"]["action"] == "capture"
+    assert bundle["tracking_policy"]["tracking_mode"] == "document_only"
+    assert bundle["tracking_policy"]["status"] == "locked"
     assert "generated_at" in bundle
 
     serialized = str(bundle)
     assert _SAMPLE_MARKDOWN not in serialized
     assert "Alıcı ile Satıcı arasında endüstriyel pompa" not in serialized
+    for link in ("buyer_link", "seller_link", "manager_link"):
+        assert _extract_token(created[link]) not in serialized

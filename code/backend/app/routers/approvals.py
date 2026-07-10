@@ -21,12 +21,14 @@ from backend.app.db import connect
 from backend.app.eventbus import emit
 from backend.app.routers.transactions import load_transaction, resolve_party
 from backend.app.services.payment_provider import make_payment_provider
+from backend.app.services.settlement import evaluate_settlement
+from backend.app.services.tracking_policy import load_tracking_policy
 
 router = APIRouter(prefix="/api/transactions", tags=["approvals"])
 
 # İki onay tamamlandığında havuz ödemesi bu state'lerden tetiklenir — `active`
 # (zaten tetiklenmiş) ve `rejected` (akış durmuş) hariç.
-_APPROVABLE_STATES = {"awaiting_review", "awaiting_approval"}
+_APPROVABLE_STATES = {"awaiting_approval"}
 
 
 class ApprovalRequest(BaseModel):
@@ -58,6 +60,15 @@ def _load_extraction_for_payment(conn: Connection, transaction_id: str) -> dict 
     return json.loads(row["extraction_json"])
 
 
+def _policy_not_locked_detail() -> dict:
+    """Onay öncesi kilit gereksiniminin sabit, güvenli 409 gövdesi."""
+    return {
+        "code": "POLICY_NOT_LOCKED",
+        "message": "Taraf onayından önce takip politikası kilitlenmelidir.",
+        "conflicts": ["TRACKING_POLICY_NOT_LOCKED"],
+    }
+
+
 @router.post("/{transaction_id}/approvals")
 def create_approval(transaction_id: str, body: ApprovalRequest) -> dict:
     settings = Settings.from_env()
@@ -76,7 +87,27 @@ def create_approval(transaction_id: str, body: ApprovalRequest) -> dict:
                 status_code=409, detail="İşlem reddedildi; onay akışı durduruldu."
             )
 
+        policy = load_tracking_policy(conn, transaction_id)
+        if policy is None or policy.status.value != "locked":
+            raise HTTPException(status_code=409, detail=_policy_not_locked_detail())
+
         already_approved = party in _approved_parties(conn, transaction_id)
+        if (
+            already_approved
+            and row["state"] in {"active", "evidence_pending", "decided"}
+        ):
+            approved = _approved_parties(conn, transaction_id)
+            return {
+                "state": row["state"],
+                "approvals": {"buyer": "buyer" in approved, "seller": "seller" in approved},
+            }
+
+        if row["state"] not in _APPROVABLE_STATES:
+            raise HTTPException(
+                status_code=409,
+                detail="İşlem taraf onayına açık durumda değil.",
+            )
+
         if not already_approved:
             conn.execute(
                 "INSERT INTO approvals (transaction_id, party, created_at) VALUES (?, ?, ?)",
@@ -100,7 +131,11 @@ def create_approval(transaction_id: str, body: ApprovalRequest) -> dict:
                 conn.execute(
                     "UPDATE transactions SET state = 'active' WHERE id = ?", (transaction_id,)
                 )
-                state = "active"
+                settlement = evaluate_settlement(conn, transaction_id, settings)
+                if settlement is not None:
+                    state_row = load_transaction(conn, transaction_id)
+                    if state_row is not None:
+                        state = state_row["state"]
 
         conn.commit()
 

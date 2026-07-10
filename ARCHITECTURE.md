@@ -18,37 +18,44 @@ Sözleşme (PDF/DOCX/görsel)
   → RAG (mevzuat bağlamı getir)
   → ExtractionService (LLM → yapılandırılmış kural JSON'u)
   → Validator (deterministik: PASS / NEEDS_REVIEW / REJECT)
+  → TrackingPolicy (yönetici fiziksel teslimat takibini seçer ve KİLİTLER)
   → Çift taraflı onay (token'lı taraf linkleri)
   → PaymentProvider.create_pool_payment (para havuzda bekler)
-  → Teslimat kanıtları (e-irsaliye birincil, video analizi ikincil)
-  → Decision engine → capture / partial / hold / dispute
+  → Teslimat kanıtları (e-irsaliye birincil nicel kanıt, video ikincil/advisory)
+  → Settlement coordinator → decision engine → capture / partial / hold
   → PaymentProvider aksiyonu + evidence bundle
 ```
+
+Sistem sözleşmeden fiziksel teslimatı yalnızca **önerir**; takip modunu (`off` · `document_only` · `document_and_video`) yönetici seçer ve taraf onaylarından önce kilitler. Sözleşmenin kendi kanıt şartları (extraction'daki `required_evidence`) yönetici tercihiyle devre dışı bırakılamaz. Ayrıntı: §5, §6.9-6.11.
 
 ```
 code/
 ├── scripts/          # offline hazırlık: dönüşüm, chunk'lama, embedding
 ├── backend/app/
 │   ├── main.py · config.py · db.py · eventbus.py
-│   ├── schemas/      # extraction.py (ikili sözleşme) · events.py · api.py
-│   ├── routers/      # transactions · approvals · delivery · evidence
+│   ├── schemas/      # extraction.py (ikili sözleşme) · tracking.py (takip politikası) · events.py · api.py
+│   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence
 │   └── services/
 │       ├── documents/         # DocumentExtractor: pdf_digital · docx · ocr · normalizer
 │       ├── rag.py             # Chroma retrieval (BGE-M3 lazy singleton, düşük seviye)
 │       ├── context_builder.py # ContextBuilder: çoklu-query/çoklu-koleksiyon RAG orkestrasyonu → ContextPack
 │       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
+│       ├── extraction_projection.py # public API'ler için redacted extraction görünümü (tax_id/source_quote yok)
 │       ├── validator.py       # deterministik kural kapısı
+│       ├── tracking_policy.py # TrackingPolicy persistence + deterministik fiziksel teslimat önerisi
+│       ├── effective_requirements.py # saf resolver: contractual + operational + advisory kanıt kümeleri
 │       ├── video/             # VideoAnalyzer: FakeVideoAnalyzer + RoboflowVideoAnalyzer (§3.4)
 │       ├── decision.py        # decision engine — saf fonksiyon, I/O yok
+│       ├── settlement.py      # settlement coordinator: karar + release guard + event/ödeme orkestrasyonu
 │       ├── payment_provider.py# PaymentProvider: MockMokaProvider + RealMokaProvider(v1)
-│       └── evidence.py        # zaman damgalı JSON bundle
-└── frontend/src/     # api/ · pages/ (Dashboard · TransactionDetail · PartyReview) · components/
+│       └── evidence.py        # zaman damgalı JSON bundle (tracking policy snapshot'ı dahil)
+└── frontend/src/     # api/ · pages/ (Dashboard · TransactionDetail · PartyReview · ManagerPolicy) · components/
 ```
 
 > **Uygulama notu (2026-07-09):** `DocumentExtractor` şu an `services/documents/` altında değil — mevcut kod `code/scripts/document_parser/` içinde (Clean Architecture, testli); backend pipeline onu bir `sys.path` köprüsüyle import eder (bkz. `routers/transactions.py`). Yukarıdaki `services/documents/` hedef yapısı korunur; relokasyon ayrı bir iştir. Backend omurgası (`main`/`db`/`eventbus`/`routers`/`validator`/`decision`/`payment_provider`/`video`/`evidence`) kuruldu — [plans/done/backend_iskeleti_ve_islem_akisi.md](plans/done/backend_iskeleti_ve_islem_akisi.md).
 
-Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + onay).
+Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi).
 
 ## 2. Tech stack
 
@@ -94,11 +101,19 @@ PaymentProvider
 ```
 
 - `PAYMENT_PROVIDER=mock|moka` (demo'da `mock`). `MockMokaProvider` cevapları **gerçek Moka response şeklindedir** (`ResultCode: "Success"`, `Data.IsSuccessful`, `VirtualPosOrderId`); bizim `transaction_id` Moka'ya `OtherTrxCode` olarak taşınır. Böylece v1'de gerçek entegrasyon yalnızca adapter altını değiştirir.
-- Release çağrısı yalnızca şu koşulda yapılır: `buyer_approved ∧ seller_approved ∧ decision==RELEASE ∧ state==FUNDS_HELD`. Ayrıntı ve gerekçe: `plans/planning/moka_cüzdan_entegrasyonu.md`.
+- Release çağrısı yalnızca şu koşulda yapılır: `buyer_approved ∧ seller_approved ∧ decision ∈ {capture, partial_capture} ∧ state ∈ {active, evidence_pending} ∧ havuz ödemesi hâlâ `pool``. Bu guard tek bir yerde, `services/settlement.py::evaluate_settlement` içinde yaşar; router'lar ödeme mantığının sahibi değildir. Ayrıntı ve gerekçe: `plans/planning/moka_cüzdan_entegrasyonu.md`.
 
 ### 3.4 Video — `VideoAnalyzer`
 
-`analyze(media_path) -> {counts, damage_signals, confidence}` → `delivery_video_analyzed` event'i. Video tek başına ödeme kararı veremez; ikincil risk sinyalidir. `VIDEO_PROVIDER=fake|roboflow` (demo'da `fake`) — Fake ağa çıkmaz, sabit demo-güvenli çıktı döner.
+`analyze(media_path) -> {counts, unit_count, damage_signals, confidence}` → `delivery_video_analyzed` event'i. `counts` sınıf başına ham dökümdür (kanıt/UI); `unit_count` taşıyıcı sınıflar (palet) hariç teslim birimi sayısıdır — decision engine yalnızca onu okur, model sınıf adlarını bilmez. `VIDEO_PROVIDER=fake|roboflow` (demo'da `fake`) — Fake ağa çıkmaz, dosya adı ipuçlarıyla (`eksik` · `hasarli` · `dusuk_guven`) dört karar dalını sürer.
+
+**Video advisory semantiği (bağlayıcı, 2026-07-10):** Platformun opsiyonel video takibi (`tracking_mode=document_and_video`) her zaman `video_role=advisory`'dir. Advisory video:
+
+- `effective_required_evidence` kümesine **girmez**; yokluğu tek başına `hold` üretmez (`VIDEO_NOT_PROVIDED`, bilgilendirici).
+- Teslim edilen miktarın kaynağı **olamaz**: `delivered_quantity = video.unit_count` yapılmaz; capture/partial oranı yalnız e-irsaliyeden (veya sözleşmesel başka bir birincil kanıttan) hesaplanır.
+- `VIDEO_ADVISORY_CONFIDENCE_THRESHOLD` (default `0.80`) altındaki güvende yalnızca **warning** üretir (`VIDEO_LOW_CONFIDENCE`); sayım ve hasar sinyalleri karar verdirmez.
+- Eşik üstünde: e-irsaliye ile sayım ayrışması sözleşme miktarının %10'unu aşarsa (`VIDEO_COUNT_DIVERGENCE`) veya ilgili koliyle **eşleşmiş** hasar sinyali varsa (`VIDEO_DAMAGE_MATCHED`) → `hold` + `manual_review_required`. **Otomatik `dispute` açılmaz**; dispute, yetkili insanın ticari kararıdır.
+- Sözleşme videoyu açıkça şart koşuyorsa (`required_evidence: ["video"]`) video advisory değil **zorunlu kanıttır** ve yönetici bunu kapatamaz (§6.10).
 
 **Uygulama durumu (2026-07-09):** `RoboflowVideoAnalyzer`, uzantıya göre (`.mp4`/`.mov`/vb. → video, aksi → görsel) tek `analyze()` girişinden dispatch eder. İki Roboflow-hosted YOLOv8 modeli kullanılır (`inference-sdk` Python 3.13'ü henüz desteklemediği için resmi SDK yerine düz `requests` REST çağrısı, `roboflow_client.py`):
 
@@ -123,18 +138,29 @@ PaymentProvider
 
 | Endpoint | İş |
 |---|---|
-| `POST /api/transactions` | Sözleşme upload → pipeline başlar → `{id, buyer_link, seller_link}` |
+| `POST /api/transactions` | Sözleşme upload → pipeline başlar → `{id, buyer_link, seller_link, manager_link}` |
 | `GET /api/transactions` | İşlem listesi |
-| `GET /api/transactions/{id}` | Detay: extraction, validator raporu, event timeline, ödeme durumu |
-| `GET /api/transactions/{id}/party-view?token=…` | Taraf perspektifi (token → party çözümü) |
-| `POST /api/transactions/{id}/approvals` | Body `{token}` — token sahibi tarafın onayı; yanlış token → 403 |
-| `POST /api/transactions/{id}/events/e-irsaliye` | E-irsaliye simülasyonu (demo butonu) |
-| `POST /api/transactions/{id}/delivery-video` | Video upload → arka planda analiz |
-| `GET /api/transactions/{id}/evidence` | Kanıt paketi (JSON bundle) |
+| `GET /api/transactions/{id}` | Detay: extraction (redacted), validator raporu, event timeline, ödeme durumu |
+| `GET /api/transactions/{id}/party-view?token=…` | Taraf perspektifi (token → party çözümü) + `tracking_summary` |
+| `GET /api/transactions/{id}/manager-view?token=…` | Yönetici görünümü: sistem önerisi + reason code'lar, policy durumu, sözleşmesel kanıt şartları; **manager token** gerekir, taraf token'ı → 403 |
+| `PUT /api/transactions/{id}/tracking-policy` | Body `{manager_token, physical_delivery_confirmed, tracking_mode}` — taslak policy'yi günceller (idempotent) |
+| `POST /api/transactions/{id}/tracking-policy/lock` | Body `{manager_token}` — policy'yi onaylardan önce kilitler (idempotent) |
+| `POST /api/transactions/{id}/approvals` | Body `{token}` — token sahibi tarafın onayı; yanlış token → 403; **policy kilitli değilse → 409** |
+| `POST /api/transactions/{id}/events/e-irsaliye` | E-irsaliye simülasyonu (demo butonu); kanal etkin değilse → 409 |
+| `POST /api/transactions/{id}/delivery-video` | Video upload → inline analiz; kanal etkin değilse → 409 |
+| `GET /api/transactions/{id}/evidence` | Kanıt paketi (JSON bundle, tracking policy snapshot'ı dahil) |
+
+**Policy/delivery 409 gövdesi** her zaman `detail: {code, message, conflicts[]}` şeklindedir. Kodlar: `POLICY_NOT_CONFIGURABLE` (validator PASS değil veya state `awaiting_approval` değil) · `POLICY_LOCKED` · `POLICY_INVALID` · `POLICY_CONTRACT_CONFLICT` · `POLICY_NOT_LOCKED` (onay öncesi) · `TRACKING_NOT_ENABLED` · `TRANSACTION_DECIDED`.
+
+**Kanıt kanalı guard'ı (`delivery.py`):** e-irsaliye yalnızca sözleşme onu şart koşuyorsa **veya** policy `document_only|document_and_video` ise kabul edilir; video yalnızca sözleşmesel video şartı varsa **veya** policy `document_and_video` ise kabul edilir. Karara bağlanmış (`decided`) işleme geç gelen kanıt, herhangi bir video analizi yapılmadan `TRANSACTION_DECIDED` ile reddedilir.
+
+**Public cevaplarda redaksiyon:** detay, party/manager view ve evidence bundle `services/extraction_projection.py` üzerinden geçer — `tax_id`, ham `source_quote`, capability token'ları ve ham markdown hiçbirinde bulunmaz.
 
 ### 4.2 Extraction JSON şeması — **ikili sözleşme noktası**
 
 `schemas/extraction.py` (Pydantic) tek doğruluk kaynağıdır; fake ve gerçek extraction aynı şemayı döndürür. Değişiklik ekip mutabakatı gerektirir.
+
+> Şema **sözleşmenin ne söylediğini** temsil eder; platformun operasyonel takip tercihi buraya yazılmaz (o `schemas/tracking.py`de yaşar). `trigger.delivery_video` ve `required_evidence.video` yalnızca sözleşme videoyu açıkça şart koştuğunda kullanılır. Alan adları ve enum üyeleri `tests/test_extraction_schema.py`deki yapısal snapshot testiyle kilitlidir.
 
 ```json
 {
@@ -168,21 +194,37 @@ PaymentProvider
 
 Tüm modüller `eventbus.emit()` ile konuşur; her event `events` tablosuna yazılır (evidence bundle buradan derlenir). Zarf: `transaction_id · event_type · payload · source · created_at`.
 
-Event tipleri: `contract_extracted` · `rules_validated` · `buyer_approved` · `seller_approved` · `e_irsaliye_received` · `delivery_video_analyzed` · `payment_decision_created` · `mock_payment_executed` · `dispute_opened`
+Event tipleri: `contract_extracted` · `rules_validated` · `tracking_policy_recommended` · `tracking_policy_updated` · `tracking_policy_locked` · `buyer_approved` · `seller_approved` · `e_irsaliye_received` · `delivery_video_analyzed` · `payment_decision_created` · `mock_payment_executed` · `dispute_opened`
+
+`payment_decision_created` payload'ı `action` · `capture_ratio` · `rationale` · `findings[{code, severity, message}]` · `manual_review_required` taşır. `dispute_opened` yalnızca gerçek (insan kararlı) dispute içindir — **opsiyonel video anomalisi bu event'i üretmez**, `action=hold` + `manual_review_required=true` üretir.
+
+Event payload'larında capability token (`manager_token`/`buyer_token`/`seller_token`), ham markdown, maskeleme haritası ve kart verisi **bulunmaz**.
 
 ## 5. Veri modeli ve state machine
 
-Tablolar: `transactions` (state, buyer_token, seller_token, markdown) · `extracted_rules` (extraction_json, validator_status, validator_report) · `approvals` · `events` · `mock_payments` · `evidence`
+Tablolar: `transactions` (state, buyer_token, seller_token, **manager_token**, markdown) · `extracted_rules` (extraction_json, validator_status, validator_report) · **`tracking_policies`** · `approvals` · `events` · `mock_payments` · `evidence`
+
+`tracking_policies` (transaction başına en fazla bir satır, `transaction_id` PK): `recommendation` (`yes|no|uncertain`, sistem önerisi) · `recommendation_reason_codes` (JSON, güvenli kod listesi — sözleşme metni taşımaz) · `manager_physical_delivery_confirmed` (`null` iken kilitlenemez) · `tracking_mode` (`off|document_only|document_and_video`) · `video_role` (sabit `advisory`) · `status` (`draft|locked`) · `configured_at` · `locked_at`.
+
+**Migration:** `init_db()` additive ve idempotenttir — `tracking_policies` `CREATE TABLE IF NOT EXISTS` ile, `manager_token` ise `PRAGMA table_info(transactions)` kontrolünden sonra nullable `ALTER TABLE ADD COLUMN` ile eklenir. Eski runtime satırlarına token **backfill edilmez** ve hiçbir kullanıcı verisi sessizce silinmez; demo DB'si tazelenecekse `code/data/runtime/m4trust.db` elle silinir (yalnızca geliştirme notu).
 
 ```
-uploaded → extracting → awaiting_review → awaiting_approval
-        → active (pool/funds_held) → evidence_pending
-        → decided (captured | partially_captured | disputed | held)
+uploaded → extracting → awaiting_review | awaiting_approval | rejected
+                          + policy.status = draft
+policy locked  (yalnız validator PASS ∧ state=awaiting_approval)
+        → taraf onayları açılır
+iki onay → pool payment + active
+        → harici efektif kanıt yoksa: settlement → decided (capture)
+        → kanıt bekleniyorsa: evidence_pending
+kanıt yeterli ve temiz → decided
+video anomalisi / manuel inceleme → evidence_pending'de kalır (release yok)
 
-validator REJECT → rejected (akış durur)
+validator REJECT → rejected (akış durur; policy yapılandırılamaz)
 ```
 
-Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` · beklemede pre-auth devam · çelişkili kanıt `mark_dispute` (capture gitmez, evidence snapshot alınır).
+Policy yaşam döngüsü transaction state'inden **ayrıdır**: UI "takip politikası bekleniyor" durumunu `policy.status`'ten türetir, yeni transaction state'i eklenmez. `hold` sonucunda transaction `decided` yapılmaz.
+
+Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (oran yalnız birincil kanıttan) · eksik/şüpheli kanıt `hold` (capture çağrılmaz, evidence snapshot alınır). `dispute` literal'i geriye uyumluluk için `DecisionResult`ta durur; opsiyonel video onu üretmez.
 
 ## 6. Dışına çıkılmayacak tasarım kalıpları
 
@@ -190,7 +232,10 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` · b
 2. **Validator kapısı atlanamaz.** LLM çıktısı PASS almadan aktif kural olmaz; NEEDS_REVIEW insan ister; REJECT akışı durdurur. UI her zaman gerekçeyi gösterir.
 3. **Her dış bağımlılık adapter + fake çifti olarak yazılır** ve env ile seçilir (LLM, ödeme, video). Fake'ler demo fallback'idir.
 4. **Event bus = events tablosu.** Ayrı mesajlaşma altyapısı kurulmaz; kanıt zinciri bu tablodan üretilir.
-5. **Decision engine saf fonksiyondur** — I/O yapmaz, girdi/çıktısı test edilebilir.
-6. **Taraf kimliği = token.** Auth/users tablosu yok; capability URL modeli.
+5. **Decision engine saf fonksiyondur** — I/O yapmaz, girdi/çıktısı test edilebilir. DB/event/ödeme orkestrasyonu `services/settlement.py`'de yaşar; release guard **tek yerdedir** ve router'lar birbirinin private fonksiyonlarını import etmez.
+6. **Taraf kimliği = token.** Auth/users tablosu yok; capability URL modeli. Yönetici de bir capability token'ıdır (`secrets.token_urlsafe(32)`); token'lar log/event/evidence'a girmez, yanlış rol token'ı endpoint bazında 403 alır.
 7. **Local-first.** Runtime'daki tek dış çağrı LLM API'sidir; o da yalnızca maskelenmiş içerik alır.
 8. **Gerçek para hareketi ve gerçek kart verisi yoktur** (demo). Prod anlatısı: lisanslı altyapının (Moka havuz/cüzdan) üstünde karar-kanıt katmanı.
+9. **Video tek başına para hareketi üretemez.** Opsiyonel (platform) videosu advisory'dir: teslim miktarını, kısmi ödeme oranını, release'i veya dispute'u belirleyemez; en fazla `hold` + manuel inceleme tetikler (§3.4).
+10. **Sözleşmesel kanıt platform tercihini yener.** Extraction'daki `required_evidence` yönetici policy'siyle devre dışı bırakılamaz; çelişkide policy kilidi 409 ile reddedilir. LLM/RAG takip politikasını **seçmez** — politika `ExtractionJSON` içine yazılmaz.
+11. **Takip politikası taraf onaylarından önce kilitlenir** ve iki tarafa da gösterilir. Kilitlenmemiş policy'de onay 409'dur; kilit sonrası policy değişmez (amendment akışı kapsam dışı — yeni transaction açılır).

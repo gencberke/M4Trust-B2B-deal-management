@@ -40,6 +40,7 @@ class Settings:
     payment_provider: str = "mock"                   # "mock" (§3.3 MockMokaProvider) | ileride "real"
     db_path: Path = _DEFAULT_DB_PATH                   # sqlite3 dosya yolu (§5)
     validator_confidence_threshold: float = 0.7        # validator NEEDS_REVIEW eşiği (§6.2)
+    video_advisory_confidence_threshold: float = 0.80  # ikincil video sinyali eşiği
     video_provider: str = "fake"                      # "fake" (demo-güvenli) | "roboflow" (canlı)
     roboflow_api_key: str = ""
 
@@ -61,6 +62,9 @@ class Settings:
             payment_provider=_env("PAYMENT_PROVIDER", "mock"),
             db_path=Path(db_path).resolve() if db_path else _DEFAULT_DB_PATH,
             validator_confidence_threshold=float(_env("VALIDATOR_CONFIDENCE_THRESHOLD", "0.7")),
+            video_advisory_confidence_threshold=float(
+                _env("VIDEO_ADVISORY_CONFIDENCE_THRESHOLD", "0.80")
+            ),
             video_provider=_env("VIDEO_PROVIDER", "fake"),
             roboflow_api_key=os.environ.get("ROBOFLOW_API_KEY", ""),
         )
@@ -79,5 +83,7 @@ class Settings:
             f"payment_provider={self.payment_provider!r}, "
             f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r}, "
             f"db_path={str(self.db_path)!r}, "
-            f"validator_confidence_threshold={self.validator_confidence_threshold!r})"
+            f"validator_confidence_threshold={self.validator_confidence_threshold!r}, "
+            f"video_advisory_confidence_threshold="
+            f"{self.video_advisory_confidence_threshold!r})"
         )

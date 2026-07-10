@@ -97,3 +97,53 @@ def test_unknown_extra_field_raises():
 
     with pytest.raises(ValidationError):
         ExtractionJSON.model_validate(payload)
+
+
+# --- §4.2 donmuş ikili sözleşme: yapısal snapshot ---------------------------
+
+# Bu sabitler ARCHITECTURE.md §4.2'deki şemanın birebir karşılığıdır. Tracking
+# policy işi (opsiyonel fiziksel teslimat ve video takibi) bu şemaya alan
+# EKLEMEZ: platformun operasyonel takip tercihi `schemas/tracking.py`de yaşar.
+# Bu test kırılıyorsa şema değişmiştir ve ekip mutabakatı gerekir.
+_FROZEN_FIELDS = {
+    "ExtractionJSON": [
+        "contract_id",
+        "parties",
+        "commercial_terms",
+        "payment_rules",
+        "risk_flags",
+        "needs_manual_review",
+    ],
+    "Party": ["name", "tax_id"],
+    "Goods": ["name", "quantity", "unit"],
+    "CommercialTerms": ["currency", "total_amount", "goods", "delivery_deadline"],
+    "PaymentRule": [
+        "milestone",
+        "trigger",
+        "percentage",
+        "required_evidence",
+        "source_quote",
+        "confidence",
+    ],
+}
+
+
+def test_extraction_schema_field_names_are_frozen():
+    from backend.app.schemas import extraction as extraction_module
+
+    for model_name, expected_fields in _FROZEN_FIELDS.items():
+        model = getattr(extraction_module, model_name)
+        assert list(model.model_fields) == expected_fields, model_name
+
+
+def test_extraction_schema_enum_members_are_frozen():
+    from backend.app.schemas.extraction import Currency, RequiredEvidence, Trigger
+
+    assert [c.value for c in Currency] == ["TRY", "USD", "EUR", "OTHER"]
+    assert [t.value for t in Trigger] == [
+        "approval",
+        "e_invoice",
+        "delivery_video",
+        "manual_review",
+    ]
+    assert [e.value for e in RequiredEvidence] == ["contract", "e_irsaliye", "video"]

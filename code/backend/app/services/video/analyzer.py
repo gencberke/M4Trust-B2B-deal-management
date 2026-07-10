@@ -51,29 +51,40 @@ class VideoAnalyzer(ABC):
         raise NotImplementedError
 
 
+_HIGH_CONFIDENCE = 0.9
+_LOW_CONFIDENCE = 0.5
+
+
 class FakeVideoAnalyzer(VideoAnalyzer):
     """Ağa çıkmayan, demo-güvenli fake video analiz servisi.
 
-    Dosya adı ipucu kuralları (dört demo senaryosunu sürebilmek için, §3.4):
-    - varsayılan (ipucu yok)        -> unit_count=10, hasar yok   (tam teslimat)
-    - dosya adında "eksik" varsa    -> unit_count=7,  hasar yok   (kısmi/çelişki)
-    - dosya adında "hasarli" varsa  -> unit_count=10, hasar sinyali (dispute)
-    İki ipucu da geçiyorsa "hasarli" önceliklidir (hasar tek başına dispute tetikler).
+    Dosya adı ipuçları, karar motorunun dört ikincil-video dalını açıkça
+    sürebilmek içindir (§3.4). Video hiçbir dalda ödeme miktarı üretmez:
+    - varsayılan (ipucu yok)     -> unit_count=10, hasar yok, yüksek güven (uyumlu)
+    - "eksik"                    -> unit_count=7,  hasar yok, yüksek güven (nicel ayrışma)
+    - "hasarli"                  -> unit_count=10, eşleşmiş hasar sinyali, yüksek güven
+    - "dusuk_guven"              -> güven eşiğin altında (yalnız warning)
+    "hasarli" ile "eksik" birlikte geçerse "hasarli" önceliklidir; düşük güven
+    ipucu diğerlerinden bağımsızdır ve yalnız `confidence` alanını düşürür.
     """
 
     def analyze(self, media_path: Path) -> dict[str, Any]:
         name = Path(media_path).name.lower()
+        confidence = _LOW_CONFIDENCE if "dusuk_guven" in name else _HIGH_CONFIDENCE
+
         box_count = 7 if "eksik" in name else 10
         damage_signals: list[dict[str, Any]] = []
         if "hasarli" in name:
             box_count = 10
-            damage_signals = [{"type": "hasar_tespiti", "confidence": 0.9, "matched_box": True}]
+            damage_signals = [
+                {"type": "hasar_tespiti", "confidence": confidence, "matched_box": True}
+            ]
         counts = {"cardboard box": box_count, "wood pallet": 2}
         return {
             "counts": counts,
             "unit_count": _unit_count(counts),
             "damage_signals": damage_signals,
-            "confidence": 0.9,
+            "confidence": confidence,
         }
 
 

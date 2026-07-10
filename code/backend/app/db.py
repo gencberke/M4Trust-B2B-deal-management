@@ -1,7 +1,7 @@
 """sqlite3 katmanı — ORM yok, stdlib yeterli (§5, Notes for Implementer).
 
 `connect()` per-request/per-task bağlantı açar (WAL modu, foreign_keys açık);
-`init_db()` altı tabloyu `CREATE TABLE IF NOT EXISTS` ile kurar; `get_db()`
+`init_db()` tabloları `CREATE TABLE IF NOT EXISTS` ile kurar; `get_db()`
 FastAPI dependency olarak kullanılır (başarıda commit, her durumda kapatma).
 """
 
@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS evidence (
     bundle_json TEXT,
     created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS tracking_policies (
+    transaction_id TEXT PRIMARY KEY,
+    recommendation TEXT,
+    recommendation_reason_codes TEXT NOT NULL DEFAULT '[]',
+    manager_physical_delivery_confirmed INTEGER,
+    tracking_mode TEXT NOT NULL DEFAULT 'off',
+    video_role TEXT NOT NULL DEFAULT 'advisory',
+    status TEXT NOT NULL DEFAULT 'draft',
+    configured_at TEXT,
+    locked_at TEXT,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+);
 """
 
 
@@ -80,8 +93,13 @@ def connect(settings: Settings | None = None) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Altı tabloyu (§5) idempotent şekilde kurar."""
+    """Tabloları idempotent kurar; additive manager token migration'ını uygular."""
     conn.executescript(_SCHEMA)
+    transaction_columns = {row[1] for row in conn.execute("PRAGMA table_info(transactions)")}
+    if "manager_token" not in transaction_columns:
+        # Eski runtime transaction'larına token üretmez/backfill etmez; yalnızca
+        # yeni işlemlerin kullanacağı nullable kolonu ekler.
+        conn.execute("ALTER TABLE transactions ADD COLUMN manager_token TEXT")
     conn.commit()
 
 

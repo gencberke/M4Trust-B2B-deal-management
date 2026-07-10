@@ -1,21 +1,18 @@
-"""`services/decision.py` testleri — decision engine'in her karar dalı.
-
-Saf fonksiyon test edilir: I/O yok, doğrudan `ExtractionJSON` ve
-`DeliveryEvidence` inşa edilir (fake fixture'lara bağımlılık yok).
-"""
+"""Policy-aware, saf ödeme karar semantiği testleri."""
 
 from __future__ import annotations
 
 import copy
 
-from backend.app.schemas.extraction import ExtractionJSON
+import pytest
+
+from backend.app.config import Settings
+from backend.app.schemas.extraction import ExtractionJSON, RequiredEvidence
 from backend.app.services.decision import DeliveryEvidence, decide
+from backend.app.services.effective_requirements import EffectiveEvidenceRequirements
 
 
-def _payload(*, quantity: float = 10.0, required_evidence: list[str] | None = None) -> dict:
-    """Tek kural, tek kalemli taban extraction sözlüğü."""
-    if required_evidence is None:
-        required_evidence = ["contract", "e_irsaliye"]
+def _payload(*, quantity: float = 10.0) -> dict:
     return {
         "contract_id": "sozlesme-decision-001",
         "parties": {
@@ -28,145 +25,190 @@ def _payload(*, quantity: float = 10.0, required_evidence: list[str] | None = No
             "goods": [{"name": "Cimento", "quantity": quantity, "unit": "ton"}],
             "delivery_deadline": "2026-01-01",
         },
-        "payment_rules": [
-            {
-                "milestone": "Teslimat",
-                "trigger": "e_invoice",
-                "percentage": 100.0,
-                "required_evidence": required_evidence,
-                "source_quote": "Teslimatta tüm tutar ödenir.",
-                "confidence": 0.9,
-            }
-        ],
+        "payment_rules": [],
         "risk_flags": [],
         "needs_manual_review": False,
     }
 
 
-def _extraction(*, quantity: float = 10.0, required_evidence: list[str] | None = None) -> ExtractionJSON:
-    payload = copy.deepcopy(_payload(quantity=quantity, required_evidence=required_evidence))
-    return ExtractionJSON.model_validate(payload)
+def _extraction(*, quantity: float = 10.0) -> ExtractionJSON:
+    return ExtractionJSON.model_validate(copy.deepcopy(_payload(quantity=quantity)))
 
 
-# --- HOLD: eksik kanıt ---------------------------------------------------
-
-
-def test_hold_when_required_video_missing():
-    extraction = _extraction(required_evidence=["contract", "video"])
-    evidence = DeliveryEvidence(e_irsaliye=None, video=None)
-    result = decide(extraction, evidence)
-    assert result.action == "hold"
-    assert result.capture_ratio == 0.0
-    assert "video" in result.rationale
-
-
-def test_hold_when_required_e_irsaliye_missing():
-    extraction = _extraction(required_evidence=["contract", "e_irsaliye"])
-    evidence = DeliveryEvidence(e_irsaliye=None, video={"unit_count": 10, "damage_signals": [], "confidence": 0.9})
-    result = decide(extraction, evidence)
-    assert result.action == "hold"
-    assert "e_irsaliye" in result.rationale
-
-
-# --- CAPTURE: tam teslimat -------------------------------------------------
-
-
-def test_capture_on_full_delivery_no_conflict():
-    extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye"])
-    evidence = DeliveryEvidence(e_irsaliye={"delivered_quantity": 10.0}, video=None)
-    result = decide(extraction, evidence)
-    assert result.action == "capture"
-    assert result.capture_ratio == 1.0
-
-
-# --- PARTIAL_CAPTURE: eksik teslimat ---------------------------------------
-
-
-def test_partial_capture_ratio_computed_correctly():
-    extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye"])
-    evidence = DeliveryEvidence(e_irsaliye={"delivered_quantity": 6.0}, video=None)
-    result = decide(extraction, evidence)
-    assert result.action == "partial_capture"
-    assert result.capture_ratio == 0.6
-
-
-def test_over_delivery_clamped_to_capture_not_partial():
-    """Teslim edilen sözleşme miktarını aşarsa oran 1.0'a kısılır -> capture, partial değil."""
-    extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye"])
-    evidence = DeliveryEvidence(e_irsaliye={"delivered_quantity": 15.0}, video=None)
-    result = decide(extraction, evidence)
-    assert result.action == "capture"
-    assert result.capture_ratio == 1.0
-
-
-# --- DISPUTE: çelişki --------------------------------------------------
-
-
-def test_dispute_when_quantities_diverge_over_threshold():
-    extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
-    evidence = DeliveryEvidence(
-        e_irsaliye={"delivered_quantity": 10.0},
-        video={"unit_count": 5, "damage_signals": [], "confidence": 0.9},  # %50 ayrışma
+def _requirements(
+    *,
+    contractual: set[RequiredEvidence] | None = None,
+    operational: set[RequiredEvidence] | None = None,
+    advisory: set[RequiredEvidence] | None = None,
+) -> EffectiveEvidenceRequirements:
+    contractual = contractual or {RequiredEvidence.contract}
+    operational = operational or set()
+    advisory = advisory or set()
+    return EffectiveEvidenceRequirements(
+        contractual_required_evidence=frozenset(contractual),
+        operational_required_evidence=frozenset(operational),
+        advisory_evidence=frozenset(advisory),
+        effective_required_evidence=frozenset(contractual | operational),
     )
-    result = decide(extraction, evidence)
-    assert result.action == "dispute"
-    assert result.capture_ratio == 0.0
 
 
-def test_dispute_when_damage_signals_present_even_if_quantities_agree():
-    extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
-    evidence = DeliveryEvidence(
-        e_irsaliye={"delivered_quantity": 10.0},
-        video={
+def _decide(
+    extraction: ExtractionJSON,
+    requirements: EffectiveEvidenceRequirements,
+    evidence: DeliveryEvidence,
+):
+    return decide(
+        extraction,
+        requirements,
+        evidence,
+        video_confidence_threshold=0.80,
+        divergence_threshold=0.10,
+    )
+
+
+def _finding_codes(result) -> set[str]:
+    return {finding.code for finding in result.findings}
+
+
+def test_approval_only_captures_before_quantity_validation() -> None:
+    result = _decide(
+        _extraction(quantity=0.0),
+        _requirements(),
+        DeliveryEvidence(e_irsaliye=None, video=None),
+    )
+
+    assert result.action == "capture"
+    assert result.capture_ratio == 1.0
+    assert result.manual_review_required is False
+
+
+@pytest.mark.parametrize(
+    ("delivered_quantity", "action", "ratio"),
+    [(10.0, "capture", 1.0), (6.0, "partial_capture", 0.6)],
+)
+def test_document_only_uses_e_irsaliye_for_full_and_partial_capture(
+    delivered_quantity: float,
+    action: str,
+    ratio: float,
+) -> None:
+    result = _decide(
+        _extraction(),
+        _requirements(operational={RequiredEvidence.e_irsaliye}),
+        DeliveryEvidence(e_irsaliye={"delivered_quantity": delivered_quantity}, video=None),
+    )
+
+    assert result.action == action
+    assert result.capture_ratio == ratio
+
+
+def test_missing_effective_e_irsaliye_holds() -> None:
+    result = _decide(
+        _extraction(),
+        _requirements(operational={RequiredEvidence.e_irsaliye}),
+        DeliveryEvidence(e_irsaliye=None, video=None),
+    )
+
+    assert result.action == "hold"
+    assert "MISSING_REQUIRED_EVIDENCE" in _finding_codes(result)
+
+
+def test_missing_advisory_video_is_informational_and_nonblocking() -> None:
+    result = _decide(
+        _extraction(),
+        _requirements(
+            operational={RequiredEvidence.e_irsaliye},
+            advisory={RequiredEvidence.video},
+        ),
+        DeliveryEvidence(e_irsaliye={"delivered_quantity": 10.0}, video=None),
+    )
+
+    assert result.action == "capture"
+    assert "VIDEO_NOT_PROVIDED" in _finding_codes(result)
+
+
+@pytest.mark.parametrize(
+    "video",
+    [
+        {"unit_count": 5, "damage_signals": [], "confidence": 0.9},
+        {
             "unit_count": 10,
-            "damage_signals": [{"type": "hasar_tespiti", "confidence": 0.9, "matched_box": True}],
+            "damage_signals": [
+                {"type": "hasar_tespiti", "confidence": 0.9, "matched_box": True}
+            ],
             "confidence": 0.9,
         },
+    ],
+)
+def test_high_confidence_advisory_anomaly_holds_without_dispute(video: dict) -> None:
+    result = _decide(
+        _extraction(),
+        _requirements(
+            operational={RequiredEvidence.e_irsaliye},
+            advisory={RequiredEvidence.video},
+        ),
+        DeliveryEvidence(e_irsaliye={"delivered_quantity": 10.0}, video=video),
     )
-    result = decide(extraction, evidence)
-    assert result.action == "dispute"
-    assert result.capture_ratio == 0.0
-    # Gerekçe insan-okur olmalı: ham dict repr'i değil, hasar tipleri yazılır.
-    assert "hasar_tespiti" in result.rationale
-    assert "matched_box" not in result.rationale
 
-
-def test_small_divergence_within_threshold_does_not_dispute():
-    """Ayrışma eşiğin (yüzde 10) altındaysa çelişki tetiklenmez."""
-    extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
-    evidence = DeliveryEvidence(
-        e_irsaliye={"delivered_quantity": 10.0},
-        video={"unit_count": 9.5, "damage_signals": [], "confidence": 0.9},  # %5 ayrışma
-    )
-    result = decide(extraction, evidence)
-    assert result.action == "capture"
-
-
-# --- Sıfır sözleşme miktarı -------------------------------------------------
-
-
-def test_zero_contract_quantity_holds_without_division_error():
-    extraction = _extraction(quantity=0.0, required_evidence=["contract", "e_irsaliye"])
-    evidence = DeliveryEvidence(e_irsaliye={"delivered_quantity": 0.0}, video=None)
-    result = decide(extraction, evidence)
     assert result.action == "hold"
+    assert result.action != "dispute"
     assert result.capture_ratio == 0.0
+    assert result.manual_review_required is True
+    assert any(finding.severity == "review" for finding in result.findings)
 
 
-# --- Sıralama: çelişki, kısmi teslimattan önce kontrol edilir ---------------
-
-
-def test_conflict_wins_over_under_delivery_when_both_apply():
-    """Hem eksik teslimat hem çelişki varsa -> dispute kazanır (sıra: 2 > 3)."""
-    extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
-    evidence = DeliveryEvidence(
-        e_irsaliye={"delivered_quantity": 6.0},  # eksik teslimat (6/10)
-        video={
-            "unit_count": 6,  # + hasar sinyali
-            "damage_signals": [{"type": "hasar_tespiti", "confidence": 0.9, "matched_box": True}],
-            "confidence": 0.9,
-        },
+def test_low_confidence_advisory_video_warns_without_blocking_capture() -> None:
+    result = _decide(
+        _extraction(),
+        _requirements(
+            operational={RequiredEvidence.e_irsaliye},
+            advisory={RequiredEvidence.video},
+        ),
+        DeliveryEvidence(
+            e_irsaliye={"delivered_quantity": 10.0},
+            video={
+                "unit_count": 1,
+                "damage_signals": [
+                    {"type": "hasar_tespiti", "confidence": 0.95, "matched_box": True}
+                ],
+                "confidence": 0.79,
+            },
+        ),
     )
-    result = decide(extraction, evidence)
-    assert result.action == "dispute"
-    assert result.capture_ratio == 0.0
+
+    assert result.action == "capture"
+    assert result.manual_review_required is False
+    assert "VIDEO_LOW_CONFIDENCE" in _finding_codes(result)
+
+
+def test_video_alone_cannot_produce_a_quantity_based_payment_decision() -> None:
+    result = _decide(
+        _extraction(),
+        _requirements(contractual={RequiredEvidence.contract, RequiredEvidence.video}),
+        DeliveryEvidence(
+            e_irsaliye=None,
+            video={"unit_count": 10, "damage_signals": [], "confidence": 0.9},
+        ),
+    )
+
+    assert result.action == "hold"
+    assert "PRIMARY_EVIDENCE_MISSING" in _finding_codes(result)
+
+
+def test_missing_contractual_video_holds() -> None:
+    result = _decide(
+        _extraction(),
+        _requirements(contractual={RequiredEvidence.contract, RequiredEvidence.video}),
+        DeliveryEvidence(e_irsaliye=None, video=None),
+    )
+
+    assert result.action == "hold"
+    assert "MISSING_REQUIRED_EVIDENCE" in _finding_codes(result)
+
+
+def test_video_advisory_confidence_threshold_has_safe_default_and_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings.from_env().video_advisory_confidence_threshold == 0.80
+
+    monkeypatch.setenv("VIDEO_ADVISORY_CONFIDENCE_THRESHOLD", "0.91")
+    assert Settings.from_env().video_advisory_confidence_threshold == 0.91
