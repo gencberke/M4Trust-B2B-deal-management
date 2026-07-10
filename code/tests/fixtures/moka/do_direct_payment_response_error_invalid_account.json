@@ -1,0 +1,6 @@
+{
+  "Data": null,
+  "ResultCode": "PaymentDealer.CheckPaymentDealerAuthentication.InvalidAccount",
+  "ResultMessage": "Bayi hesabi dogrulanamadi.",
+  "Exception": null
+}

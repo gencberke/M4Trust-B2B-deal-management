@@ -1,0 +1,73 @@
+"""Moka PaymentDealer public contract paketi — DTO'lar (`contracts.py`) ve hata kataloğu (`errors.py`).
+
+`feat/moka-contract-models` merge sonrası donar (§5.1) — yeni alan/hata kodu
+ayrı bir ortak contract PR'ı gerektirir.
+"""
+
+from .contracts import (
+    ApiResponse,
+    ApproveOrUndoData,
+    DetailQueryFields,
+    DirectPaymentFields,
+    DoApprovePoolPaymentRequest,
+    DoApprovePoolPaymentResponse,
+    DoDirectPaymentData,
+    DoDirectPaymentRequest,
+    DoDirectPaymentResponse,
+    GetDealerPaymentTrxDetailListData,
+    GetDealerPaymentTrxDetailListRequest,
+    GetDealerPaymentTrxDetailListResponse,
+    IdentifierFields,
+    PaymentDealerAuthentication,
+    PaymentTrxDetail,
+    UndoApprovePoolPaymentRequest,
+    UndoApprovePoolPaymentResponse,
+)
+from .errors import (
+    KNOWN_RESULT_CODES,
+    RESULT_CODE_TO_DOMAIN_ERROR,
+    ProviderAuthenticationError,
+    ProviderBankDecline,
+    ProviderContractViolation,
+    ProviderError,
+    ProviderOperationUnknown,
+    ProviderPaymentAlreadyApproved,
+    ProviderPaymentNotFound,
+    ProviderPaymentNotPool,
+    ProviderTransportError,
+    ProviderValidationError,
+    map_result_code,
+)
+
+__all__ = [
+    "ApiResponse",
+    "PaymentDealerAuthentication",
+    "DirectPaymentFields",
+    "DoDirectPaymentRequest",
+    "DoDirectPaymentData",
+    "DoDirectPaymentResponse",
+    "IdentifierFields",
+    "DoApprovePoolPaymentRequest",
+    "UndoApprovePoolPaymentRequest",
+    "ApproveOrUndoData",
+    "DoApprovePoolPaymentResponse",
+    "UndoApprovePoolPaymentResponse",
+    "DetailQueryFields",
+    "GetDealerPaymentTrxDetailListRequest",
+    "PaymentTrxDetail",
+    "GetDealerPaymentTrxDetailListData",
+    "GetDealerPaymentTrxDetailListResponse",
+    "ProviderError",
+    "ProviderAuthenticationError",
+    "ProviderValidationError",
+    "ProviderPaymentNotFound",
+    "ProviderPaymentAlreadyApproved",
+    "ProviderPaymentNotPool",
+    "ProviderOperationUnknown",
+    "ProviderTransportError",
+    "ProviderBankDecline",
+    "ProviderContractViolation",
+    "KNOWN_RESULT_CODES",
+    "RESULT_CODE_TO_DOMAIN_ERROR",
+    "map_result_code",
+]
