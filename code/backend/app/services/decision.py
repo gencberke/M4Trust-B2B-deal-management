@@ -21,7 +21,10 @@ class DeliveryEvidence:
     """Bir işlem için toplanmış teslimat kanıtları."""
 
     e_irsaliye: dict | None  # simülasyon payload'ı, ör. {"delivered_quantity": float, ...}
-    video: dict | None  # VideoAnalyzer çıktısı: {"counts": int, "damage_signals": list, "confidence": float}
+    # VideoAnalyzer çıktısı (§3.4): {"counts": {sınıf: adet}, "unit_count": int,
+    # "damage_signals": [{"type", "confidence", "matched_box"}], "confidence": float}.
+    # Karar yalnızca `unit_count`u okur — sınıf→birim ayrımı adapter'da yapılır.
+    video: dict | None
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,14 @@ def _required_evidence_union(extraction: ExtractionJSON) -> set[RequiredEvidence
     for rule in extraction.payment_rules:
         union.update(rule.required_evidence)
     return union
+
+
+def _damage_types(damage_signals: list) -> str:
+    """Hasar sinyallerini insan-okur gerekçe metnine indirger (dict veya düz string)."""
+    types = [
+        s.get("type", "bilinmeyen") if isinstance(s, dict) else str(s) for s in damage_signals
+    ]
+    return ", ".join(sorted(set(types)))
 
 
 def _missing_evidence(required: set[RequiredEvidence], evidence: DeliveryEvidence) -> list[RequiredEvidence]:
@@ -82,16 +93,16 @@ def decide(extraction: ExtractionJSON, evidence: DeliveryEvidence) -> DecisionRe
 
     if evidence.e_irsaliye is not None and evidence.video is not None:
         e_irsaliye_qty = float(evidence.e_irsaliye.get("delivered_quantity", 0.0))
-        video_counts = float(evidence.video.get("counts", 0.0))
+        video_unit_count = float(evidence.video.get("unit_count", 0.0))
         damage_signals = evidence.video.get("damage_signals") or []
-        divergence_ratio = abs(e_irsaliye_qty - video_counts) / contract_qty
+        divergence_ratio = abs(e_irsaliye_qty - video_unit_count) / contract_qty
 
         if divergence_ratio > _CONFLICT_THRESHOLD:
             return DecisionResult(
                 action="dispute",
                 capture_ratio=0.0,
                 rationale=(
-                    f"E-irsaliye ({e_irsaliye_qty}) ve video sayımı ({video_counts}) "
+                    f"E-irsaliye ({e_irsaliye_qty}) ve video sayımı ({video_unit_count}) "
                     f"sözleşme miktarının %{_CONFLICT_THRESHOLD * 100:.0f}'undan fazla ayrışıyor — "
                     "çelişki, insan incelemesi gerekli."
                 ),
@@ -100,13 +111,13 @@ def decide(extraction: ExtractionJSON, evidence: DeliveryEvidence) -> DecisionRe
             return DecisionResult(
                 action="dispute",
                 capture_ratio=0.0,
-                rationale=f"Video kanıtında hasar sinyali tespit edildi: {damage_signals}.",
+                rationale=f"Video kanıtında hasar sinyali tespit edildi: {_damage_types(damage_signals)}.",
             )
 
     if evidence.e_irsaliye is not None:
         delivered = float(evidence.e_irsaliye.get("delivered_quantity", 0.0))
     else:
-        delivered = float(evidence.video.get("counts", 0.0)) if evidence.video is not None else 0.0
+        delivered = float(evidence.video.get("unit_count", 0.0)) if evidence.video is not None else 0.0
 
     if delivered < contract_qty:
         ratio = max(0.0, min(1.0, delivered / contract_qty))

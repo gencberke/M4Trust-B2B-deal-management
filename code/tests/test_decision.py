@@ -62,7 +62,7 @@ def test_hold_when_required_video_missing():
 
 def test_hold_when_required_e_irsaliye_missing():
     extraction = _extraction(required_evidence=["contract", "e_irsaliye"])
-    evidence = DeliveryEvidence(e_irsaliye=None, video={"counts": 10, "damage_signals": [], "confidence": 0.9})
+    evidence = DeliveryEvidence(e_irsaliye=None, video={"unit_count": 10, "damage_signals": [], "confidence": 0.9})
     result = decide(extraction, evidence)
     assert result.action == "hold"
     assert "e_irsaliye" in result.rationale
@@ -106,7 +106,7 @@ def test_dispute_when_quantities_diverge_over_threshold():
     extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
     evidence = DeliveryEvidence(
         e_irsaliye={"delivered_quantity": 10.0},
-        video={"counts": 5, "damage_signals": [], "confidence": 0.9},  # %50 ayrışma
+        video={"unit_count": 5, "damage_signals": [], "confidence": 0.9},  # %50 ayrışma
     )
     result = decide(extraction, evidence)
     assert result.action == "dispute"
@@ -117,11 +117,18 @@ def test_dispute_when_damage_signals_present_even_if_quantities_agree():
     extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
     evidence = DeliveryEvidence(
         e_irsaliye={"delivered_quantity": 10.0},
-        video={"counts": 10, "damage_signals": ["hasar_tespiti"], "confidence": 0.9},
+        video={
+            "unit_count": 10,
+            "damage_signals": [{"type": "hasar_tespiti", "confidence": 0.9, "matched_box": True}],
+            "confidence": 0.9,
+        },
     )
     result = decide(extraction, evidence)
     assert result.action == "dispute"
     assert result.capture_ratio == 0.0
+    # Gerekçe insan-okur olmalı: ham dict repr'i değil, hasar tipleri yazılır.
+    assert "hasar_tespiti" in result.rationale
+    assert "matched_box" not in result.rationale
 
 
 def test_small_divergence_within_threshold_does_not_dispute():
@@ -129,7 +136,7 @@ def test_small_divergence_within_threshold_does_not_dispute():
     extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
     evidence = DeliveryEvidence(
         e_irsaliye={"delivered_quantity": 10.0},
-        video={"counts": 9.5, "damage_signals": [], "confidence": 0.9},  # %5 ayrışma
+        video={"unit_count": 9.5, "damage_signals": [], "confidence": 0.9},  # %5 ayrışma
     )
     result = decide(extraction, evidence)
     assert result.action == "capture"
@@ -154,7 +161,11 @@ def test_conflict_wins_over_under_delivery_when_both_apply():
     extraction = _extraction(quantity=10.0, required_evidence=["contract", "e_irsaliye", "video"])
     evidence = DeliveryEvidence(
         e_irsaliye={"delivered_quantity": 6.0},  # eksik teslimat (6/10)
-        video={"counts": 6, "damage_signals": ["hasar_tespiti"], "confidence": 0.9},  # + hasar sinyali
+        video={
+            "unit_count": 6,  # + hasar sinyali
+            "damage_signals": [{"type": "hasar_tespiti", "confidence": 0.9, "matched_box": True}],
+            "confidence": 0.9,
+        },
     )
     result = decide(extraction, evidence)
     assert result.action == "dispute"

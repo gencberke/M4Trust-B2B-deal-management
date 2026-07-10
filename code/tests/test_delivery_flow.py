@@ -95,8 +95,9 @@ def test_full_delivery_triggers_capture(client: TestClient, tmp_path: Path) -> N
     assert first_body["state"] == "evidence_pending"
     assert first_body["decision"]["action"] == "hold"
 
-    # 2. adım: uyumlu video (ipucu yok -> counts=10, hasar yok) -> capture.
+    # 2. adım: uyumlu video (ipucu yok -> unit_count=10, hasar yok) -> capture.
     video_body = _post_video(client, tx["id"], "teslimat.mp4")
+    assert video_body["analysis"]["unit_count"] == 10
     assert video_body["state"] == "decided"
     assert video_body["decision"]["action"] == "capture"
     assert video_body["decision"]["capture_ratio"] == 1.0
@@ -120,7 +121,7 @@ def test_partial_delivery_triggers_partial_capture(client: TestClient, tmp_path:
         f"/api/transactions/{tx['id']}/events/e-irsaliye",
         json={"delivered_quantity": 6},
     )
-    # "eksik" ipucu -> video counts=7, hasar yok; |6-7|/10 = %10 ayrışma (eşiğin
+    # "eksik" ipucu -> video unit_count=7, hasar yok; |6-7|/10 = %10 ayrışma (eşiğin
     # ÜSTÜNDE değil, eşitse dispute tetiklenmez) -> partial_capture, oran=6/10.
     video_body = _post_video(client, tx["id"], "teslimat_eksik.mp4")
     assert video_body["decision"]["action"] == "partial_capture"
@@ -141,7 +142,8 @@ def test_damaged_video_triggers_dispute_without_release(client: TestClient, tmp_
     assert e_irsaliye_resp.json()["decision"]["action"] == "hold"
 
     video_body = _post_video(client, tx["id"], "teslimat_hasarli.mp4")
-    assert video_body["analysis"]["damage_signals"] == ["hasar_tespiti"]
+    damage_types = [s["type"] for s in video_body["analysis"]["damage_signals"]]
+    assert damage_types == ["hasar_tespiti"]
     assert video_body["decision"]["action"] == "dispute"
 
     detail = client.get(f"/api/transactions/{tx['id']}").json()

@@ -51,6 +51,8 @@ def test_analyze_image_counts_boxes_and_pallets_separately(tmp_path):
     result = analyzer.analyze(image_path)
 
     assert result["counts"] == {"cardboard box": 2, "wood pallet": 1}
+    # Teslim birimi sayımı taşıyıcı sınıfları (palet) DIŞLAR (§3.4 unit_count).
+    assert result["unit_count"] == 2
     assert result["damage_signals"] == []
 
 
@@ -103,6 +105,7 @@ def test_analyze_video_takes_max_count_across_frames(tmp_path):
 
     # frame2'de 2 koli, frame1'de 1 -- kareler arası maksimum kazanır, toplam değil
     assert result["counts"] == {"cardboard box": 2}
+    assert result["unit_count"] == 2
 
 
 def test_analyze_video_unions_damage_signals_across_frames(tmp_path):
@@ -193,6 +196,28 @@ def test_fake_video_analyzer_returns_canned_result_without_network(tmp_path):
     result = analyzer.analyze(tmp_path / "anything.jpg")
     assert result["counts"]
     assert result["confidence"] > 0
+
+
+def test_fake_analyzer_filename_hints_drive_demo_scenarios(tmp_path):
+    """Dosya adı ipuçları dört demo senaryosunu sürer (§3.4): tam/kısmi/hasar."""
+    analyzer = FakeVideoAnalyzer()
+
+    default = analyzer.analyze(tmp_path / "teslimat.mp4")
+    assert default["unit_count"] == 10
+    assert default["damage_signals"] == []
+
+    eksik = analyzer.analyze(tmp_path / "teslimat_eksik.mp4")
+    assert eksik["unit_count"] == 7
+    assert eksik["damage_signals"] == []
+
+    hasarli = analyzer.analyze(tmp_path / "teslimat_hasarli.mp4")
+    assert hasarli["unit_count"] == 10
+    assert [s["type"] for s in hasarli["damage_signals"]] == ["hasar_tespiti"]
+
+    # İki ipucu birden: "hasarli" kazanır (hasar tek başına dispute tetikler).
+    both = analyzer.analyze(tmp_path / "teslimat_eksik_hasarli.mp4")
+    assert both["unit_count"] == 10
+    assert both["damage_signals"]
 
 
 def test_make_video_analyzer_returns_fake_by_default():

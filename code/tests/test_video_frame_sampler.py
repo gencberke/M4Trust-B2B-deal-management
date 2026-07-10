@@ -7,13 +7,26 @@ from backend.app.services.video.frame_sampler import extract_frames
 
 
 def make_video(tmp_path, num_frames=30, fps=30, size=(64, 64)):
-    path = tmp_path / "sample.mp4"
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
-    for i in range(num_frames):
-        frame = np.full((size[1], size[0], 3), fill_value=i % 255, dtype=np.uint8)
-        writer.write(frame)
-    writer.release()
-    return path
+    """Sentetik test videosu üretir.
+
+    Yazılabilir codec ortama göre değişir (örn. macOS/AVFoundation OpenCV
+    build'i `mp4v` yazamıyor ve writer sessizce açılmıyor — dosya hiç
+    oluşmuyor); sırayla dener, hiçbiri açılmazsa testi atlar. `extract_frames`
+    okurken uzantıya bakmaz, `.avi` de geçerli bir girdidir.
+    """
+    candidates = [("mp4v", ".mp4"), ("MJPG", ".avi"), ("avc1", ".mp4")]
+    for fourcc_name, ext in candidates:
+        path = tmp_path / f"sample{ext}"
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*fourcc_name), fps, size)
+        if not writer.isOpened():
+            writer.release()
+            continue
+        for i in range(num_frames):
+            frame = np.full((size[1], size[0], 3), fill_value=i % 255, dtype=np.uint8)
+            writer.write(frame)
+        writer.release()
+        return path
+    pytest.skip("OpenCV bu ortamda hiçbir test codec'iyle video yazamıyor")
 
 
 def test_extract_frames_samples_at_requested_rate(tmp_path):

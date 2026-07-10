@@ -222,7 +222,7 @@ def test_demo_partial_delivery_partial_capture(client: TestClient, tmp_path: Pat
     assert e_irsaliye_resp.status_code == 200, e_irsaliye_resp.text
     assert e_irsaliye_resp.json()["decision"]["action"] == "hold"
 
-    # "eksik" ipucu -> fake analiz counts=7 üretir; |7-7|/10 = %0 ayrışma
+    # "eksik" ipucu -> fake analiz unit_count=7 üretir; |7-7|/10 = %0 ayrışma
     # (çelişki eşiğinin altında) -> partial_capture, oran = 7/10.
     video_body = _post_video(client, tx["id"], "teslimat_eksik.mp4")
     assert video_body["decision"]["action"] == "partial_capture"

@@ -38,7 +38,6 @@ class Settings:
     contract_collection: str = "contract_examples"
     security_collection: str = "security_controls"
     payment_provider: str = "mock"                   # "mock" (§3.3 MockMokaProvider) | ileride "real"
-    video_analyzer: str = "fake"                      # "fake" (§3.4 FakeVideoAnalyzer)
     db_path: Path = _DEFAULT_DB_PATH                   # sqlite3 dosya yolu (§5)
     validator_confidence_threshold: float = 0.7        # validator NEEDS_REVIEW eşiği (§6.2)
     video_provider: str = "fake"                      # "fake" (demo-güvenli) | "roboflow" (canlı)
@@ -60,7 +59,6 @@ class Settings:
             contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples"),
             security_collection=_env("RAG_SECURITY_COLLECTION", "security_controls"),
             payment_provider=_env("PAYMENT_PROVIDER", "mock"),
-            video_analyzer=_env("VIDEO_ANALYZER", "fake"),
             db_path=Path(db_path).resolve() if db_path else _DEFAULT_DB_PATH,
             validator_confidence_threshold=float(_env("VALIDATOR_CONFIDENCE_THRESHOLD", "0.7")),
             video_provider=_env("VIDEO_PROVIDER", "fake"),
@@ -78,8 +76,8 @@ class Settings:
             f"rag_model_name={self.rag_model_name!r}, legal_collection={self.legal_collection!r}, "
             f"contract_collection={self.contract_collection!r}, "
             f"security_collection={self.security_collection!r}, "
-            f"payment_provider={self.payment_provider!r}, video_analyzer={self.video_analyzer!r}, "
+            f"payment_provider={self.payment_provider!r}, "
+            f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r}, "
             f"db_path={str(self.db_path)!r}, "
             f"validator_confidence_threshold={self.validator_confidence_threshold!r})"
-            f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r})"
         )

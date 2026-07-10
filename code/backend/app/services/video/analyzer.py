@@ -4,10 +4,13 @@ hasar sinyali üretir.
 Fake ve canlı (Roboflow-tabanlı) iki implementasyon aynı arayüzü paylaşır
 (§3 adapter+fake ilkesi). ARCHITECTURE.md §3.4:
 
-    analyze(video_path) -> {counts, damage_signals, confidence}
+    analyze(media_path) -> {counts, unit_count, damage_signals, confidence}
     -> delivery_video_analyzed event'i
 
-Video tek başına ödeme kararı veremez; ikincil risk sinyalidir.
+`counts` sınıf başına ham dökümdür (kanıt/UI); `unit_count` taşıyıcı sınıflar
+(palet) HARİÇ teslim birimi sayısıdır — decision engine yalnızca onu okur,
+model sınıf adlarını bilmez. Video tek başına ödeme kararı veremez; ikincil
+risk sinyalidir.
 """
 
 from __future__ import annotations
@@ -29,23 +32,47 @@ logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
+# Taşıyıcı/ambalaj sınıfları teslim birimi sayılmaz: sözleşmeler koliyi/adedi
+# sayar, paleti değil. Sınıf→birim ayrımı bu adapter katmanında yapılır ki
+# decision.py model etiketlerinden bağımsız kalsın (§3.4).
+CARRIER_CLASSES = {"wood pallet"}
+
+
+def _unit_count(counts: dict[str, int]) -> int:
+    return sum(n for cls, n in counts.items() if cls not in CARRIER_CLASSES)
+
 
 class VideoAnalyzer(ABC):
     """Teslimat kanıtı (fotoğraf/video) analiz eden servislerin ortak arayüzü."""
 
     @abstractmethod
     def analyze(self, media_path: Path) -> dict[str, Any]:
-        """{counts, damage_signals, confidence} döner."""
+        """{counts, unit_count, damage_signals, confidence} döner (§3.4)."""
         raise NotImplementedError
 
 
 class FakeVideoAnalyzer(VideoAnalyzer):
-    """Ağa çıkmayan, demo-güvenli sabit çıktı üreten fake video analiz servisi."""
+    """Ağa çıkmayan, demo-güvenli fake video analiz servisi.
+
+    Dosya adı ipucu kuralları (dört demo senaryosunu sürebilmek için, §3.4):
+    - varsayılan (ipucu yok)        -> unit_count=10, hasar yok   (tam teslimat)
+    - dosya adında "eksik" varsa    -> unit_count=7,  hasar yok   (kısmi/çelişki)
+    - dosya adında "hasarli" varsa  -> unit_count=10, hasar sinyali (dispute)
+    İki ipucu da geçiyorsa "hasarli" önceliklidir (hasar tek başına dispute tetikler).
+    """
 
     def analyze(self, media_path: Path) -> dict[str, Any]:
+        name = Path(media_path).name.lower()
+        box_count = 7 if "eksik" in name else 10
+        damage_signals: list[dict[str, Any]] = []
+        if "hasarli" in name:
+            box_count = 10
+            damage_signals = [{"type": "hasar_tespiti", "confidence": 0.9, "matched_box": True}]
+        counts = {"cardboard box": box_count, "wood pallet": 2}
         return {
-            "counts": {"cardboard box": 10, "wood pallet": 2},
-            "damage_signals": [],
+            "counts": counts,
+            "unit_count": _unit_count(counts),
+            "damage_signals": damage_signals,
             "confidence": 0.9,
         }
 
@@ -99,6 +126,7 @@ class RoboflowVideoAnalyzer(VideoAnalyzer):
 
         return {
             "counts": dict(counts),
+            "unit_count": _unit_count(counts),
             "damage_signals": damage_signals,
             "confidence": round(overall_confidence, 3),
         }
@@ -154,6 +182,7 @@ class RoboflowVideoAnalyzer(VideoAnalyzer):
 
         return {
             "counts": dict(max_counts),
+            "unit_count": _unit_count(max_counts),
             "damage_signals": all_damage_signals,
             "confidence": round(overall_confidence, 3),
         }
