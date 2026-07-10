@@ -1,0 +1,6 @@
+{
+  "Data": null,
+  "ResultCode": "PaymentDealer.DoApprovePoolPayment.PaymentAlreadyApproved",
+  "ResultMessage": "Odeme zaten onaylanmis.",
+  "Exception": null
+}

@@ -1,0 +1,11 @@
+{
+  "Data": {
+    "IsSuccessful": true,
+    "ResultCode": "",
+    "ResultMessage": "",
+    "VirtualPosOrderId": "ORDER-DEMO-0001"
+  },
+  "ResultCode": "Success",
+  "ResultMessage": "",
+  "Exception": null
+}

@@ -1,0 +1,15 @@
+{
+  "Data": {
+    "TrxDetailList": [
+      {
+        "OtherTrxCode": "M4T-TRX-0001",
+        "VirtualPosOrderId": "ORDER-DEMO-0001",
+        "PaymentStatus": 0,
+        "TrxStatus": 0
+      }
+    ]
+  },
+  "ResultCode": "Success",
+  "ResultMessage": "",
+  "Exception": null
+}

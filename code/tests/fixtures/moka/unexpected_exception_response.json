@@ -1,0 +1,6 @@
+{
+  "Data": null,
+  "ResultCode": "EX",
+  "ResultMessage": "Beklenmeyen sunucu hatasi.",
+  "Exception": "System.Exception: internal error"
+}

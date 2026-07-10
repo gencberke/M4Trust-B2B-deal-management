@@ -1,0 +1,12 @@
+{
+  "PaymentDealerAuthentication": {
+    "DealerCode": "DEALER-DEMO-001",
+    "Username": "m4trust_demo",
+    "Password": "demo-secret",
+    "CheckKey": "b6b1a1e6f4b0f0e3c5a7d9e2f1a4b3c6d5e8f7a0b1c2d3e4f5a6b7c8d9e0f1a2"
+  },
+  "PaymentDealerRequest": {
+    "VirtualPosOrderId": null,
+    "OtherTrxCode": "M4T-TRX-0001"
+  }
+}
