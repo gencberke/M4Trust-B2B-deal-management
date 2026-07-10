@@ -85,10 +85,11 @@ def connect(settings: Settings | None = None) -> sqlite3.Connection:
     """
     settings = settings or Settings.from_env()
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(settings.db_path), check_same_thread=False)
+    conn = sqlite3.connect(str(settings.db_path), check_same_thread=False, timeout=5.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 

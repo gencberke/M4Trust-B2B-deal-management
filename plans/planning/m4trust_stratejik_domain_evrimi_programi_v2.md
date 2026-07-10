@@ -526,7 +526,7 @@ Mock para olsa bile gerçek finansal sistemde kabul edilemez bir desendir.
 H0 ayrı plan/commit olmalıdır:
 
 ```text
-plans/ready/00_delivery_authorization_hotfix.md
+plans/done/00_delivery_authorization_hotfix.md
 ```
 
 ---
@@ -2561,7 +2561,7 @@ Yalnız:
 # 21. Child plan dosyaları
 
 ```text
-plans/ready/00_delivery_authorization_hotfix.md
+plans/done/00_delivery_authorization_hotfix.md
 plans/ready/01_foundation_migration_db_api_ci.md
 plans/ready/02_identity_legal_entity_party_onboarding.md
 plans/ready/03_rule_versioning_ratification_manual_review.md

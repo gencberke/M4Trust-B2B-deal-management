@@ -23,6 +23,14 @@ def _env(name: str, default: str) -> str:
     return value if value else default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    """Env'deki yaygın true biçimlerini bool'a çevir; boşsa default'u koru."""
+    value = os.environ.get(name)
+    if not value:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     """Tüm runtime ayarları. `Settings.from_env()` ile env'den kurulur."""
@@ -43,6 +51,7 @@ class Settings:
     video_advisory_confidence_threshold: float = 0.80  # ikincil video sinyali eşiği
     video_provider: str = "fake"                      # "fake" (demo-güvenli) | "roboflow" (canlı)
     roboflow_api_key: str = ""
+    demo_public_dashboard: bool = False                # demo günü açık liste görünümü
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,6 +76,7 @@ class Settings:
             ),
             video_provider=_env("VIDEO_PROVIDER", "fake"),
             roboflow_api_key=os.environ.get("ROBOFLOW_API_KEY", ""),
+            demo_public_dashboard=_env_bool("DEMO_PUBLIC_DASHBOARD", False),
         )
 
     def __repr__(self) -> str:
@@ -82,6 +92,7 @@ class Settings:
             f"security_collection={self.security_collection!r}, "
             f"payment_provider={self.payment_provider!r}, "
             f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r}, "
+            f"demo_public_dashboard={self.demo_public_dashboard!r}, "
             f"db_path={str(self.db_path)!r}, "
             f"validator_confidence_threshold={self.validator_confidence_threshold!r}, "
             f"video_advisory_confidence_threshold="
