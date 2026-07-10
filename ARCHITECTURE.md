@@ -39,7 +39,7 @@ code/
 │       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
 │       ├── validator.py       # deterministik kural kapısı
-│       ├── video.py           # VideoAnalyzer: detector + FakeVideoAnalyzer
+│       ├── video/             # VideoAnalyzer: FakeVideoAnalyzer + RoboflowVideoAnalyzer (§3.4)
 │       ├── decision.py        # decision engine — saf fonksiyon, I/O yok
 │       ├── payment_provider.py# PaymentProvider: MockMokaProvider + RealMokaProvider(v1)
 │       └── evidence.py        # zaman damgalı JSON bundle
@@ -59,7 +59,7 @@ Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo
 | Doküman | PyMuPDF/PyMuPDF4LLM (dijital PDF) · python-docx/mammoth (DOCX) · Tesseract (OCR) |
 | RAG | BAAI/bge-m3 + ChromaDB — koleksiyonlar `legal_articles` · `contract_examples` · `security_controls` (koşullu), `code/data/processed/embeddings/chroma/`. Orkestrasyon: `context_builder.py` |
 | LLM | `gpt-5.4-mini` (OpenAI-uyumlu API, `openai>=1.40` SDK, lazy import) — structured output (`response_format=json_object` + Pydantic şema doğrulama, uymazsa 1 retry → NEEDS_REVIEW). `LLM_PROVIDER=fake\|openai` env ile seçilir (default `fake`) |
-| Video | OpenCV frame sampling + hafif detector |
+| Video | OpenCV frame sampling + Roboflow hosted YOLOv8 (koli/palet: `logistics-sz9jr`, hasar: `detecting-a-damaged-parcel`) — bkz. §3.4 |
 | Ödeme | Moka United havuz ödeme contract'ı (mock'lanır, bkz. §3.3) |
 
 ## 3. Model ve dış servis iletişimi
@@ -98,7 +98,16 @@ PaymentProvider
 
 ### 3.4 Video — `VideoAnalyzer`
 
-`analyze(video_path) -> {counts, damage_signals, confidence}` → `delivery_video_analyzed` event'i. Video tek başına ödeme kararı veremez; ikincil risk sinyalidir.
+`analyze(media_path) -> {counts, damage_signals, confidence}` → `delivery_video_analyzed` event'i. Video tek başına ödeme kararı veremez; ikincil risk sinyalidir. `VIDEO_PROVIDER=fake|roboflow` (demo'da `fake`) — Fake ağa çıkmaz, sabit demo-güvenli çıktı döner.
+
+**Uygulama durumu (2026-07-09):** `RoboflowVideoAnalyzer`, uzantıya göre (`.mp4`/`.mov`/vb. → video, aksi → görsel) tek `analyze()` girişinden dispatch eder. İki Roboflow-hosted YOLOv8 modeli kullanılır (`inference-sdk` Python 3.13'ü henüz desteklemediği için resmi SDK yerine düz `requests` REST çağrısı, `roboflow_client.py`):
+
+- **`logistics-sz9jr/2`** — koli (`cardboard box`) ve palet (`wood pallet`) sayımı. Ayrı bir palet-özel model (`pallet-detection-ith6b`) denendi, gerçek fotoğraflarla test edilince bırakıldı: istiflenmiş paletlerde tüm görseli kaplayan tek bir kutu döndürdü (5 ayrık paletlik kolay bir fotoğrafta bile 5/5 yerine 1) — palet sayımı bu modelde kalıyor.
+- **`detecting-a-damaged-parcel/11`** — hasar sinyali: `hole`/`wet`/`screw` sınıfları. `correlator.py`, hasar tespitini merkez-noktası bir koli kutusunun içine düşüyorsa o koliye bağlar (`matched_box=true`); düşmüyorsa sinyal atılmaz, `matched_box=false` ile saklanır (koli tespit edilemese bile hasar riski kaybolmasın diye).
+
+**Bilinen sınırlar (7 gerçek fotoğrafla doğrulandı):** ayrık/sınırları belirgin koli ve paletlerde sayım güvenilir (%86-96 confidence, testte 3/3, 24/24, 5/5, 10/10 doğru); **üst üste istiflenmiş** paletlerde ciddi eksik sayım (7 gerçek palet → 3 tespit); hasar modeli koli/parsel olmayan sahnelerde düşük-confidence yanlış pozitif üretebilir. Bu yüzden video sayımı tek başına otomatik onay tetiklememeli — e-irsaliye ile çapraz kontrol ve gerekirse insan onayı şart (bkz. §6.1).
+
+**Kapsam dışı (bilinçli):** ayrı ayrı yüklenen birden fazla video/fotoğrafın (örn. aynı teslimatın iki videosu) toplanması `analyze()` seviyesinde yapılmaz — her çağrı tek bir medya dosyasını analiz eder. Bunun üst katmanda nasıl ele alınacağı (naif toplama aynı kolilerin iki kez gösterilip sayı şişirilmesine açıktır) henüz karara bağlanmadı.
 
 ### 3.5 Dış LLM'e giden içeriğin sınırlandırılması
 

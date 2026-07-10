@@ -41,6 +41,8 @@ class Settings:
     video_analyzer: str = "fake"                      # "fake" (§3.4 FakeVideoAnalyzer)
     db_path: Path = _DEFAULT_DB_PATH                   # sqlite3 dosya yolu (§5)
     validator_confidence_threshold: float = 0.7        # validator NEEDS_REVIEW eşiği (§6.2)
+    video_provider: str = "fake"                      # "fake" (demo-güvenli) | "roboflow" (canlı)
+    roboflow_api_key: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -61,14 +63,17 @@ class Settings:
             video_analyzer=_env("VIDEO_ANALYZER", "fake"),
             db_path=Path(db_path).resolve() if db_path else _DEFAULT_DB_PATH,
             validator_confidence_threshold=float(_env("VALIDATOR_CONFIDENCE_THRESHOLD", "0.7")),
+            video_provider=_env("VIDEO_PROVIDER", "fake"),
+            roboflow_api_key=os.environ.get("ROBOFLOW_API_KEY", ""),
         )
 
     def __repr__(self) -> str:
-        # API anahtarını asla açık yazma — log/traceback sızıntısını önler.
-        masked = "***" if self.llm_api_key else ""
+        # API anahtarlarını asla açık yazma — log/traceback sızıntısını önler.
+        llm_masked = "***" if self.llm_api_key else ""
+        roboflow_masked = "***" if self.roboflow_api_key else ""
         return (
             f"Settings(llm_provider={self.llm_provider!r}, llm_base_url={self.llm_base_url!r}, "
-            f"llm_model={self.llm_model!r}, llm_api_key={masked!r}, "
+            f"llm_model={self.llm_model!r}, llm_api_key={llm_masked!r}, "
             f"llm_timeout={self.llm_timeout!r}, chroma_dir={str(self.chroma_dir)!r}, "
             f"rag_model_name={self.rag_model_name!r}, legal_collection={self.legal_collection!r}, "
             f"contract_collection={self.contract_collection!r}, "
@@ -76,4 +81,5 @@ class Settings:
             f"payment_provider={self.payment_provider!r}, video_analyzer={self.video_analyzer!r}, "
             f"db_path={str(self.db_path)!r}, "
             f"validator_confidence_threshold={self.validator_confidence_threshold!r})"
+            f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r})"
         )
