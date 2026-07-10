@@ -45,7 +45,15 @@ class Settings:
     legal_collection: str = "legal_articles"
     contract_collection: str = "contract_examples"
     security_collection: str = "security_controls"
-    payment_provider: str = "mock"                   # "mock" (§3.3 MockMokaProvider) | ileride "real"
+    payment_provider: str = "mock"                   # "mock" | "moka_http" (M1'de ana akışa bağlı değil)
+    moka_base_url: str = "http://127.0.0.1:8001"
+    moka_dealer_code: str = ""
+    moka_username: str = ""
+    moka_password: str = ""
+    moka_card_token: str = ""
+    moka_software: str = "M4Trust"
+    moka_timeout_seconds: float = 20.0
+    moka_contract_profile: str = "moka_payment_dealer_pool_v1"
     db_path: Path = _DEFAULT_DB_PATH                   # sqlite3 dosya yolu (§5)
     validator_confidence_threshold: float = 0.7        # validator NEEDS_REVIEW eşiği (§6.2)
     video_advisory_confidence_threshold: float = 0.80  # ikincil video sinyali eşiği
@@ -69,6 +77,16 @@ class Settings:
             contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples"),
             security_collection=_env("RAG_SECURITY_COLLECTION", "security_controls"),
             payment_provider=_env("PAYMENT_PROVIDER", "mock"),
+            moka_base_url=_env("MOKA_BASE_URL", "http://127.0.0.1:8001"),
+            moka_dealer_code=os.environ.get("MOKA_DEALER_CODE", ""),
+            moka_username=os.environ.get("MOKA_USERNAME", ""),
+            moka_password=os.environ.get("MOKA_PASSWORD", ""),
+            moka_card_token=os.environ.get("MOKA_CARD_TOKEN", ""),
+            moka_software=_env("MOKA_SOFTWARE", "M4Trust"),
+            moka_timeout_seconds=float(_env("MOKA_TIMEOUT_SECONDS", "20")),
+            moka_contract_profile=_env(
+                "MOKA_CONTRACT_PROFILE", "moka_payment_dealer_pool_v1"
+            ),
             db_path=Path(db_path).resolve() if db_path else _DEFAULT_DB_PATH,
             validator_confidence_threshold=float(_env("VALIDATOR_CONFIDENCE_THRESHOLD", "0.7")),
             video_advisory_confidence_threshold=float(
@@ -83,6 +101,8 @@ class Settings:
         # API anahtarlarını asla açık yazma — log/traceback sızıntısını önler.
         llm_masked = "***" if self.llm_api_key else ""
         roboflow_masked = "***" if self.roboflow_api_key else ""
+        moka_password_masked = "***" if self.moka_password else ""
+        moka_card_token_masked = "***" if self.moka_card_token else ""
         return (
             f"Settings(llm_provider={self.llm_provider!r}, llm_base_url={self.llm_base_url!r}, "
             f"llm_model={self.llm_model!r}, llm_api_key={llm_masked!r}, "
@@ -91,6 +111,13 @@ class Settings:
             f"contract_collection={self.contract_collection!r}, "
             f"security_collection={self.security_collection!r}, "
             f"payment_provider={self.payment_provider!r}, "
+            f"moka_base_url={self.moka_base_url!r}, "
+            f"moka_dealer_code={self.moka_dealer_code!r}, moka_username={self.moka_username!r}, "
+            f"moka_password={moka_password_masked!r}, "
+            f"moka_card_token={moka_card_token_masked!r}, "
+            f"moka_software={self.moka_software!r}, "
+            f"moka_timeout_seconds={self.moka_timeout_seconds!r}, "
+            f"moka_contract_profile={self.moka_contract_profile!r}, "
             f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r}, "
             f"demo_public_dashboard={self.demo_public_dashboard!r}, "
             f"db_path={str(self.db_path)!r}, "

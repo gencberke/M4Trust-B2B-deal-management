@@ -62,7 +62,7 @@ Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo
 
 | Katman | Karar |
 |---|---|
-| Backend | Python 3.12 · FastAPI + uvicorn · SQLite (stdlib `sqlite3`, WAL, tek worker) · upload için `python-multipart` · test için `httpx`/`TestClient` (arka plan işleri: `BackgroundTasks`, queue altyapısı yok) |
+| Backend | Python 3.12 · FastAPI + uvicorn · SQLite (stdlib `sqlite3`, WAL, tek worker) · upload için `python-multipart` · Moka HTTP için sync `httpx` + Decimal JSON için `simplejson` · test için `httpx`/`TestClient` (arka plan işleri: `BackgroundTasks`, queue altyapısı yok) |
 | Frontend | React · Vite · Tailwind |
 | Doküman | PyMuPDF/PyMuPDF4LLM (dijital PDF) · python-docx/mammoth (DOCX) · Tesseract (OCR) |
 | RAG | BAAI/bge-m3 + ChromaDB — koleksiyonlar `legal_articles` · `contract_examples` · `security_controls` (koşullu), `code/data/processed/embeddings/chroma/`. Orkestrasyon: `context_builder.py` |
@@ -104,6 +104,7 @@ PaymentProvider
 - `PAYMENT_PROVIDER=mock|moka` (demo'da `mock`). `MockMokaProvider` cevapları **gerçek Moka response şeklindedir** (`ResultCode: "Success"`, `Data.IsSuccessful`, `VirtualPosOrderId`); bizim `transaction_id` Moka'ya `OtherTrxCode` olarak taşınır. Böylece v1'de gerçek entegrasyon yalnızca adapter altını değiştirir.
 - Release çağrısı yalnızca şu koşulda yapılır: `buyer_approved ∧ seller_approved ∧ decision ∈ {capture, partial_capture} ∧ state ∈ {active, evidence_pending} ∧ havuz ödemesi hâlâ `pool``. Bu guard tek bir yerde, `services/settlement.py::evaluate_settlement` içinde yaşar; router'lar ödeme mantığının sahibi değildir. Ayrıntı ve gerekçe: `plans/planning/moka_cüzdan_entegrasyonu.md`.
 - **M0 hazırlığı (2026-07-10):** `services/payments/domain.py` ve `ports.py`, provider-bağımsız `PaymentGateway` sözleşmesini, Moka standard capability profilini ve enjekte edilebilir store kullanan ağsız `FakePaymentGateway`'i tanımlar. Bu port mevcut `PaymentProvider` akışına **bağlı değildir**; `MockMokaProvider`, router'lar ve settlement Moka funding-unit cutover'ına (Plan 06) kadar değişmeden kalır.
+- **M1 HTTP client (2026-07-11):** `services/payments/moka/{authentication,serialization,client,mapper,redaction}.py`, frozen PaymentDealer DTO'larıyla gerçek sync HTTP POST konuşur. CheckKey SHA-256 contract'ına uyar; minor-unit tutarlar Decimal JSON number'a çevrilir; create/approve timeout'ı `unknown` sonuç üretir ve request/response trace'i secret/PII maskeli tutulur. `PAYMENT_PROVIDER=moka_http` ayarı tanınır ancak client bu fazda mevcut provider factory/settlement yoluna **bağlanmaz**.
 
 ### 3.4 Video — `VideoAnalyzer`
 
