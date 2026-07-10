@@ -31,9 +31,9 @@ Moka United public `PaymentDealer` pool-payment contract'ının (profil: `moka_p
 
 - `services/payments/ports.py`: `PaymentGateway` Protocol (Moka §6: `create_pool_payment(command)`, `approve_pool_payment(identifier)`, `undo_pool_approval(identifier)`, `get_payment_detail(query)`) — **`capture_ratio` port'ta yok**.
 - `services/payments/domain.py`: `CreatePoolPaymentCommand` (amount_minor, currency, other_trx_code, description…), `ProviderPaymentIdentifier`, sonuç tipleri, `ProviderCapabilities` + `MOKA_STANDARD_PROFILE` sabiti (Moka §6.1).
-- `FakePaymentGateway` (ağsız, in-memory) — 06'daki cutover'da fake yol bu port'tan geçecek.
+- `FakePaymentGateway` (ağsız) — **takılabilir store** ile tasarlanır: bu fazda saf unit testler için in-memory store yeterlidir; 06'da SQLite-backed store'a (016'daki `fake_provider_payments` tablosu) bağlanır. Gerekçe: create ve approve farklı HTTP isteklerinde gelir — her istekte yeni in-memory instance kurulursa "ödeme bulunamadı" üretir; provider state'i request'ler arası korunmak zorundadır.
 
-**Freeze:** İki branch merge edilince `contracts.py` + port imzaları donar; breaking değişiklik iki taraf onayı ister.
+**Freeze ve kalıcı sahiplik:** İki branch merge edilince `contracts.py` + `errors.py` + port imzaları donar; yeni hata kodu/alan gerektiğinde iki taraf onaylı ayrı bir **ortak contract PR'ı** açılır. Sahiplik sınırı: `payments/__init__.py` · `contracts.py` · `errors.py` · `tests/fixtures/moka/**` → **Yusuf**; `ports.py` · `domain.py` · `authentication/serialization/client/mapper/redaction.py` → **Berke** (Berke'nin `mapper.py`'si `errors.py`'yi yalnız import eder, değiştirmez).
 
 ### Faz 1B — Paralel implementasyon (M1)
 

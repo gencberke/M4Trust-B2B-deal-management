@@ -13,7 +13,7 @@ Anonim capability-link çekirdeğinin üstüne hesap katmanını kurmak: user/se
 
 ### Faz 3A — Identity çekirdeği (Berke, `feat/identity-session-entities`)
 
-Dosya sınırı: `schemas/identity.py`, `services/auth.py`, `services/identity.py`, `repositories/users.py`, `repositories/entities.py`, `routers/auth.py`, `routers/entities.py`, `db/migrations/003*`, `004*`.
+Dosya sınırı: `schemas/identity.py`, `services/auth.py`, `services/identity.py`, `services/access_control.py` (session actor + membership guard implementasyonu — tek sahip Berke), `repositories/users.py`, `repositories/entities.py`, `routers/auth.py`, `routers/entities.py`, `db/migrations/003*`, `004*`.
 
 1. **003_identity_sessions:** `users` (v2 §5.1, `UNIQUE(email_normalized)`; ek karar: `platform_role TEXT NULL` kolonu — reviewer|admin, ayrı tablo MVP'de gereksiz) + `sessions` (v2 §5.2).
 2. **Auth:** `argon2-cffi` (Argon2id) parola hash'i; register/login/logout/me/sessions-revoke (§14 Auth uçları); generic login hatası; session token random 32B → DB'de SHA-256 hash; cookie HttpOnly + SameSite=Lax + prod'da Secure (env `SESSION_COOKIE_SECURE`); CSRF: login'de csrf token üretilir (cookie-okunabilir), mutating isteklerde `X-CSRF-Token` header + Origin kontrolü; `last_seen_at` yalnız >60 sn eskiyse yazılır (v2 §2.6).
@@ -33,6 +33,7 @@ Dosya sınırı: `schemas/participants.py`, `services/participants.py`, `service
 5. **Participant API** (§14): list · `PUT participants/me/profile` (declared snapshot) · `POST participants/me/confirm` (confirmed snapshot + `confirmed_at`).
 6. **NotificationProvider** port + `FakeNotificationProvider` (linki döndürür/loglar — adapter+fake ilkesi).
 7. Conflict kuralları (v2 §6.3): aynı entity iki taraf olamaz; creator kendi davetini kabul edemez — service içinde, testli.
+8. **3A'dan bağımsızlık:** 3B, auth iç yapısını (session/user repository) import etmez; yalnız 02'de donmuş `get_current_actor` + `require_active_membership` imzalarını çağırır. API testleri 3A merge'ini beklemez: `app.dependency_overrides[get_current_actor] = stub_actor` ile koşar; gerçek session'lı uçtan uca doğrulama 3C gate'indedir. Taraf-özel yetki kuralları Yusuf'un kendi servis modüllerinde yaşar; `access_control.py`'ye Yusuf dokunmaz (harita sahiplik tablosu).
 
 ### Faz 3C — Transaction ownership cutover (Berke, `feat/transaction-ownership-cutover`; 3A+3B merge SONRASI)
 
@@ -47,7 +48,7 @@ Dosya sınırı: `schemas/participants.py`, `services/participants.py`, `service
 
 ## Paralellik ve merge sırası
 
-3A ∥ 3B (dosya kesişimi yok; `main.py` router kayıtları Berke'de). Sonra 3C. Gate senaryosu (v2 Wave 1): register → entity → authenticated upload → creator participant → invite → karşı taraf register → accept → profile confirm. **NEEDS_REVIEW bu fazda hâlâ çıkmaz sokaktır (bilinçli, v2 §2.16)** — E2E fixture'ları PASS sözleşme kullanır.
+3A ∥ 3B (dosya kesişimi yok; `main.py` router kayıtları Berke'de). Sonra 3C. **3C sırasında Yusuf boş beklemez:** 3A merge'iyle auth uçları hazır olduğundan 08/Faz 8A'ya (frontend foundation) başlar (harita §7). Gate senaryosu (v2 Wave 1): register → entity → authenticated upload → creator participant → invite → karşı taraf register → accept → profile confirm. **NEEDS_REVIEW bu fazda hâlâ çıkmaz sokaktır (bilinçli, v2 §2.16)** — E2E fixture'ları PASS sözleşme kullanır.
 
 ## Repo güvenliği
 

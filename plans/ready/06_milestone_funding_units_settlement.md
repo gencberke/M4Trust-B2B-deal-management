@@ -1,7 +1,7 @@
 # 06 — Milestone Domain, Funding Units ve Settlement Cutover (Program 4 + Moka M2-M3)
 
 > **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.3, §2.7, Program 4 · Moka §3, §9-§13, §17-§19, Wave M2-M3 (v2'nin "Mock Ledger v2" fazı Moka §24 ile SUPERSEDED)
-> **Bağımlılık:** 04 (package + funding schedule + FundingCoordinator v1) ve 05 (evidence records) tamam; 01'in gateway/client/mock server'ı hazır. Integration branch: `program/domain-evolution-v2`
+> **Bağımlılık:** 04 (package + funding schedule + FundingCoordinator v1) ve 05 (evidence records) tamam; 01'in gateway/client/mock server'ı hazır. İstisna: **6A'nın migration/persistence işi 05'e bağımlı değildir** — Berke 05 sürerken 6A branch'ini açabilir (harita §7); 6B/6C ise 05'in evidence_records'unu bekler. Integration branch: `program/domain-evolution-v2`
 > **Branch'ler:** faz bazında aşağıda
 > **Tahmin:** 6-8 gün (paralel)
 
@@ -16,11 +16,11 @@ Ratify edilmiş package'ın funding schedule'ını çalıştırılabilir hale ge
 Dosya sınırı: `repositories/{milestones,funding_units,provider_payments,release_instructions}.py`, `services/payments/funding_coordinator.py` (v2 iç değişim), `db/migrations/015*`, `016*`, `017*`.
 
 1. **015_milestones:** v2 §5.18 + Moka §17.2 status seti (`funding_unit_approval_pending` dahil; `release_mode = all_or_nothing|fixed_tranches`).
-2. **016_funding_units_provider_payments:** Moka §13.1 birebir — `funding_units` (`UNIQUE(provider_profile, other_trx_code)`, `UNIQUE(ratification_package_id, sequence)`, `CHECK(amount_minor > 0)`; status seti Moka §9.2) · `provider_payments` (funding_unit 1:1; `virtual_pos_order_id` unique; internal_status ↔ moka numeric status ayrımı Moka §12) · `provider_operations` (idempotency_key + attempt_no, redacted request, outcome success|failed|unknown).
+2. **016_funding_units_provider_payments:** Moka §13.1 birebir — `funding_units` (`UNIQUE(provider_profile, other_trx_code)`, `UNIQUE(ratification_package_id, sequence)`, `CHECK(amount_minor > 0)`; status seti Moka §9.2) · `provider_payments` (funding_unit 1:1; `virtual_pos_order_id` unique; internal_status ↔ moka numeric status ayrımı Moka §12) · `provider_operations` (idempotency_key + attempt_no, redacted request, outcome success|failed|unknown) · `fake_provider_payments` (FakePaymentGateway'in SQLite-backed simülasyon deposu — 01'deki takılabilir-store kararı burada bağlanır; request'ler arası provider state'i korunur).
 3. **017_release_instructions:** Moka §13.1; `UNIQUE(funding_unit_id, operation_type)` + `idempotency_key UNIQUE`.
 4. Ratification tamamlanınca package'taki schedule persist edilir: milestone satırları + funding unit satırları; `OtherTrxCode = M4T-{tx8}-P{package_version}-U{seq}` (Moka §9.3; retry aynı kodu kullanır, yeni package versiyonu yeni kod üretir).
-5. **FundingCoordinator v2** (imza 04'tekiyle aynı): tüm unit'ler için `PaymentGateway.create_pool_payment` — hepsi `pool_created` → `active`; kısmi başarısızlık → `funding_pending` + `PAYMENT_POOL_CREATION_FAILED` review case (Moka §3.7, §10.4); create timeout → `pool_creation_unknown`, kör retry yok, `GetDealerPaymentTrxDetailList(OtherTrxCode)` ile reconcile (Moka §10.6). 04'teki tek-pool v1 davranışı account yolunda bu modelle değiştirilir.
-6. `make_payment_gateway(settings)`: `PAYMENT_PROVIDER=fake → FakePaymentGateway` · `moka_http → MokaPaymentDealerClient` (01'de kurulan; **bu fazda ilk kez ana akışa bağlanır**).
+5. **FundingCoordinator v2** (imza 04'tekiyle aynı): tüm unit'ler için `PaymentGateway.create_pool_payment` — hepsi `pool_created` → `active`; kısmi başarısızlık → `funding_pending` + `PAYMENT_POOL_CREATION_FAILED` review case (Moka §3.7, §10.4); create timeout → `pool_creation_unknown`, kör retry yok, `GetDealerPaymentTrxDetailList(OtherTrxCode)` ile reconcile (Moka §10.6). Bu, account funding'in **ilk gerçek implementasyonudur** (04 yalnız `funding_required` kaydeder — harita Revizyon #1); "funding exactly once" kabulü bu fazda test edilir.
+6. `make_payment_gateway(settings)`: `PAYMENT_PROVIDER=fake → FakePaymentGateway(SQLite store)` · `moka_http → MokaPaymentDealerClient` (01'de kurulan; **bu fazda ilk kez ana akışa bağlanır**). Contract E2E'leri CI'da istenirse `moka_http + httpx.ASGITransport(mock_moka_app)` ile de koşabilir (Moka §4.3 — ağsız, gerçek contract yolu).
 
 ### Faz 6B — Saf milestone evaluator (Yusuf, `feat/milestone-evaluator-tranches`)
 
@@ -44,7 +44,7 @@ Dosya sınırı: `services/settlement.py`, `services/payments/release_coordinato
 
 1. ASGITransport(mock_moka) ile uçtan uca: ratify → 4 unit pool_created → %50 teslim kanıtı → U01+U02 approve (U01 ikinci kez ÇAĞRILMAZ, U03/U04 pending) — Moka §22.10.
 2. Kısmi funding başarısızlığı (decline token'lı unit) → funding_pending + review; retry aynı OtherTrxCode ile.
-3. Senaryo regression'larının account+funding-unit dünyasına uyarlanması: approval-only = tek unit tam release · document-only tam teslim = tüm unit'ler · **kısmi teslim = fixed-tranche fixture** (Moka §17.3) · video anomaly → ilgili unit approve edilmeden hold · dispute açıkken approve yok.
+3. **Tam senaryo cutover'ı (04'ten buraya taşındı — harita Revizyon #2):** approval-only = tek unit tam release · document-only tam teslim = tüm unit'ler · **kısmi teslim = fixed-tranche fixture** (Moka §17.3) · video anomaly → ilgili unit approve edilmeden hold · dispute açıkken approve yok. Göç tamamlanınca `LEGACY_CAPABILITY_ACCESS_ENABLED` default **false**'a çekilir (env ile açılabilir); legacy fixture'lar `legacy_compat` işaretli dar sette yaşar.
 
 ## Paralellik ve merge sırası
 
@@ -58,7 +58,7 @@ Dosya sınırı: `services/settlement.py`, `services/payments/release_coordinato
 
 ## Kabul kriterleri
 
-v2 Program 4 listesi (funding-unit diliyle) + Moka §25/10-14: 20/30/40/10 → 4 milestone, toplam exact · ikinci unit release mock'ta çalışır (tek-atışlık kısıt aşıldı) · duplicate evaluation ikinci instruction üretmez · açık dispute/review approve'u bloklar · tüm milestone+instruction'lar tamamlanınca `settled` · %50 teslim demosu İKİ ayrı pool approve ile yürür · evaluator saf ve table-testli · full suite yeşil.
+v2 Program 4 listesi (funding-unit diliyle) + Moka §25/10-14: 20/30/40/10 → 4 milestone, toplam exact · **funding exactly once (04'ten devralınan kabul)** · ikinci unit release mock'ta çalışır (tek-atışlık kısıt aşıldı) · duplicate evaluation ikinci instruction üretmez · açık dispute/review approve'u bloklar · tüm milestone+instruction'lar tamamlanınca `settled` · %50 teslim demosu İKİ ayrı pool approve ile yürür · fake gateway request'ler arası state korur · **legacy default off + tam fixture göçü tamam** · evaluator saf ve table-testli · full suite yeşil.
 
 ## Doc-sync
 

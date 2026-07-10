@@ -1,8 +1,8 @@
 # 05 — First-Class Evidence Records ve İnsan Kontrollü Dispute (Program 3)
 
 > **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.12, §5.16-5.17, Program 3, Wave 4
-> **Bağımlılık:** 04 tamam (account akışı + review + funding v1 çalışıyor). Integration branch: `program/domain-evolution-v2`
-> **Branch'ler:** Berke `feat/evidence-authorized-ingestion` · Yusuf `feat/dispute-review-lifecycle` · küçük ortak kapanış: Berke `feat/evidence-bundle-semantics`
+> **Bağımlılık:** 04 tamam (account akışı ratification + `funding_pending`'e kadar çalışıyor; gerçek funding 06'da — harita Revizyon #1). Integration branch: `program/domain-evolution-v2`
+> **Branch'ler:** Yusuf `feat/evidence-authorized-ingestion` → `feat/dispute-review-lifecycle` (ikisi de onun domain'i, sıralı) · Berke `feat/evidence-bundle-semantics` + settlement hook commit'leri + **6A'ya erken başlangıç** (harita Revizyon #5 / §7; v2 Wave-4'ün "iş yüküne göre ters" opsiyonu kullanıldı)
 > **Tahmin:** 4-5 gün (paralel)
 
 ## Amaç
@@ -11,15 +11,16 @@ Kanıtı event payload'ı olmaktan çıkarıp first-class kayda dönüştürmek 
 
 ## Fazlar
 
-### Faz 5A — Authorized evidence ingestion (Berke, `feat/evidence-authorized-ingestion`)
+### Faz 5A — Authorized evidence ingestion (Yusuf, `feat/evidence-authorized-ingestion`)
 
-Dosya sınırı: `services/evidence_records.py`, `repositories/evidence.py`, `routers/evidence_submit.py`, `db/migrations/013*`, `routers/delivery.py` (yönlendirme).
+Dosya sınırı: `services/evidence_records.py`, `repositories/evidence.py`, `routers/evidence_submit.py`, `db/migrations/013*`. (`routers/delivery.py`'ye DOKUNULMAZ — legacy uçlar H0 halleriyle aynen kalır; sahibi Berke.)
 
 1. **013_evidence_records:** v2 §5.16 (+ `UNIQUE(transaction_id, evidence_type, external_reference)` ve dosya için `UNIQUE(transaction_id, file_sha256)` idempotency kısıtları; `milestone_id` nullable — 06'da dolar).
 2. **EvidenceService** — donmuş imzalar (v2 §8.6): `submit_evidence / verify_evidence / collect_transaction_delivery_evidence / collect_milestone_evidence`.
 3. **Yeni account uçları** (§14): `POST /evidence/e-irsaliye` · `POST /evidence/video` — session + transaction assignment yetkisi (`require_evidence_submitter`: seller-side assignment veya manager; buyer 403). Payload/file SHA-256 hesaplanır; video dosyası DocumentStorageProvider'a yazılır (`storage_ref`); analyzer provider/version kaydedilir. Business event artık yalnız `evidence_id` + güvenli özet taşır (raw payload event'e kopyalanmaz — v2 §4.7 yönünde; account akışı için).
-4. **Legacy adapter (kritik uyum, v2 Faz 3B):** `collect_transaction_delivery_evidence(conn, transaction_id) -> DeliveryEvidence` — account işlemlerde `evidence_records`'tan, legacy işlemlerde bugünkü event-tabanlı yoldan okur. `settlement.py::evaluate_settlement` çağrısı bu fonksiyona geçer (Berke'nin dosyası; tek satırlık kaynak değişimi, `decide()` imzası aynı). Legacy delivery uçları (H0 token'lı halleriyle) `LEGACY_CAPABILITY_ACCESS_ENABLED` arkasında çalışmaya devam eder.
+4. **Legacy adapter (kritik uyum, v2 Faz 3B):** `collect_transaction_delivery_evidence(conn, transaction_id) -> DeliveryEvidence` — account işlemlerde `evidence_records`'tan, legacy işlemlerde bugünkü event-tabanlı yoldan okur. `settlement.py::evaluate_settlement` çağrısının bu fonksiyona geçirilmesi **Berke'nin ayrı entegrasyon commit'idir** (settlement.py onun dosyası; tek satırlık kaynak değişimi, `decide()` imzası aynı). Legacy delivery uçları (H0 token'lı halleriyle) `LEGACY_CAPABILITY_ACCESS_ENABLED` arkasında çalışmaya devam eder.
 5. Duplicate policy: aynı `external_reference`/`file_sha256` → idempotent cevap (mevcut kayıt döner), event tekrarlanmaz.
+6. **Test notu:** Account işlemler 06'ya kadar `active` olamaz (funding orada başlar). Account evidence API testleri bu fazda state'i fixture ile `active`e set ederek yetki/persistence/idempotency'yi doğrular; funding'li gerçek uçtan uca akış 06 gate'indedir. Legacy delivery uçları default-açık `LEGACY_CAPABILITY_ACCESS_ENABLED` ile çalışmaya devam eder (flag 06'da kapanır).
 
 ### Faz 5B — Dispute lifecycle (Yusuf, `feat/dispute-review-lifecycle`)
 
@@ -38,7 +39,7 @@ Dosya sınırı: `services/disputes.py`, `repositories/disputes.py`, `routers/di
 
 ## Paralellik ve merge sırası
 
-5A ∥ 5B (kesişim: `settlement.py`'ye iki tek-satır bağlantı — ikisi de Berke commit'i olarak, 5A ve 5B merge'lerinden sonra). 5C en son. Gate (v2 Wave 4): video anomaly → review hold → insan dispute → evidence bağlı → release yok → dispute resolve → release mümkün.
+5A → 5B ikisi de Yusuf'ta (kendi domain'i, sıralı). Berke eşzamanlı: 5C + `settlement.py` bağlantı commit'leri (kanıt kaynağı değişimi + dispute/review blocking kontrolleri — 5A/5B merge'lerinden sonra) + **06/6A branch'ine erken başlangıç** (6A'nın migration/persistence işi 05 çıktısına bağımlı değildir). 5C en son. Gate (v2 Wave 4): video anomaly → review hold → insan dispute → evidence bağlı → release yok → dispute resolve → release mümkün.
 
 ## Repo güvenliği
 

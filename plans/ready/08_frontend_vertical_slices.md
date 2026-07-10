@@ -2,7 +2,7 @@
 
 > **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.13, Program 6 · Moka §20 (trace panel)
 > **Bağımlılık:** Slice 1 için 03; sonraki slice'lar ilgili backend programı bittikçe. **03'ten itibaren backend programlarıyla PARALEL yürüyebilir** (contract frozen olduğu sürece) — Yusuf'un Wave'lerdeki "frontend consumer" opsiyonu budur.
-> **Branch'ler:** Yusuf lead — `feat/frontend-foundation`, sonra `feat/ui-slice-N-*` · Berke: proxy/serve config + review
+> **Branch'ler:** Yusuf lead — `feat/frontend-foundation`, sonra `feat/ui-slice-N-*` · Berke: yalnız backend static-serve kararı + PR review (frontend dosyalarına commit atmaz)
 > **Tahmin:** slice başına 1-2 gün
 
 ## Amaç
@@ -34,7 +34,7 @@ Vite+React+Tailwind scaffold · router · merkezi API client (proxy, credentials
 
 ## Paralellik
 
-Yusuf slice'ları backend wave'lerinin arasına serpiştirir (v2 Wave 6 Track B seçeneği); Berke yalnız `vite.config` proxy + prod serve (FastAPI static mount veya ayrı serve kararı) + PR review. Frontend branch'leri backend branch'leriyle dosya kesişmez → merge riski yok.
+`code/frontend/**` — `vite.config` ve `/api` proxy dahil — **tamamen Yusuf'un sahipliğindedir** (harita sahiplik tablosu); Berke yalnız prod serve kararını (FastAPI static mount veya ayrı serve) backend tarafında uygular + PR review yapar, frontend dosyalarını değiştirmez. Yusuf slice'ları backend wave'lerinin arasına serpiştirir (v2 Wave 6 Track B seçeneği). Frontend branch'leri backend branch'leriyle dosya kesişmez → merge riski yok.
 
 ## Repo güvenliği
 

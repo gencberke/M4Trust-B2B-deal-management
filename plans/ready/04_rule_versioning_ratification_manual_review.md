@@ -49,7 +49,7 @@ Dosya sınırı: `services/ratification_package.py`, `services/payments/funding_
 1. **011_ratification_packages:** v2 §5.12 + `funding_schedule` kanonik payload'ın içinde (Moka §9.5: provider_profile, unit sequence/amounts/eligibility, OtherTrxCode türetme versiyonu).
 2. Kanonik serializer (v2 §2.15): sort_keys + sabit separators + UTF-8; **tutarlar minor int** (float yok); string bir kez üretilip saklanır; `package_hash = sha256(stored bytes)`; golden testler (aynı payload aynı hash, alan sırası bağımsız, tek alan değişimi farklı hash).
 3. Package girdileri: document hash · rule_set id/version/hash · buyer+seller confirmed snapshot · **tracking policy snapshot** (mevcut `tracking_policies` satırından; versioned tablo 09'a ertelendi — harita §4 kararı) · funding schedule (4C compiler çıktısı) · commercial özet · schema_version. `supersede_if_inputs_changed` — policy/rule/participant değişimi package'ı superseded yapar (v2 §4.5 → burada 2E+2F birleşik).
-4. **FundingCoordinator v1** (donmuş imza, v2 §8.5): bu fazda provider tarafı **mevcut tek-pool MockMokaProvider** ile çalışır (funding unit persistence 06'da): package complete + çift ratification + blocking review yok → `create_pool_payment(total)` exactly-once → `funding_pending→active`. 06'da altı funding-unit'lere değişecek, imza değişmeyecek.
+4. **FundingCoordinator v1** (donmuş imza, v2 §8.5): **bu fazda provider ÇAĞRISI YAPMAZ.** `ready_for_funding` (package complete + çift ratification + blocking review yok) sağlanınca işlemi `funding_pending` durumuna alır ve `funding_required` event/audit kaydı düşer; gerçek funding (funding-unit modeliyle, exactly-once) **06'dadır**. Gerekçe (harita Revizyon #1): taraflar tranche'lı funding schedule'ı onaylarken tek-pool toplam ödeme açmak, ratify edilen package ile fiili funding davranışını koparır ve 06'da atılacak kod üretirdi. İmza 06'da değişmez, yalnız implementasyon dolar.
 
 ### Faz 4E — Account ratification API + legacy cutover (Yusuf, `feat/account-ratification-api`)
 
@@ -57,20 +57,21 @@ Dosya sınırı: `routers/ratifications.py`, `repositories/ratifications.py`, `d
 
 1. **012_ratifications:** v2 §5.13, `UNIQUE(package_id, participant_id)`.
 2. **API** (§14): `POST ratification-packages` (build/open; yalnız ready_for_ratification — v2 §7.3) · `GET current` (iki tarafa aynı projection + aynı hash) · `POST ratifications` (participant approver; idempotent; superseded package → 409; aynı user iki taraf adına → 403). Ratification tamamlanınca `FundingCoordinator.ensure_funded` çağrılır — **router provider'ı doğrudan çağırmaz** (Moka §18.2).
-3. **Legacy cutover (v2 §2.2 Wave 3):** `LEGACY_CAPABILITY_ACCESS_ENABLED` default **false**'a çekilir (env ile açılabilir); senaryo regression testleri (approval-only, document-only, optional video, video anomaly, partial delivery) account-based fixture'lara taşınır; legacy fixture'lar `legacy_compat` işaretli dar bir sette yaşamaya devam eder.
+3. **Kısmi cutover (v2 §2.2'den bilinçli sapma — harita Revizyon #2):** Bu fazda yalnız **identity / rule-version / review / package / ratification** testleri account-mode'a taşınır. Ödeme ve kanıt senaryoları (approval-only tam ödeme, document-only, partial delivery, video) **legacy fixture'da kalır** ve `LEGACY_CAPABILITY_ACCESS_ENABLED` default **true** kalır — account evidence uçları 05'te, funding/settlement 06'da geldiği için bu senaryolar 04'te account-mode'da uçtan uca koşamaz. Tam fixture göçü + default-false cutover'ı **06'nın kapanışıdır**.
 
-### Faz 4F — Recoverable manual review (Yusuf, `feat/recoverable-review`)
+### Faz 4F — Recoverable manual review (iki küçük paralel parça — harita Revizyon #5)
 
-1. `POST rule-sets/{version}/revisions` → **yeni immutable version** (eski satır overwrite edilmez) + otomatik re-validate (`POST .../validate` da açık uç olarak) — yalnız creator-side manager, pre-ratification (v2 §6.3).
-2. Review resolve akışı: validator/mismatch case'i çözülünce account işlem `preparation`'a döner; PASS olmayan version ratifiable olamaz; blocking case package açılmasını engeller. **awaiting_review artık account akışında çıkmaz sokak değildir** (legacy davranış değişmez).
+**4F-1 (Berke, `feat/rule-revision-endpoints`):** `POST rule-sets/{version}/revisions` → **yeni immutable version** (eski satır overwrite edilmez) + otomatik re-validate (`POST .../validate` da açık uç olarak) — yalnız creator-side manager, pre-ratification (v2 §6.3). Gerekçe: bu uçlar Berke'nin 4A domain dosyalarına (`repositories/rule_sets.py`, rule-set router'ı) yazar; Yusuf'a verilmesi aynı dosyalara ikinci yazar sokardı.
+
+**4F-2 (Yusuf, `feat/review-resolution-flow`):** Review resolve akışı: validator/mismatch case'i çözülünce account işlem `preparation`'a döner (geçiş `transaction_state` üzerinden); PASS olmayan version ratifiable olamaz; blocking case package açılmasını engeller. **awaiting_review artık account akışında çıkmaz sokak değildir** (legacy davranış değişmez).
 
 ## Paralellik ve merge sırası
 
-Wave A: 4A ∥ 4B → gate. Wave B: önce 4C (küçük, freeze), sonra 4D ∥ 4E, en son 4F. `approvals.py` yalnız Yusuf'ta (cutover); `transactions.py`/pipeline yalnız Berke'de; funding provider çağrısı yalnız FundingCoordinator'da.
+Wave A: 4A ∥ 4B → gate. Wave B: önce 4C (küçük, freeze), sonra 4D ∥ 4E, en son 4F-1 ∥ 4F-2. Yük dengesi: Berke = 4A+4D+4F-1 · Yusuf = 4B+4C+4E+4F-2. 4E'deki fixture göçünde herkes **kendi** domain testlerini taşır (Berke: identity/entity/rule-version · Yusuf: participant/review/ratification). `approvals.py` yalnız Yusuf'ta (cutover); `transactions.py`/pipeline ve rule-set dosyaları yalnız Berke'de; funding provider çağrısı yalnız FundingCoordinator'da. Not: 4A'nın diğer router'lardaki mekanik "latest-by-rowid → repository" değişiklikleri Wave A'da biter; Yusuf 4E'ye Wave B'de güncel HEAD ile başlar.
 
 ## Kabul kriterleri
 
-v2 Program 2 listesi birebir (raw extraction immutable · revision yeni version · same payload same hash · stored-bytes hash · NEEDS_REVIEW recoverable · superseded package funding yapamaz · iki taraf aynı hash'i görür · funding exactly once · legacy approval default off · fixture cutover) + 4C compiler tabloları + `PROVIDER_CAPABILITY_CONFLICT` reddi.
+v2 Program 2 listesinin bu faza düşenleri (raw extraction immutable · revision yeni version · same payload same hash · stored-bytes hash · NEEDS_REVIEW recoverable · superseded package `funding_pending` üretemez · iki taraf aynı hash'i görür) + çift ratification → `funding_pending` + `funding_required` kaydı (provider çağrısı YOK) + 4C compiler tabloları + `PROVIDER_CAPABILITY_CONFLICT` reddi. **"Funding exactly once" ve "legacy default off + tam fixture cutover" kabulleri 06'ya taşındı** (harita Revizyon #1-2).
 
 ## Repo güvenliği
 

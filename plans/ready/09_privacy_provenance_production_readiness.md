@@ -13,17 +13,17 @@ Demo boyunca "kabul edilmiş risk" olarak taşınan boşlukları kapatmak ve pro
 
 ### Faz 9A — Storage, retention, ops (Berke, `feat/hardening-storage-ops`)
 
-1. **Encrypted document storage:** `LocalDocumentStorageProvider`'a AESGCM şifreleme katmanı (APP_ENCRYPTION_KEY); `transactions.markdown` / ham extraction PII tutarsızlığı için karar uygulanır (v2 §2.14): markdown kolonu document storage'a taşınır (şifreli), tabloda yalnız ref kalır; `extracted_rules`/`extraction_runs` içindeki ham `tax_id` için retention notu + erişim kısıtı belgelenir.
+1. **Encrypted document storage (migration `020_document_storage_references`):** `LocalDocumentStorageProvider`'a AESGCM şifreleme katmanı (APP_ENCRYPTION_KEY); `transactions.markdown` / ham extraction PII tutarsızlığı için karar uygulanır (v2 §2.14): markdown kolonu document storage'a taşınır (şifreli), tabloda yalnız ref kalır; `extracted_rules`/`extraction_runs` içindeki ham `tax_id` için retention notu + erişim kısıtı belgelenir.
 2. **Retention/deletion:** işlem bazlı ham doküman/masked-map temizleme komutu (`scripts/retention_cleanup.py`) + politika dokümanı; runtime DB backup/restore prosedürü (sqlite `.backup` tabanlı script + smoke test).
 3. **Structured logging:** request_id + actor + action alanlı JSON log formatter'ı; secret/PII log allowlist testleri.
-4. **Tracking policy versioned tablo (04'te ertelenen):** `tracking_policy_versions` (v2 §5.11) — snapshot'lı package modeli korunarak versiyon tarihçesi eklenir; mevcut `tracking_policies` uyum görünümü olarak kalır.
+4. **Tracking policy versioned tablo (04'te ertelenen; migration `019_tracking_policy_versions`):** `tracking_policy_versions` (v2 §5.11) — snapshot'lı package modeli korunarak versiyon tarihçesi eklenir; mevcut `tracking_policies` uyum görünümü olarak kalır.
 5. **PostgreSQL readiness notu:** SQLite'a özgü noktaların envanteri (BEGIN IMMEDIATE, busy_timeout, PRAGMA'lar, `INSERT OR IGNORE`) + soyutlama önerisi — yalnız doküman, geçiş bu programda YAPILMAZ (v2 kapsam dışı listesi).
 
 ### Faz 9B — Auth akışları + provenance (Yusuf, `feat/hardening-authflows-provenance`)
 
 1. **Rate limiting + login throttling:** basit in-process sayaç (IP+email pencereli) → 429; account lockout eşiği + audit.
-2. **Password reset + email verification:** token'lı akışlar `NotificationProvider` port'u üzerinden (Fake ile demo); `email_verified_at` zorunluluğu env bayraklı.
-3. **Provenance genişletmesi** (v2 §18 hardening): extraction_runs'a OCR engine/version/confidence; RAG collection/chunk id'leri zaten `rag_provenance_json`'da — şema netleştirilir; analyzer model/version evidence_records'ta zorunlu hale gelir.
+2. **Password reset + email verification (migration `021_auth_verification_reset_tokens`):** token'lı akışlar `NotificationProvider` port'u üzerinden (Fake ile demo); `email_verified_at` zorunluluğu env bayraklı. 9B router/middleware MODÜLÜ üretir; `main.py` kaydı Berke'nin integration commit'idir (harita Revizyon #3 genel kuralı).
+3. **Provenance genişletmesi (migration `022_extraction_provenance_extensions`)** (v2 §18 hardening): extraction_runs'a OCR engine/version/confidence; RAG collection/chunk id'leri zaten `rag_provenance_json`'da — şema netleştirilir; analyzer model/version evidence_records'ta zorunlu hale gelir.
 4. **Dependency/security scan:** CI'a `pip-audit` job'ı; IDOR test taraması matrisinin (v2 §17) tüm resource uçlarına tamamlanması.
 5. **Legacy removal ön hazırlığı:** v2 §15.4 removal gate checklist'i çalıştırılır; geçiyorsa ayrı küçük plan (`plans/planning/legacy_capability_removal.md`) yazılır — kolon/uç silme BU planda yapılmaz.
 
