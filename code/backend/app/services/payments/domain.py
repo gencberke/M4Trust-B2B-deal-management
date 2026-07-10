@@ -77,20 +77,27 @@ class PaymentDetailQuery:
 
 @dataclass(frozen=True)
 class ProviderPaymentDetail:
-    """Provider'dan dönen veya fake store'da tutulan normalize ödeme görünümü."""
+    """Provider'dan dönen veya fake store'da tutulan normalize ödeme görünümü.
+
+    Moka detail contract'ı yalnız kimlik ve durum döndürdüğü için tutar/para
+    birimi reconciliation sonucunda bilinmeyebilir; create sonucu ve fake
+    store kayıtlarında bu alanlar doludur.
+    """
 
     identifier: ProviderPaymentIdentifier
-    amount_minor: int
-    currency: str
+    amount_minor: int | None
+    currency: str | None
     status: ProviderPaymentStatus
     is_pool_payment: bool = True
 
     def __post_init__(self) -> None:
-        if isinstance(self.amount_minor, bool) or not isinstance(self.amount_minor, int):
-            raise ValueError("amount_minor tam sayı olmalıdır.")
-        if self.amount_minor <= 0:
-            raise ValueError("amount_minor sıfırdan büyük olmalıdır.")
-        _require_non_empty(self.currency, field_name="currency")
+        if self.amount_minor is not None:
+            if isinstance(self.amount_minor, bool) or not isinstance(self.amount_minor, int):
+                raise ValueError("amount_minor tam sayı olmalıdır.")
+            if self.amount_minor <= 0:
+                raise ValueError("amount_minor sıfırdan büyük olmalıdır.")
+        if self.currency is not None:
+            _require_non_empty(self.currency, field_name="currency")
 
 
 @dataclass(frozen=True)
