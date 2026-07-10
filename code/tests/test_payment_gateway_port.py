@@ -13,6 +13,7 @@ from backend.app.services.payments.domain import (
     PaymentDetailQuery,
     ProviderOperationOutcome,
     ProviderOperationResult,
+    ProviderPaymentDetail,
     ProviderPaymentIdentifier,
     ProviderPaymentStatus,
 )
@@ -73,6 +74,18 @@ def test_provider_operation_result_can_represent_an_unknown_outcome() -> None:
 
     assert result.outcome is ProviderOperationOutcome.UNKNOWN
     assert result.identifier == identifier
+
+
+def test_payment_detail_allows_amount_to_be_unknown_during_reconciliation() -> None:
+    detail = ProviderPaymentDetail(
+        identifier=ProviderPaymentIdentifier(other_trx_code="M4T-unknown-create-U01"),
+        amount_minor=None,
+        currency=None,
+        status=ProviderPaymentStatus.POOL,
+    )
+
+    assert detail.amount_minor is None
+    assert detail.currency is None
 
 
 def test_fake_gateway_is_a_payment_gateway_and_approves_only_once() -> None:

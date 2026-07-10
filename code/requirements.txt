@@ -24,3 +24,6 @@ httpx
 fastapi
 uvicorn[standard]
 python-multipart
+
+# Moka PaymentDealer HTTP client — Decimal JSON number serialization
+simplejson>=3.19,<4
