@@ -11,3 +11,6 @@ code/.env.local
 
 # OS junk
 .DS_Store
+
+# Runtime SQLite DB (backend §5) — commit edilmez
+code/data/runtime/

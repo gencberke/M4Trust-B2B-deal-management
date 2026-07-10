@@ -18,3 +18,9 @@ opencv-python-headless==5.0.0.93
 
 # tests
 pytest==9.1.1
+httpx
+
+# backend API (§1)
+fastapi
+uvicorn[standard]
+python-multipart
