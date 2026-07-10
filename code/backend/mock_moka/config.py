@@ -32,6 +32,7 @@ class MockMokaSettings:
     password: str = "demo-secret"
     virtual_pos_enabled: bool = True
     faults_enabled: bool = False
+    timeout_after_create_delay_seconds: float = 0.25
     db_path: Path = _DEFAULT_DB_PATH
 
     @classmethod
@@ -43,6 +44,9 @@ class MockMokaSettings:
             password=os.environ.get("MOCK_MOKA_PASSWORD", "demo-secret"),
             virtual_pos_enabled=_env_bool("MOCK_MOKA_VIRTUAL_POS_ENABLED", True),
             faults_enabled=_env_bool("MOCK_MOKA_FAULTS_ENABLED", False),
+            timeout_after_create_delay_seconds=float(
+                os.environ.get("MOCK_MOKA_TIMEOUT_AFTER_CREATE_DELAY_SECONDS", "0.25")
+            ),
             db_path=Path(db_path).resolve() if db_path else _DEFAULT_DB_PATH,
         )
 
@@ -50,5 +54,7 @@ class MockMokaSettings:
         return (
             f"MockMokaSettings(dealer_code={self.dealer_code!r}, username={self.username!r}, "
             f"password='***', virtual_pos_enabled={self.virtual_pos_enabled!r}, "
-            f"faults_enabled={self.faults_enabled!r}, db_path={str(self.db_path)!r})"
+            f"faults_enabled={self.faults_enabled!r}, "
+            f"timeout_after_create_delay_seconds={self.timeout_after_create_delay_seconds!r}, "
+            f"db_path={str(self.db_path)!r})"
         )
