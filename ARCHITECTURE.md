@@ -30,7 +30,7 @@ Sistem sözleşmeden fiziksel teslimatı yalnızca **önerir**; takip modunu (`o
 
 ```
 code/
-├── scripts/          # offline hazırlık: dönüşüm, chunk'lama, embedding
+├── scripts/          # offline hazırlık + demo_moka_contract.py gerçek HTTP demo sürücüsü
 ├── backend/app/
 │   ├── main.py · config.py · db.py · eventbus.py
 │   ├── schemas/      # extraction.py (ikili sözleşme) · tracking.py (takip politikası) · events.py · api.py
@@ -51,6 +51,7 @@ code/
 │       ├── settlement.py      # settlement coordinator: karar + release guard + event/ödeme orkestrasyonu
 │       ├── payment_provider.py# PaymentProvider: MockMokaProvider + RealMokaProvider(v1)
 │       └── evidence.py        # zaman damgalı JSON bundle (tracking policy snapshot'ı dahil)
+├── backend/mock_moka/         # ayrı FastAPI process'i: contract-faithful local Moka simulator
 └── frontend/src/     # api/ · pages/ (Dashboard · TransactionDetail · PartyReview · ManagerPolicy) · components/
 ```
 
@@ -105,6 +106,7 @@ PaymentProvider
 - Release çağrısı yalnızca şu koşulda yapılır: `buyer_approved ∧ seller_approved ∧ decision ∈ {capture, partial_capture} ∧ state ∈ {active, evidence_pending} ∧ havuz ödemesi hâlâ `pool``. Bu guard tek bir yerde, `services/settlement.py::evaluate_settlement` içinde yaşar; router'lar ödeme mantığının sahibi değildir. Ayrıntı ve gerekçe: `plans/planning/moka_cüzdan_entegrasyonu.md`.
 - **M0 hazırlığı (2026-07-10):** `services/payments/domain.py` ve `ports.py`, provider-bağımsız `PaymentGateway` sözleşmesini, Moka standard capability profilini ve enjekte edilebilir store kullanan ağsız `FakePaymentGateway`'i tanımlar. Bu port mevcut `PaymentProvider` akışına **bağlı değildir**; `MockMokaProvider`, router'lar ve settlement Moka funding-unit cutover'ına (Plan 06) kadar değişmeden kalır.
 - **M1 HTTP client (2026-07-11):** `services/payments/moka/{authentication,serialization,client,mapper,redaction}.py`, frozen PaymentDealer DTO'larıyla gerçek sync HTTP POST konuşur. CheckKey SHA-256 contract'ına uyar; minor-unit tutarlar Decimal JSON number'a çevrilir; create/approve timeout'ı `unknown` sonuç üretir ve request/response trace'i secret/PII maskeli tutulur. `PAYMENT_PROVIDER=moka_http` ayarı tanınır ancak client bu fazda mevcut provider factory/settlement yoluna **bağlanmaz**.
+- **M1C demo topolojisi (2026-07-11):** `backend.mock_moka.app:app` port 8001'de ayrı uvicorn process'i olarak çalışır; `scripts/demo_moka_contract.py` aynı client'la gerçek HTTP üzerinden create → approve → detail zincirini ve `--fault` ile beklenen banka reddini gösterir. Stdout yalnız redacted request/response JSON çiftlerini içerir. Bu yan panel ana FastAPI app'ine register edilmez ve settlement cutover'ı yapmaz.
 
 ### 3.4 Video — `VideoAnalyzer`
 
