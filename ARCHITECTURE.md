@@ -139,15 +139,15 @@ PaymentProvider
 | Endpoint | İş |
 |---|---|
 | `POST /api/transactions` | Sözleşme upload → pipeline başlar → `{id, buyer_link, seller_link, manager_link}` |
-| `GET /api/transactions` | İşlem listesi |
+| `GET /api/transactions` | İşlem listesi — yalnız `DEMO_PUBLIC_DASHBOARD=true` iken açık, aksi hâlde 403 |
 | `GET /api/transactions/{id}` | Detay: extraction (redacted), validator raporu, event timeline, ödeme durumu |
 | `GET /api/transactions/{id}/party-view?token=…` | Taraf perspektifi (token → party çözümü) + `tracking_summary` |
 | `GET /api/transactions/{id}/manager-view?token=…` | Yönetici görünümü: sistem önerisi + reason code'lar, policy durumu, sözleşmesel kanıt şartları; **manager token** gerekir, taraf token'ı → 403 |
 | `PUT /api/transactions/{id}/tracking-policy` | Body `{manager_token, physical_delivery_confirmed, tracking_mode}` — taslak policy'yi günceller (idempotent) |
 | `POST /api/transactions/{id}/tracking-policy/lock` | Body `{manager_token}` — policy'yi onaylardan önce kilitler (idempotent) |
 | `POST /api/transactions/{id}/approvals` | Body `{token}` — token sahibi tarafın onayı; yanlış token → 403; **policy kilitli değilse → 409** |
-| `POST /api/transactions/{id}/events/e-irsaliye` | E-irsaliye simülasyonu (demo butonu); kanal etkin değilse → 409 |
-| `POST /api/transactions/{id}/delivery-video` | Video upload → inline analiz; kanal etkin değilse → 409 |
+| `POST /api/transactions/{id}/events/e-irsaliye?token=…` | E-irsaliye simülasyonu (demo butonu); seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409 |
+| `POST /api/transactions/{id}/delivery-video?token=…` | Video upload → inline analiz; seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409 |
 | `GET /api/transactions/{id}/evidence?token=…` | Kanıt paketi (JSON bundle, tracking policy snapshot'ı dahil); buyer/seller/manager token'larından biri zorunlu, aksi hâlde **403** |
 
 **Policy/delivery 409 gövdesi** her zaman `detail: {code, message, conflicts[]}` şeklindedir. Kodlar: `POLICY_NOT_CONFIGURABLE` (validator PASS değil veya state `awaiting_approval` değil) · `POLICY_LOCKED` · `POLICY_INVALID` · `POLICY_CONTRACT_CONFLICT` · `POLICY_NOT_LOCKED` (onay öncesi) · `TRACKING_NOT_ENABLED` · `TRANSACTION_DECIDED`.

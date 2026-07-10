@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict
 from backend.app.config import Settings
 from backend.app.db import connect
 from backend.app.eventbus import emit
-from backend.app.routers.transactions import load_transaction
+from backend.app.routers.transactions import load_transaction, resolve_manager, resolve_party
 from backend.app.schemas.extraction import ExtractionJSON, RequiredEvidence
 from backend.app.services.settlement import evaluate_settlement
 from backend.app.services.tracking_policy import (
@@ -126,12 +126,28 @@ def _guard_evidence_channel(conn: Connection, transaction_id: str, *, channel: s
         raise HTTPException(status_code=409, detail=_NOT_FUNDED_DETAIL)
 
 
+def _authorize_delivery_submission(
+    conn: Connection, transaction_id: str, token: str | None
+) -> None:
+    """Teslimat kanıtını yalnız satıcı veya yönetici capability'siyle kabul eder."""
+    row = load_transaction(conn, transaction_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+
+    party = resolve_party(row, token or "")
+    if party != "seller" and not resolve_manager(row, token or ""):
+        raise HTTPException(status_code=403, detail="Teslimat kanıtı gönderme yetkiniz yok.")
+
+
 @router.post("/{transaction_id}/events/e-irsaliye")
-def receive_e_irsaliye(transaction_id: str, body: EIrsaliyeEvent) -> dict:
+def receive_e_irsaliye(
+    transaction_id: str, body: EIrsaliyeEvent, token: str | None = None
+) -> dict:
     """E-irsaliye simülasyon event'i — birincil nicel kanıt; ardından settlement."""
     settings = Settings.from_env()
     conn = connect(settings)
     try:
+        _authorize_delivery_submission(conn, transaction_id, token)
         _guard_evidence_channel(conn, transaction_id, channel="e_irsaliye")
 
         emit(conn, transaction_id, "e_irsaliye_received", body.model_dump(), "e_irsaliye")
@@ -145,7 +161,9 @@ def receive_e_irsaliye(transaction_id: str, body: EIrsaliyeEvent) -> dict:
 
 
 @router.post("/{transaction_id}/delivery-video")
-async def upload_delivery_video(transaction_id: str, file: UploadFile = File(...)) -> dict:
+async def upload_delivery_video(
+    transaction_id: str, file: UploadFile = File(...), token: str | None = None
+) -> dict:
     """Teslimat videosu upload'ı — analiz ikincil (advisory) sinyaldir, miktar üretmez.
 
     Fake analiz senkron/hafif olduğundan inline koşulur; böylece cevap doğrudan
@@ -154,6 +172,7 @@ async def upload_delivery_video(transaction_id: str, file: UploadFile = File(...
     settings = Settings.from_env()
     conn = connect(settings)
     try:
+        _authorize_delivery_submission(conn, transaction_id, token)
         _guard_evidence_channel(conn, transaction_id, channel="video")
 
         contents = await file.read()

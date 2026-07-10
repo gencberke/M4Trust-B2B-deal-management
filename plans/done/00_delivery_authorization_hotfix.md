@@ -1,6 +1,6 @@
 # 00 — Teslimat Kanıtı Yetkilendirme Hotfix'i (H0)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §3 (H0), §2.6 (busy_timeout)
+> **Durum:** Uygulandı — 2026-07-10 · Sapmalar: Yusuf'a ait güvenlik regression testleri ve mevcut test yardımcılarındaki capability-token güncellemeleri bu implementasyon commit'ine alınmadı. · **Master ref:** v2 §3 (H0), §2.6 (busy_timeout)
 > **Bağımlılık:** yok — programdan bağımsız, DEMO ÖNCESİ uygulanır.
 > **Branch:** `hotfix/h0-delivery-authorization` → **master**'a PR
 > **Sahipler:** Berke = implementasyon · Yusuf = güvenlik regression testleri (aynı branch'e ayrı commit'ler; Berke impl'i push'ladıktan sonra Yusuf test commit'leri)

@@ -1,7 +1,7 @@
 """Approvals router — çift taraf onayı + havuz ödemesi tetikleme (§4.1/§6.1, Faz 3B).
 
 İki taraf da onayladığında (`buyer_approved ∧ seller_approved`) ve state hâlâ
-`awaiting_review`/`awaiting_approval` ise `PaymentProvider.create_pool_payment`
+`awaiting_approval` ise `PaymentProvider.create_pool_payment`
 çağrılır ve state `active`'e geçer. Release/approve çağrısı bu router'da YOK —
 o, Faz 4'ün decision engine'i tarafından tetiklenir (§6.1: release'i yalnızca
 deterministik akış yapar).

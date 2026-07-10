@@ -252,6 +252,8 @@ async def create_transaction(
 def list_transactions() -> list[dict]:
     """Kısa liste — ham içerik yok, taraf adları (varsa) persist edilmiş extraction'dan."""
     settings = Settings.from_env()
+    if not settings.demo_public_dashboard:
+        raise HTTPException(status_code=403, detail="Liste erişimi kapalı.")
     conn = connect(settings)
     try:
         rows = conn.execute(
