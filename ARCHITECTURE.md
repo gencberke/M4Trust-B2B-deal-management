@@ -46,6 +46,7 @@ code/
 │       ├── tracking_policy.py # TrackingPolicy persistence + deterministik fiziksel teslimat önerisi
 │       ├── effective_requirements.py # saf resolver: contractual + operational + advisory kanıt kümeleri
 │       ├── video/             # VideoAnalyzer: FakeVideoAnalyzer + RoboflowVideoAnalyzer (§3.4)
+│       ├── payments/          # provider-bağımsız PaymentGateway port/domain + Moka adapter'ları
 │       ├── decision.py        # decision engine — saf fonksiyon, I/O yok
 │       ├── settlement.py      # settlement coordinator: karar + release guard + event/ödeme orkestrasyonu
 │       ├── payment_provider.py# PaymentProvider: MockMokaProvider + RealMokaProvider(v1)
@@ -102,6 +103,7 @@ PaymentProvider
 
 - `PAYMENT_PROVIDER=mock|moka` (demo'da `mock`). `MockMokaProvider` cevapları **gerçek Moka response şeklindedir** (`ResultCode: "Success"`, `Data.IsSuccessful`, `VirtualPosOrderId`); bizim `transaction_id` Moka'ya `OtherTrxCode` olarak taşınır. Böylece v1'de gerçek entegrasyon yalnızca adapter altını değiştirir.
 - Release çağrısı yalnızca şu koşulda yapılır: `buyer_approved ∧ seller_approved ∧ decision ∈ {capture, partial_capture} ∧ state ∈ {active, evidence_pending} ∧ havuz ödemesi hâlâ `pool``. Bu guard tek bir yerde, `services/settlement.py::evaluate_settlement` içinde yaşar; router'lar ödeme mantığının sahibi değildir. Ayrıntı ve gerekçe: `plans/planning/moka_cüzdan_entegrasyonu.md`.
+- **M0 hazırlığı (2026-07-10):** `services/payments/domain.py` ve `ports.py`, provider-bağımsız `PaymentGateway` sözleşmesini, Moka standard capability profilini ve enjekte edilebilir store kullanan ağsız `FakePaymentGateway`'i tanımlar. Bu port mevcut `PaymentProvider` akışına **bağlı değildir**; `MockMokaProvider`, router'lar ve settlement Moka funding-unit cutover'ına (Plan 06) kadar değişmeden kalır.
 
 ### 3.4 Video — `VideoAnalyzer`
 
