@@ -1,6 +1,6 @@
 """M4Trust client <-> mock Moka server E2E contract testleri (GATE M1C-YUSUF, §22.8, §22.12).
 
-Kapsam: `plans/ready/01_moka_contract_mock_and_client.md` Faz 1C
+Kapsam: `plans/done/01_moka_contract_mock_and_client.md` Faz 1C
 "feat/moka-e2e-contract-tests". Berke'nin gerçek `MokaPaymentDealerClient`'ı
 (hiç değiştirilmez) `fastapi.testclient.TestClient` üzerinden benim
 `mock_moka` ASGI app'ime bağlanır — ağ yok, ama HTTP/JSON serileştirme dahil
@@ -28,6 +28,10 @@ gerçekten egzersiz eder).
 
 from __future__ import annotations
 
+import socket
+import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -65,6 +69,7 @@ def _isolated_mock_moka_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("MOCK_MOKA_PASSWORD", _PASSWORD)
     monkeypatch.setenv("MOCK_MOKA_VIRTUAL_POS_ENABLED", "true")
     monkeypatch.setenv("MOCK_MOKA_FAULTS_ENABLED", "false")
+    monkeypatch.setenv("MOCK_MOKA_TIMEOUT_AFTER_CREATE_DELAY_SECONDS", "0.25")
 
     # ASGITransport lifespan event'lerini tetiklemez; şemayı burada elle kuruyoruz.
     settings = MockMokaSettings.from_env()
@@ -104,6 +109,28 @@ def make_client():
 
     for test_client in created:
         test_client.__exit__(None, None, None)
+
+
+@pytest.fixture()
+def live_mock_moka_url():
+    import uvicorn
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(mock_moka_app, log_level="error", lifespan="on"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not server.started and thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert server.started
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+        sock.close()
 
 
 def _create_non_pool_payment_via_raw_request(other_trx_code: str) -> None:
@@ -209,6 +236,65 @@ def test_bank_decline_is_failed_not_transport_error(make_client) -> None:
     assert result.outcome == ProviderOperationOutcome.FAILED
     assert result.provider_code == "BankDeclined"
     assert result.payment is None
+
+
+def test_unknown_token_is_bank_decline(make_client) -> None:
+    client = make_client(card_token="ARBITRARY-UNKNOWN-TOKEN")
+    result = client.create_pool_payment(
+        CreatePoolPaymentCommand(amount_minor=100_000, currency="TRY", other_trx_code="E2E-UNKNOWN-TOKEN")
+    )
+
+    assert result.outcome == ProviderOperationOutcome.FAILED
+    assert result.provider_code == "BankDeclined"
+
+
+def test_timeout_after_create_is_unknown_then_reconciles_without_duplicate(
+    live_mock_moka_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MOCK_MOKA_FAULTS_ENABLED", "true")
+    command = CreatePoolPaymentCommand(
+        amount_minor=125_000, currency="TRY", other_trx_code="E2E-TIMEOUT-RECONCILE"
+    )
+    with MokaPaymentDealerClient(
+        base_url=live_mock_moka_url,
+        dealer_code=_DEALER_CODE,
+        username=_USERNAME,
+        password=_PASSWORD,
+        card_token="DEMO-TOKEN-TIMEOUT-AFTER-CREATE",
+        timeout_seconds=0.05,
+    ) as timeout_client:
+        create_result = timeout_client.create_pool_payment(command)
+    assert create_result.outcome == ProviderOperationOutcome.UNKNOWN
+
+    time.sleep(0.3)
+    monkeypatch.setenv("MOCK_MOKA_FAULTS_ENABLED", "false")
+    with MokaPaymentDealerClient(
+        base_url=live_mock_moka_url,
+        dealer_code=_DEALER_CODE,
+        username=_USERNAME,
+        password=_PASSWORD,
+        card_token=_CARD_TOKEN,
+        timeout_seconds=1,
+    ) as reconcile_client:
+        detail = reconcile_client.get_payment_detail(
+            PaymentDetailQuery(identifier=ProviderPaymentIdentifier(other_trx_code=command.other_trx_code))
+        )
+        retry = reconcile_client.create_pool_payment(command)
+
+    assert detail.outcome == ProviderOperationOutcome.SUCCESS
+    assert retry.outcome == ProviderOperationOutcome.SUCCESS
+    assert retry.payment.identifier.virtual_pos_order_id == detail.payment.identifier.virtual_pos_order_id
+
+    settings = MockMokaSettings.from_env()
+    conn = sqlite3.connect(str(settings.db_path))
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM dealer_payments WHERE other_trx_code = ?",
+            (command.other_trx_code,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
 
 
 def test_unknown_payment_detail_query_is_failed_not_found(make_client) -> None:

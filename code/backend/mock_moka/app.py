@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from backend.app.services.payments.moka.contracts import (
     ApproveOrUndoData,
@@ -48,6 +51,7 @@ from backend.app.services.payments.moka.errors import (
     UNDO_PAYMENT_IS_NOT_POOL_PAYMENT,
     UNDO_PAYMENT_NOT_APPROVED_YET,
 )
+from backend.app.services.payments.moka.redaction import redact_payload
 
 from . import db, status_mapper
 from .auth import authenticate
@@ -61,8 +65,34 @@ from .schemas import (
     UndoApprovePoolPaymentWireRequest,
 )
 
+_DEMO_TOKEN_SUCCESS = "DEMO-TOKEN-SUCCESS"
 _DEMO_TOKEN_BANK_DECLINE = "DEMO-TOKEN-BANK-DECLINE"
 _DEMO_TOKEN_TIMEOUT_AFTER_CREATE = "DEMO-TOKEN-TIMEOUT-AFTER-CREATE"
+_SUPPORTED_DEMO_TOKENS = {
+    _DEMO_TOKEN_SUCCESS,
+    _DEMO_TOKEN_BANK_DECLINE,
+    _DEMO_TOKEN_TIMEOUT_AFTER_CREATE,
+}
+
+_SENSITIVE_PERSISTENCE_KEYS = {
+    "password",
+    "checkkey",
+    "cardtoken",
+    "pan",
+    "cardnumber",
+    "card_number",
+    "cvc",
+    "cvv",
+    "securitycode",
+    "security_code",
+    "cardholderfullname",
+    "buyerinformation",
+    "email",
+    "phone",
+    "phonenumber",
+    "address",
+    "clientip",
+}
 
 _router = APIRouter()
 
@@ -71,21 +101,21 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _redact(payload: dict[str, Any]) -> dict[str, Any]:
-    """Password/CheckKey/CardToken hiçbir zaman `mock_operations`'a açık yazılmaz."""
+def _collect_sensitive_values(payload: Any) -> tuple[str, ...]:
+    values: list[str] = []
 
-    redacted = json.loads(json.dumps(payload, default=str))
-    auth = redacted.get("PaymentDealerAuthentication")
-    if isinstance(auth, dict):
-        if auth.get("Password") is not None:
-            auth["Password"] = "***"
-        if auth.get("CheckKey") is not None:
-            auth["CheckKey"] = "***"
-    inner = redacted.get("PaymentDealerRequest")
-    if isinstance(inner, dict) and inner.get("CardToken"):
-        token = str(inner["CardToken"])
-        inner["CardToken"] = f"token_****{token[-4:]}" if len(token) > 4 else "token_****"
-    return redacted
+    def _visit(value: Any, key: str | None = None) -> None:
+        if key and key.lower() in _SENSITIVE_PERSISTENCE_KEYS and value is not None:
+            values.append(str(value))
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                _visit(child_value, child_key)
+        elif isinstance(value, (list, tuple)):
+            for child_value in value:
+                _visit(child_value)
+
+    _visit(payload)
+    return tuple(item for item in values if item)
 
 
 def _record_operation(
@@ -95,6 +125,15 @@ def _record_operation(
     request_payload: dict,
     response_payload: dict,
 ) -> None:
+    sensitive_values = _collect_sensitive_values(request_payload)
+    redacted_request = redact_payload(
+        request_payload,
+        sensitive_values=sensitive_values,
+    )
+    redacted_response = redact_payload(
+        response_payload,
+        sensitive_values=sensitive_values,
+    )
     conn.execute(
         """
         INSERT INTO mock_operations
@@ -104,8 +143,8 @@ def _record_operation(
         (
             endpoint,
             other_trx_code,
-            json.dumps(_redact(request_payload), ensure_ascii=False),
-            json.dumps(_redact(response_payload), ensure_ascii=False),
+            json.dumps(redacted_request, ensure_ascii=False),
+            json.dumps(redacted_response, ensure_ascii=False),
             _utc_now_iso(),
         ),
     )
@@ -150,15 +189,14 @@ def do_direct_payment(body: DoDirectPaymentRequest) -> DoDirectPaymentResponse:
             )
             return response
 
-        existing = _find_by_other_trx_code(conn, fields.OtherTrxCode)
-        if existing is not None:
-            # İdempotent: aynı OtherTrxCode için ikinci kayıt açılmaz (§16.1).
+        if fields.CardToken == _DEMO_TOKEN_BANK_DECLINE:
+            # Banka/işlem katmanı reddi — envelope Success kalır, Data.IsSuccessful=false (§2.2).
             response = DoDirectPaymentResponse(
                 Data=DoDirectPaymentData(
-                    IsSuccessful=True,
-                    ResultCode="",
-                    ResultMessage="",
-                    VirtualPosOrderId=existing["virtual_pos_order_id"],
+                    IsSuccessful=False,
+                    ResultCode="BankDeclined",
+                    ResultMessage="Banka tarafindan reddedildi (demo).",
+                    VirtualPosOrderId="",
                 ),
                 ResultCode="Success",
                 ResultMessage="",
@@ -170,14 +208,33 @@ def do_direct_payment(body: DoDirectPaymentRequest) -> DoDirectPaymentResponse:
             )
             return response
 
-        if fields.CardToken == _DEMO_TOKEN_BANK_DECLINE:
-            # Banka/işlem katmanı reddi — envelope Success kalır, Data.IsSuccessful=false (§2.2).
+        if fields.CardToken not in _SUPPORTED_DEMO_TOKENS:
             response = DoDirectPaymentResponse(
                 Data=DoDirectPaymentData(
                     IsSuccessful=False,
                     ResultCode="BankDeclined",
-                    ResultMessage="Banka tarafindan reddedildi (demo).",
+                    ResultMessage="Banka tarafindan reddedildi (demo token gecersiz).",
                     VirtualPosOrderId="",
+                ),
+                ResultCode="Success",
+                ResultMessage="",
+                Exception=None,
+            )
+            _record_operation(
+                conn, "DoDirectPayment", fields.OtherTrxCode, request_payload,
+                response.model_dump(mode="json"),
+            )
+            return response
+
+        existing = _find_by_other_trx_code(conn, fields.OtherTrxCode)
+        if existing is not None:
+            # İdempotent: aynı OtherTrxCode için ikinci kayıt açılmaz (§16.1).
+            response = DoDirectPaymentResponse(
+                Data=DoDirectPaymentData(
+                    IsSuccessful=True,
+                    ResultCode="",
+                    ResultMessage="",
+                    VirtualPosOrderId=existing["virtual_pos_order_id"],
                 ),
                 ResultCode="Success",
                 ResultMessage="",
@@ -221,9 +278,7 @@ def do_direct_payment(body: DoDirectPaymentRequest) -> DoDirectPaymentResponse:
                 conn, "DoDirectPayment", fields.OtherTrxCode, request_payload,
                 {"fault": "timeout_after_create"},
             )
-            raise HTTPException(
-                status_code=500, detail="simulated timeout after create (fault injection)"
-            )
+            time.sleep(settings.timeout_after_create_delay_seconds)
 
         response = DoDirectPaymentResponse(
             Data=DoDirectPaymentData(
@@ -525,6 +580,21 @@ def get_payment_list(body: GetPaymentListWireRequest) -> GetPaymentListResponse:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Mock Moka PaymentDealer", version="1.0.0")
+
+    @app.exception_handler(RequestValidationError)
+    async def _moka_invalid_request(
+        _request: Request,
+        _exc: RequestValidationError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "Data": None,
+                "ResultCode": AUTH_INVALID_REQUEST,
+                "ResultMessage": "",
+                "Exception": None,
+            },
+        )
 
     @app.on_event("startup")
     def _startup() -> None:

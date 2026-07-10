@@ -1,6 +1,6 @@
 """Mock Moka sunucusu testleri (GATE M1-YUSUF, §22.4-§22.7 + §25 acceptance 1-9).
 
-Kapsam: `plans/ready/01_moka_contract_mock_and_client.md` Faz 1B "Yusuf —
+Kapsam: `plans/done/01_moka_contract_mock_and_client.md` Faz 1B "Yusuf —
 feat/moka-mock-server". Bu testler mock'u doğrudan (`TestClient`) çağırır —
 Berke'nin henüz yazılmamış gerçek HTTP client'ından bağımsızdır; client/mock
 E2E zinciri ayrı bir gate'te (M1C-YUSUF) test edilir.
@@ -37,6 +37,19 @@ from backend.app.services.payments.moka.errors import (
 _DEALER_CODE = "DEALER-DEMO-001"
 _USERNAME = "m4trust_demo"
 _PASSWORD = "demo-secret"
+_INVALID_REQUEST_ENVELOPE = {
+    "Data": None,
+    "ResultCode": AUTH_INVALID_REQUEST,
+    "ResultMessage": "",
+    "Exception": None,
+}
+_PAYMENT_DEALER_ENDPOINTS = (
+    "/PaymentDealer/DoDirectPayment",
+    "/PaymentDealer/DoApprovePoolPayment",
+    "/PaymentDealer/UndoApprovePoolPayment",
+    "/PaymentDealer/GetDealerPaymentTrxDetailList",
+    "/PaymentDealer/GetPaymentList",
+)
 
 
 def _check_key(dealer_code: str = _DEALER_CODE, username: str = _USERNAME, password: str = _PASSWORD) -> str:
@@ -84,6 +97,7 @@ def _isolated_mock_moka_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("MOCK_MOKA_PASSWORD", _PASSWORD)
     monkeypatch.setenv("MOCK_MOKA_VIRTUAL_POS_ENABLED", "true")
     monkeypatch.setenv("MOCK_MOKA_FAULTS_ENABLED", "false")
+    monkeypatch.setenv("MOCK_MOKA_TIMEOUT_AFTER_CREATE_DELAY_SECONDS", "0.01")
 
 
 @pytest.fixture()
@@ -173,7 +187,7 @@ def test_direct_payment_duplicate_other_trx_code_is_idempotent(client: TestClien
     assert first.json()["Data"]["VirtualPosOrderId"] == second.json()["Data"]["VirtualPosOrderId"]
 
 
-def test_direct_payment_timeout_fault_persists_row_but_fails_response(
+def test_direct_payment_timeout_fault_persists_row_then_returns_after_delay(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MOCK_MOKA_FAULTS_ENABLED", "true")
@@ -182,13 +196,32 @@ def test_direct_payment_timeout_fault_persists_row_but_fails_response(
         "/PaymentDealer/DoDirectPayment",
         json=_direct_payment_body("TRX-TIMEOUT", card_token="DEMO-TOKEN-TIMEOUT-AFTER-CREATE"),
     )
-    assert response.status_code == 500
+    assert response.status_code == 200
+    assert response.json()["Data"]["IsSuccessful"] is True
 
     detail = client.post(
         "/PaymentDealer/GetDealerPaymentTrxDetailList",
         json={"PaymentDealerAuthentication": _auth_block(), "PaymentDealerRequest": {"OtherTrxCode": "TRX-TIMEOUT"}},
     )
     assert len(detail.json()["Data"]["TrxDetailList"]) == 1
+
+
+def test_direct_payment_unknown_token_is_bank_decline_without_persistence(client: TestClient) -> None:
+    response = client.post(
+        "/PaymentDealer/DoDirectPayment",
+        json=_direct_payment_body("TRX-UNKNOWN-TOKEN", card_token="ARBITRARY-UNKNOWN-TOKEN"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ResultCode"] == "Success"
+    assert response.json()["Data"]["IsSuccessful"] is False
+    assert response.json()["Data"]["ResultCode"] == "BankDeclined"
+
+    detail = client.post(
+        "/PaymentDealer/GetDealerPaymentTrxDetailList",
+        json={"PaymentDealerAuthentication": _auth_block(), "PaymentDealerRequest": {"OtherTrxCode": "TRX-UNKNOWN-TOKEN"}},
+    )
+    assert detail.json()["Data"]["TrxDetailList"] == []
 
 
 def test_direct_payment_timeout_fault_disabled_by_default(client: TestClient) -> None:
@@ -417,13 +450,70 @@ def test_get_payment_list_returns_all_created_payments(client: TestClient) -> No
 # --- Secret leakage (§22.12, mock-side) -----------------------------------
 
 
+@pytest.mark.parametrize("endpoint", _PAYMENT_DEALER_ENDPOINTS)
+@pytest.mark.parametrize("payload", [{}, None])
+def test_validation_failures_use_exact_invalid_request_envelope(
+    client: TestClient, endpoint: str, payload: dict | None
+) -> None:
+    if payload is None:
+        response = client.post(
+            endpoint,
+            content=b'{"broken":',
+            headers={"Content-Type": "application/json"},
+        )
+    else:
+        response = client.post(endpoint, json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == _INVALID_REQUEST_ENVELOPE
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"PaymentDealerAuthentication": _auth_block(CheckKey=None), "PaymentDealerRequest": {}},
+        {"PaymentDealerAuthentication": {**_auth_block(), "Password": ["secret"]}, "PaymentDealerRequest": {}},
+        {"PaymentDealerAuthentication": _auth_block()},
+    ],
+)
+def test_missing_or_malformed_auth_and_request_never_leak_validation_details(
+    client: TestClient, body: dict
+) -> None:
+    response = client.post("/PaymentDealer/DoDirectPayment", json=body)
+
+    assert response.status_code == 200
+    assert response.json() == _INVALID_REQUEST_ENVELOPE
+
+
 def test_no_raw_secrets_persisted_in_mock_operations(client: TestClient) -> None:
+    from backend.mock_moka.app import _record_operation
     from backend.mock_moka.config import MockMokaSettings
 
     client.post("/PaymentDealer/DoDirectPayment", json=_direct_payment_body("TRX-050"))
 
     settings = MockMokaSettings.from_env()
     conn = sqlite3.connect(str(settings.db_path))
+    sensitive = {
+        "Password": "raw-password",
+        "CheckKey": "raw-check-key",
+        "CardToken": "raw-card-token",
+        "PAN": "4111111111111111",
+        "CardNumber": "5555555555554444",
+        "CVC": "123",
+        "CVV": "456",
+        "SecurityCode": "789",
+        "CardHolderFullName": "Sensitive Person",
+        "BuyerInformation": {"Email": "person@example.test", "Phone": "+905551112233"},
+        "Address": "Sensitive Address 42",
+        "ClientIP": "203.0.113.42",
+    }
+    _record_operation(
+        conn,
+        "RedactionProbe",
+        "TRX-REDACTION",
+        {"nested": sensitive},
+        {"echo": sensitive, "message": "raw-card-token person@example.test 203.0.113.42"},
+    )
     rows = conn.execute("SELECT redacted_request, redacted_response FROM mock_operations").fetchall()
     conn.close()
 
@@ -432,6 +522,8 @@ def test_no_raw_secrets_persisted_in_mock_operations(client: TestClient) -> None
         combined = redacted_request + redacted_response
         assert _PASSWORD not in combined
         assert _check_key() not in combined
-        stored_card_token = json.loads(redacted_request)["PaymentDealerRequest"]["CardToken"]
-        assert stored_card_token != "DEMO-TOKEN-SUCCESS"
-        assert stored_card_token.startswith("token_****")
+        for raw_value in sensitive.values():
+            if isinstance(raw_value, str):
+                assert raw_value not in combined
+        for raw_value in sensitive["BuyerInformation"].values():
+            assert raw_value not in combined
