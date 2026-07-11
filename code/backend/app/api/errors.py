@@ -7,8 +7,8 @@ fırlatılan** hatalar ve (b) **yakalanmamış** istisnalardır. Mevcut uçları
 modülden hiçbir şekilde etkilenmez: burada `HTTPException` için handler
 tanımlanmaz, mevcut endpoint sözleşmeleri global olarak yeniden yazılmaz.
 
-Bu dosya `main.py`'ye kaydedilmez — kayıt (`app.add_exception_handler(...)`)
-Berke'nin entegrasyon commit'idir (bkz. program_haritasi §3, Revizyon #3).
+Handler'lar `main.py` app factory'sinde kaydedilir (bkz. program_haritasi §3,
+Revizyon #3).
 """
 
 from __future__ import annotations
@@ -78,10 +78,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     `exc` mesajı, tipi veya traceback'i gövdeye asla yazılmaz — yalnız
     request_id ile ilişkilendirilebilir jenerik bir hata döner.
     """
+    request_id = _request_id(request)
     body = build_error_body(
         code=_INTERNAL_ERROR_CODE,
         message=_INTERNAL_ERROR_MESSAGE,
-        request_id=_request_id(request),
+        request_id=request_id,
         detail=None,
     )
-    return JSONResponse(status_code=500, content=body)
+    # Starlette'ın generic Exception handler'ı ServerErrorMiddleware katmanında
+    # çalışabilir; bu durumda cevap user middleware zincirinden geri geçmez ve
+    # RequestIDMiddleware header ekleyemez. Sanitized 500 cevabı bu nedenle
+    # aynı request ID'yi doğrudan header'a da yazar.
+    headers = {"X-Request-ID": request_id} if request_id is not None else None
+    return JSONResponse(status_code=500, content=body, headers=headers)
