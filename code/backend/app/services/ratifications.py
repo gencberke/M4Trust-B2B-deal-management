@@ -108,19 +108,26 @@ def get_package_or_raise(conn: Connection, package_id: str) -> RatificationPacka
     return _row_to_package(row)
 
 
-def _require_open(package: RatificationPackage) -> None:
-    if package.status is RatificationPackageStatus.open:
-        return
-    reason_by_status = {
-        RatificationPackageStatus.draft: "PACKAGE_NOT_OPEN",
-        RatificationPackageStatus.complete: "PACKAGE_ALREADY_COMPLETE",
-        RatificationPackageStatus.superseded: "PACKAGE_SUPERSEDED",
-        RatificationPackageStatus.cancelled: "PACKAGE_CANCELLED",
-    }
-    reason_code = reason_by_status[package.status]
-    raise RatificationConflictError(
-        reason_code, f"Package '{package.status.value}' durumunda ratify edilemez."
-    )
+_TERMINAL_STATUS_REASONS = {
+    RatificationPackageStatus.draft: "PACKAGE_NOT_OPEN",
+    RatificationPackageStatus.superseded: "PACKAGE_SUPERSEDED",
+    RatificationPackageStatus.cancelled: "PACKAGE_CANCELLED",
+}
+
+
+def _reject_if_terminal(package: RatificationPackage) -> None:
+    """`draft`/`superseded`/`cancelled` her zaman reddedilir -- idempotency
+
+    kontrolünden ÖNCE çağrılır. Aksi halde: taraf package'ı ratify eder, sonra
+    package rule/policy değişimiyle supersede edilir, taraf AYNI eski
+    package'a tekrar istek atar -- mevcut ratification satırı bulunduğu için
+    idempotency kapısı bunu 409 yerine yanlışlıkla 200 olarak geçirirdi.
+    """
+    reason_code = _TERMINAL_STATUS_REASONS.get(package.status)
+    if reason_code is not None:
+        raise RatificationConflictError(
+            reason_code, f"Package '{package.status.value}' durumunda ratify edilemez."
+        )
 
 
 def create_ratification(
@@ -154,13 +161,18 @@ def create_ratification(
     if my_participant.role.value not in _REQUIRED_ROLES:
         raise RatificationAuthorizationError("Yalnız buyer/seller ratification verebilir.")
 
+    _reject_if_terminal(package)
+
     existing = ratifications_repo.get_by_package_and_participant(
         conn, package_id=package_id, participant_id=my_participant.id
     )
     if existing is not None:
         return _build_outcome(conn, package, _row_to_ratification(existing), funding_triggered=False)
 
-    _require_open(package)
+    if package.status is RatificationPackageStatus.complete:
+        raise RatificationConflictError(
+            "PACKAGE_ALREADY_COMPLETE", "Package zaten complete durumunda; yeni ratification kabul edilmez."
+        )
     if not verify_integrity(package):
         raise RatificationConflictError(
             "PACKAGE_INTEGRITY_FAILED", "Package canonical hash doğrulaması başarısız."
