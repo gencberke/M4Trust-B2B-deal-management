@@ -291,7 +291,25 @@ Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager
 `transactions.lifecycle_version` (`legacy_v1` | `account_v2`, `NOT NULL DEFAULT 'legacy_v1'`):
 
 - **`legacy_v1`**: anonim capability-link akışı, **hiç değişmedi**. `GET .../{id}` açık kalır; party/manager-view/delivery `LEGACY_CAPABILITY_ACCESS_ENABLED` (varsayılan `true`, Wave 3'e kadar) arkasında token ile çalışır. Detay cevabında `canonical_state` (aşağıda) doldurulur.
-- **`account_v2`**: `POST /api/transactions`'a `acting_entity_id`+`own_role` verildiğinde authenticated akış — capability token **üretilmez**; erişim `transaction_assignments` üzerinden scoped'dur (list/detail 401/403). Kendi state machine'i henüz tanımlı değil (Plan 03+ kapsamı dışı); `canonical_state` bu satırlarda `None`.
+- **`account_v2`**: `POST /api/transactions`'a `acting_entity_id`+`own_role` verildiğinde authenticated akış — capability token **üretilmez**; erişim `transaction_assignments` üzerinden scoped'dur (list/detail 401/403). `canonical_state` bu satırlarda `None`'dır (§5.3 projeksiyonu yalnız `legacy_v1` içindir); kendi `state` sütunu literal değerlerle doğrudan okunur. Plan 04 ile birlikte gerçek bir state machine'i vardır (§5.2.1 aşağıda) — `services/transaction_state.py`'deki §5.3 legacy projeksiyonuyla **karıştırılmamalıdır**.
+
+#### 5.2.1 `account_v2` state machine (Plan 04)
+
+```
+preparation → extracting → awaiting_review (validator NEEDS_REVIEW, blocking pre_ratification case)
+                          → awaiting_approval (validator PASS)
+awaiting_review, blocking case resolve_continue ile çözülürse → preparation (§4F-2 recovery)
+awaiting_approval | preparation → ratification package open → awaiting_ratification
+                                    (services/ratification_package.py::open_package,
+                                     account_lifecycle.transition_account_state)
+awaiting_ratification | preparation → çift ratification (buyer+seller) tamam →
+                                    funding_pending (FundingCoordinator.ensure_pool_funded,
+                                    provider ÇAĞRISI YOK — yalnız funding_required event/audit)
+```
+
+`awaiting_ratification`'dan sonra gerçek funding, milestone/settlement ve `active`/`settled` durumları
+Plan 06'nın kapsamıdır — Plan 04 `funding_pending`'de durur. `legacy_v1`'in aşağıdaki (§5.3 sonrası)
+`uploaded → ... → active → ...` akışı yalnız `legacy_v1` içindir; `account_v2` bu akışı KULLANMAZ.
 
 `ParticipantService` (frozen, v2 §8.1, `services/participants.py`): `attach_creator` (işlemi başlatan actor'ı `own_role` participant'ı yapar + manager assignment açar) · `create_counterparty_placeholder` (karşı taraf için `invited` durumunda placeholder, idempotent) · `accept_invitation` (email eşleşmesi zorunlu, creator kendi davetini kabul edemez, aynı legal entity iki taraf olamaz).
 
@@ -313,11 +331,13 @@ Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager
 
 `ratification_packages` canonical payload'ı; document hash, current rule version/hash, confirmed participant snapshot hash, locked tracking policy snapshot/hash, 4C funding schedule, commercial summary, provider profile ve OtherTrxCode türetme versiyonunu bağlar. Ham document, raw extraction, token, password, API key veya audit serbest metni package'a girmez. Package status/timestamp geçişleri servis tarafından yapılır; canonical payload ve bound hash alanları update edilemez/silinemez.
 
+`legacy_v1` akışı (bkz. §5.2.1 için `account_v2`'nin kendi state machine'i — bu diagram ona uygulanmaz):
+
 ```
 uploaded → extracting → awaiting_review | awaiting_approval | rejected
                           + policy.status = draft
 policy locked  (yalnız validator PASS ∧ state=awaiting_approval)
-        → taraf onayları açılır
+        → taraf onayları açılır (capability token — account_v2'de ACCOUNT_RATIFICATION_REQUIRED ile reddedilir)
 iki onay → pool payment + active
         → harici efektif kanıt yoksa: settlement → decided (capture)
         → kanıt bekleniyorsa: evidence_pending
