@@ -2,6 +2,8 @@
 
 > **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.11, §2.15, §2.16, §5.8-5.15, Program 2, Wave 2-3 · Moka §9 (funding plan package'ta)
 > **Wave A durumu:** Uygulandı — 2026-07-11 · 4A/4B + kapanış entegrasyonu tamamlandı; migration 010 registry, reviews app wiring, validator/reconciliation hook'ları ve merkezi reader seam gate'i yeşil. **Wave B bekliyor; plan bütünü henüz done değildir.**
+> **Faz 4C durumu:** Uygulandı — 2026-07-11 · Yusuf’un saf funding-plan compiler’ı integration branch’e merge edildi.
+> **Faz 4D durumu:** Uygulandı — 2026-07-11 · Canonical ratification package, migration 011, account lifecycle helper ve provider’sız FundingCoordinator v1 tamamlandı; 4E/4F bekliyor. **Plan bütünü henüz done değildir.**
 > **Bağımlılık:** 03 tamam. Integration branch: `program/domain-evolution-v2`
 > **Branch'ler:** iki wave, aşağıda faz bazında
 > **Tahmin:** 6-8 gün (paralel, iki wave)
