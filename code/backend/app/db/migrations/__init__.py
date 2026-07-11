@@ -25,6 +25,9 @@ rule_set_versions = import_module(
     "backend.app.db.migrations.009_rule_set_versions"
 )
 review_cases = import_module("backend.app.db.migrations.010_review_cases")
+ratification_packages = import_module(
+    "backend.app.db.migrations.011_ratification_packages"
+)
 
 __all__ = [
     "baseline_current_schema",
@@ -36,4 +39,5 @@ __all__ = [
     "documents_extraction_runs",
     "rule_set_versions",
     "review_cases",
+    "ratification_packages",
 ]

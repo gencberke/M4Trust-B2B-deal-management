@@ -33,11 +33,11 @@ code/
 ├── scripts/          # offline hazırlık + demo_moka_contract.py gerçek HTTP demo sürücüsü
 ├── backend/app/
 │   ├── main.py · config.py · eventbus.py
-│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-010
-│   ├── repositories/ # transactions · identity/participants · documents/extraction_runs · rule_sets · reviews
+│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-011
+│   ├── repositories/ # transactions · identity/participants · documents/extraction_runs · rule_sets/reviews/packages
 │   ├── api/          # yeni uçlar için standart hata zarfı
 │   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
-│   ├── schemas/      # extraction.py (ikili sözleşme) · tracking/identity/participants · rule_sets/reviews
+│   ├── schemas/      # extraction.py (ikili sözleşme) · tracking/identity/participants · rule_sets/reviews/ratification
 │   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence ·
 │   │                 # auth · entities · participants · invitations (Plan 03) · reviews (Plan 04 Wave A)
 │   └── services/
@@ -51,6 +51,8 @@ code/
 │       ├── rule_versions.py   # frozen RuleVersionService: immutable version + validator sonucu
 │       ├── review.py          # frozen ReviewService: case/action lifecycle
 │       ├── reconciliation.py  # extracted/declared/confirmed party diff + blocking review case
+│       ├── ratification_package.py # canonical package builder + immutable input/hash seam'i
+│       ├── account_lifecycle.py # account_v2 için conditional state transition helper'ı
 │       ├── auth.py            # Argon2id parola · session/CSRF token (yalnız hash) · Origin doğrulaması
 │       ├── identity.py        # legal entity + membership: AES-256-GCM tax ID + HMAC lookup
 │       ├── access_control.py  # ActorContext (anonymous · legacy_capability · user/session) + auth/membership guard'ları
@@ -65,6 +67,7 @@ code/
 │       ├── effective_requirements.py # saf resolver: contractual + operational + advisory kanıt kümeleri
 │       ├── video/             # VideoAnalyzer: FakeVideoAnalyzer + RoboflowVideoAnalyzer (§3.4)
 │       ├── payments/          # provider-bağımsız PaymentGateway port/domain + Moka adapter'ları
+│       │   └── funding_coordinator.py # 4D provider'sız funding_pending coordinator
 │       ├── decision.py        # decision engine — saf fonksiyon, I/O yok
 │       ├── settlement.py      # settlement coordinator: karar + release guard + event/ödeme orkestrasyonu
 │       ├── payment_provider.py# PaymentProvider: MockMokaProvider + RealMokaProvider(v1)
@@ -78,6 +81,8 @@ code/
 > **Uygulama notu (2026-07-11, Plan 03):** Identity/session/legal-entity/membership + participant/invitation/audit + transaction ownership cutover kuruldu — [plans/done/03_identity_legal_entity_party_onboarding.md](plans/done/03_identity_legal_entity_party_onboarding.md). İki paralel `lifecycle_version` sistemi bir arada yaşıyor: **`legacy_v1`** (anonim capability-link, tüm mevcut davranış değişmedi) ve **`account_v2`** (authenticated session + legal entity + participant/invitation, capability token üretmez). `POST /api/transactions` iki modu da aynı uçta additive olarak sunar (§4.1). `main.py`'ye `auth`/`entities`/`participants`/`invitations` router'ları bu entegrasyon checkpoint'inde eklendi.
 
 > **Uygulama notu (2026-07-11, Plan 04 Wave A):** Document provenance (`contract_documents`), immutable extraction runs, immutable/validator-bound rule-set versions ve manual review/reconciliation çekirdeği kuruldu. Migration runner `008 → 009 → 010` sırasını uygular; reviews router gerçek app'e bağlıdır. Account pipeline'da validator `NEEDS_REVIEW` sonucu blocking `validator` case açar; participant confirm current rule-set ile party reconciliation çalıştırır. Merkezi `repositories/rule_sets.py::get_current` reader'ı transactions/delivery/settlement yanında approvals/evidence tarafından da kullanılır. `ExtractionJSON` şeması değişmedi; legacy `extracted_rules` fallback'i korunur.
+
+> **Uygulama notu (2026-07-11, Plan 04 Faz 4C/4D):** 4C saf funding-plan compiler'ı ve 4D canonical ratification package/funding coordinator v1 integration branch'e alındı. Migration runner `011_ratification_packages` ile `ratification_packages` tablosunu ekler; canonical payload ve bağlı hash alanları DB trigger'larıyla immutable'dır. `RatificationPackageService` yalnız account_v2 için document/rule/confirmed participant/locked policy/funding schedule girdilerini bağlar. `FundingCoordinator.ensure_pool_funded` bu fazda provider çağırmadan `funding_pending` + tek `funding_required` event/audit üretir; gerçek pool funding Plan 06'dadır. `ExtractionJSON`, Moka contract'ları ve legacy approval/payment/evidence yolu değişmedi.
 
 Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi). Authenticated account akışının frontend'i Plan 03 kapsamı dışıdır (Program 6/Faz 08).
 
@@ -297,7 +302,9 @@ Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager
 | evidence_pending | active / blocked_evidence (son `payment_decision_created.manual_review_required`) |
 | decided | settled / partially_settled (`mock_payments.status`) |
 
-**Migration:** `init_db()` versiyonlu migration runner'a delegedir. Sıra: `001_baseline_current_schema` (sekiz legacy runtime tablosu) → `003_identity_sessions` → `004_legal_entities_memberships` → `005_participants_invitations` → `006_audit_events` → `007_transaction_lifecycle_v2` → `008_documents_extraction_runs` → `009_rule_set_versions` → `010_review_cases`. `007`, `transactions`'a additive kolonlar ekler ve mevcut satırları `legacy_v1` backfill eder. `008`, `contract_documents` + immutable `extraction_runs`; `009`, immutable-content `rule_set_versions`; `010`, `review_cases` + append-only `review_actions` tablolarını ekler. `002` kasıtlı olarak rezerve/kullanılmamıştır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir, sonraki migration'lar normal döngüyle eklenir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
+**Migration:** `init_db()` versiyonlu migration runner'a delegedir. Sıra: `001_baseline_current_schema` (sekiz legacy runtime tablosu) → `003_identity_sessions` → `004_legal_entities_memberships` → `005_participants_invitations` → `006_audit_events` → `007_transaction_lifecycle_v2` → `008_documents_extraction_runs` → `009_rule_set_versions` → `010_review_cases` → `011_ratification_packages`. `007`, `transactions`'a additive kolonlar ekler ve mevcut satırları `legacy_v1` backfill eder. `008`, `contract_documents` + immutable `extraction_runs`; `009`, immutable-content `rule_set_versions`; `010`, `review_cases` + append-only `review_actions`; `011`, canonical `ratification_packages` + bound-input immutability trigger'ını ekler. `002` kasıtlı olarak rezerve/kullanılmamıştır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir, sonraki migration'lar normal döngüyle eklenir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
+
+`ratification_packages` canonical payload'ı; document hash, current rule version/hash, confirmed participant snapshot hash, locked tracking policy snapshot/hash, 4C funding schedule, commercial summary, provider profile ve OtherTrxCode türetme versiyonunu bağlar. Ham document, raw extraction, token, password, API key veya audit serbest metni package'a girmez. Package status/timestamp geçişleri servis tarafından yapılır; canonical payload ve bound hash alanları update edilemez/silinemez.
 
 ```
 uploaded → extracting → awaiting_review | awaiting_approval | rejected
@@ -328,6 +335,8 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 7. **Local-first.** Runtime'daki tek dış çağrı LLM API'sidir; o da yalnızca maskelenmiş içerik alır.
 8. **Gerçek para hareketi ve gerçek kart verisi yoktur** (demo). Prod anlatısı: lisanslı altyapının (Moka havuz/cüzdan) üstünde karar-kanıt katmanı.
 9. **Video tek başına para hareketi üretemez.** Opsiyonel (platform) videosu advisory'dir: teslim miktarını, kısmi ödeme oranını, release'i veya dispute'u belirleyemez; en fazla `hold` + manuel inceleme tetikler (§3.4).
+10. **Ratification package canonical ve immutable'dır.** Package hash saklanan canonical UTF-8 bytes üzerinden hesaplanır; input değişimi supersede + yeni version üretir.
+11. **Plan 04 funding coordinator provider çağırmaz.** `FundingCoordinator.ensure_pool_funded` yalnız complete current package'ı `funding_pending`e alır ve idempotent `funding_required` event/audit üretir; gerçek funding Plan 06'ya aittir.
 10. **Sözleşmesel kanıt platform tercihini yener.** Extraction'daki `required_evidence` yönetici policy'siyle devre dışı bırakılamaz **veya zayıflatılamaz**; sözleşmesel video `tracking_mode=document_and_video` zorunlu kılar. Çelişkide policy kilidi 409 ile reddedilir. LLM/RAG takip politikasını **seçmez** — politika `ExtractionJSON` içine yazılmaz.
 11. **Takip politikası taraf onaylarından önce kilitlenir** ve iki tarafa da gösterilir. Kilitlenmemiş policy'de onay 409'dur; kilit sonrası policy değişmez (amendment akışı kapsam dışı — yeni transaction açılır).
 12. **Audit event, business mutation ile aynı connection/transaction'da yazılır** (`services/audit.py::record`); kendi commit/rollback/close yapmaz — business mutation rollback olursa audit satırı da rollback olur. Metadata serbest metin değildir; yalnız scalar enum/ID/status değerleri kabul edilir, token/secret/ham PII güvenli anahtar altında da reddedilir.
