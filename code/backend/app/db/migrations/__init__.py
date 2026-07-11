@@ -31,6 +31,13 @@ ratification_packages = import_module(
 ratifications = import_module("backend.app.db.migrations.012_ratifications")
 evidence_records = import_module("backend.app.db.migrations.013_evidence_records")
 disputes = import_module("backend.app.db.migrations.014_disputes")
+milestones = import_module("backend.app.db.migrations.015_milestones")
+funding_units_provider_payments = import_module(
+    "backend.app.db.migrations.016_funding_units_provider_payments"
+)
+release_instructions = import_module(
+    "backend.app.db.migrations.017_release_instructions"
+)
 plan05_remediation_constraints = import_module(
     "backend.app.db.migrations.023_plan05_remediation_constraints"
 )
@@ -49,5 +56,8 @@ __all__ = [
     "ratifications",
     "evidence_records",
     "disputes",
+    "milestones",
+    "funding_units_provider_payments",
+    "release_instructions",
     "plan05_remediation_constraints",
 ]

@@ -1,4 +1,4 @@
-"""Plan 06A milestone persistence (additive, not yet registry-wired)."""
+"""Plan 06A milestone persistence (additive)."""
 
 from __future__ import annotations
 
@@ -25,11 +25,13 @@ STATEMENTS = (
             CHECK (release_mode IN ('all_or_nothing', 'fixed_tranches')),
         status TEXT NOT NULL DEFAULT 'pending'
             CHECK (status IN (
-                'pending', 'evidence_pending', 'eligible', 'held', 'release_pending',
-                'partially_released', 'released', 'disputed', 'cancelled'
+                'pending', 'evidence_pending', 'eligible', 'held',
+                'funding_unit_approval_pending', 'partially_released', 'released',
+                'disputed', 'cancelled'
             )),
         released_amount_minor INTEGER NOT NULL DEFAULT 0
-            CHECK (released_amount_minor >= 0),
+            CHECK (released_amount_minor >= 0
+                AND released_amount_minor <= amount_minor),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE(ratification_package_id, rule_index),

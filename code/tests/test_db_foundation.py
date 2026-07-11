@@ -78,6 +78,12 @@ def test_empty_db_applies_complete_baseline(tmp_path: Path) -> None:
         "evidence_records",
         "disputes",
         "dispute_actions",
+        "milestones",
+        "funding_units",
+        "provider_payments",
+        "provider_operations",
+        "fake_provider_payments",
+        "release_instructions",
     }
     assert [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")] == [
         "001",
@@ -93,6 +99,9 @@ def test_empty_db_applies_complete_baseline(tmp_path: Path) -> None:
         "012",
         "013",
         "014",
+        "015",
+        "016",
+        "017",
         "023",
     ]
     assert "manager_token" in {
@@ -114,7 +123,7 @@ def test_recognized_legacy_is_stamped_without_reapplying(tmp_path: Path) -> None
 
     init_db(conn)
 
-    # 001 stamp edilir (yeniden uygulanmaz); 003-014 henüz uygulanmadığından
+    # 001 stamp edilir (yeniden uygulanmaz); 003-017/023 henüz uygulanmadığından
     # normal döngüyle eklenir — additive legacy upgrade.
     assert [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")] == [
         "001",
@@ -130,6 +139,9 @@ def test_recognized_legacy_is_stamped_without_reapplying(tmp_path: Path) -> None
         "012",
         "013",
         "014",
+        "015",
+        "016",
+        "017",
         "023",
     ]
     kept_row = conn.execute(
