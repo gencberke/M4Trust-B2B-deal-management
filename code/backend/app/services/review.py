@@ -20,13 +20,28 @@ Action -> status state machine (Wave A güvenlik sınırı dahil):
 | comment           | case aktif olmalı                  | (değişmez)         |
 | request_evidence  | case aktif olmalı                  | evidence_requested |
 | escalate          | case aktif olmalı                  | escalated          |
-| resolve_continue  | yalnız `severity=warning`           | resolved           |
+| resolve_continue  | `severity=warning` OTOMATİK; `severity=blocking` yalnız aşağıdaki ön-koşullar sağlanırsa | resolved |
 | resolve_reject    | case aktif olmalı                  | resolved           |
 | cancel            | case aktif olmalı                  | cancelled          |
 
-`resolve_continue`, blocking bir case'e karşı çağrılırsa `ReviewActionForbiddenError`
-(409 domain conflict) fırlatır — gerçek revision+revalidation sonrası continue
-yolu 4F-2'de açılır.
+Faz 4F-2 — blocking case `resolve_continue` ön-koşulları (`pre_ratification`
+fazı dışındaki blocking case'ler için hâlâ kayıtsız şartsız reddedilir):
+
+* `validator` case: current rule version vardır, `PASS`+`ratifiable`dır, case'in
+  açıldığı eski version artık current değildir, ve mevcut ratification package
+  henüz `complete` (funding tetiklenmiş) değildir.
+* `party_mismatch` case: current rule-set ile confirmed participant snapshot
+  yeniden karşılaştırılır (`reconciliation.compare_party_snapshots`); case'in
+  `reason_code`'una karşılık gelen mismatch artık yoktur. Snapshot sessizce
+  değiştirilmez, yalnız okunur.
+
+Ön-koşul sağlanmazsa `ReviewResolutionPreconditionError` (409
+`REVIEW_RESOLUTION_PRECONDITION_FAILED`) fırlatılır. Ön-koşul sağlanıp case
+resolve edildikten sonra `pre_ratification` fazında başka blocking case
+kalmadıysa, donmuş `account_lifecycle.transition_account_state` helper'ıyla
+account transaction `preparation`'a döner (legacy transaction state'i bu
+helper zaten `account_v2` dışını reddederek korur). Review bypass eklenmez;
+business mutation + audit aynı DB transaction'ındadır.
 """
 
 from __future__ import annotations
@@ -36,6 +51,7 @@ import sqlite3
 from typing import Any
 
 from backend.app.repositories import reviews as reviews_repo
+from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.schemas.reviews import (
     ACTIVE_REVIEW_STATUSES,
     ReviewAction,
@@ -48,6 +64,11 @@ from backend.app.schemas.reviews import (
 )
 from backend.app.services import audit
 from backend.app.services.access_control import ActorContext
+from backend.app.services.account_lifecycle import AccountLifecycleError, transition_account_state
+
+_ACCOUNT_STATES_RETURNABLE_TO_PREPARATION = frozenset(
+    {"awaiting_review", "awaiting_approval", "awaiting_ratification", "preparation"}
+)
 
 _ACTIVE_STATUS_VALUES = tuple(s.value for s in ACTIVE_REVIEW_STATUSES)
 
@@ -71,7 +92,13 @@ class ReviewCaseClosedError(Exception):
 
 
 class ReviewActionForbiddenError(Exception):
-    """Wave A güvenlik sınırı: blocking case `resolve_continue` ile bypass edilemez."""
+    """`pre_ratification` fazı dışındaki blocking case `resolve_continue` ile bypass edilemez
+    (bu fazlar için resolution semantiği henüz tanımlı değil — Plan 06/07)."""
+
+
+class ReviewResolutionPreconditionError(Exception):
+    """Faz 4F-2: blocking `resolve_continue` ön-koşulları (revision+revalidation veya
+    mismatch'in gerçekten düzelmiş olması) sağlanmadı — 409 fail closed."""
 
 
 def _row_to_case(row: sqlite3.Row) -> ReviewCase:
@@ -107,6 +134,106 @@ def _row_to_action(row: sqlite3.Row) -> ReviewAction:
         payload=json.loads(row["payload_json"]) if row["payload_json"] else None,
         created_at=row["created_at"],
     )
+
+
+def _validator_case_resolvable(conn: sqlite3.Connection, case: ReviewCase) -> bool:
+    """Current rule version PASS+ratifiable ve case'in eski version'ından farklı mı?
+
+    `rule_set_versions` her zaman en yeni non-superseded satırı `current` kabul
+    eder (`repositories/rule_sets.py::get_latest_non_superseded`); dolayısıyla
+    "current artık case'in source_id'sinden farklı" kontrolü zaten "eski version
+    artık current değil veya superseded" koşulunu kapsar.
+    """
+    current = rule_sets_repo.get_current(conn, case.transaction_id)
+    if current is None or current.rule_set_id is None:
+        return False
+    if current.rule_set_id == case.source_id:
+        return False
+    return current.status == "ratifiable" and current.validator_status == "PASS"
+
+
+def _funding_not_yet_started(conn: sqlite3.Connection, transaction_id: str) -> bool:
+    from backend.app.services import ratification_package
+
+    package = ratification_package.get_current(conn, transaction_id)
+    if package is None:
+        return True
+    return package.status.value != "complete"
+
+
+def _party_mismatch_case_resolvable(conn: sqlite3.Connection, case: ReviewCase) -> bool:
+    """Current rule-set'in extracted party'siyle confirmed snapshot'ı yeniden karşılaştırır.
+
+    Snapshot'lar yalnız okunur, hiçbir şekilde değiştirilmez. `source_id`
+    (`reconciliation.open_party_mismatch_cases`'te `participant_id`'dir.
+    """
+    from backend.app.repositories import participants as participants_repo
+    from backend.app.schemas.participants import PartyProfileSnapshot
+    from backend.app.services import reconciliation
+
+    if not case.source_id:
+        return False
+    participant_row = participants_repo.get_participant_by_id(conn, case.source_id)
+    if participant_row is None:
+        return False
+
+    current = rule_sets_repo.get_current(conn, case.transaction_id)
+    if current is None or current.extraction is None:
+        return False
+    role = participant_row["role"]
+    extracted_party = getattr(current.extraction.parties, role, None)
+    if extracted_party is None:
+        return False
+    extracted = PartyProfileSnapshot(name=extracted_party.name, tax_id=extracted_party.tax_id)
+
+    confirmed_json = participant_row["confirmed_snapshot_json"]
+    confirmed = (
+        PartyProfileSnapshot.model_validate(json.loads(confirmed_json)) if confirmed_json else None
+    )
+    declared_json = participant_row["declared_snapshot_json"]
+    declared = (
+        PartyProfileSnapshot.model_validate(json.loads(declared_json)) if declared_json else None
+    )
+
+    result = reconciliation.compare_party_snapshots(
+        role=role, extracted=extracted, declared=declared, confirmed=confirmed
+    )
+    if case.reason_code == reconciliation.PARTY_PROFILE_MISSING:
+        return not result.missing_profile
+    if result.missing_profile:
+        return False
+    return case.reason_code not in {m.reason_code for m in result.mismatches}
+
+
+def _blocking_resolve_continue_allowed(conn: sqlite3.Connection, case: ReviewCase) -> bool:
+    if case.phase is not ReviewPhase.pre_ratification:
+        return False
+    if case.source_type is ReviewSourceType.validator:
+        return _validator_case_resolvable(conn, case) and _funding_not_yet_started(
+            conn, case.transaction_id
+        )
+    if case.source_type is ReviewSourceType.party_mismatch:
+        return _party_mismatch_case_resolvable(conn, case)
+    return False
+
+
+def _return_account_transaction_to_preparation(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> None:
+    """Resolve sonrası `pre_ratification` fazında blocking case kalmadıysa `preparation`'a döner."""
+    if has_blocking_case(conn, transaction_id, phase=ReviewPhase.pre_ratification.value):
+        return
+    try:
+        transition_account_state(
+            conn,
+            transaction_id=transaction_id,
+            expected_states=_ACCOUNT_STATES_RETURNABLE_TO_PREPARATION,
+            target_state="preparation",
+            actor_context=actor_context,
+            reason_code="REVIEW_RESOLVED",
+        )
+    except AccountLifecycleError as exc:
+        raise ReviewResolutionPreconditionError(str(exc)) from exc
 
 
 def open_case(
@@ -210,9 +337,18 @@ def record_action(
     new_status, is_resolution = _ACTION_TRANSITIONS[action]
 
     if action == "resolve_continue" and case_row["severity"] == ReviewSeverity.blocking.value:
-        raise ReviewActionForbiddenError(
-            "Blocking case 'resolve_continue' ile bypass edilemez; revision+revalidation gerekir."
-        )
+        case = _row_to_case(case_row)
+        if case.phase is not ReviewPhase.pre_ratification:
+            raise ReviewActionForbiddenError(
+                "Blocking case 'resolve_continue' ile bypass edilemez; bu faz için "
+                "resolution semantiği henüz tanımlı değil."
+            )
+        if not _blocking_resolve_continue_allowed(conn, case):
+            raise ReviewResolutionPreconditionError(
+                "Blocking case 'resolve_continue' ön koşulları sağlanmıyor: revision + "
+                "revalidation (validator case) veya mismatch'in gerçekten düzelmiş olması "
+                "(party_mismatch case) gerekir."
+            )
 
     if new_status is not None:
         if case_row["status"] not in _ACTIVE_STATUS_VALUES:
@@ -260,6 +396,16 @@ def record_action(
         metadata_allowlist=frozenset(),
         transaction_id=case_row["transaction_id"],
     )
+
+    if (
+        action == "resolve_continue"
+        and case_row["severity"] == ReviewSeverity.blocking.value
+        and case_row["phase"] == ReviewPhase.pre_ratification.value
+    ):
+        _return_account_transaction_to_preparation(
+            conn, case_row["transaction_id"], actor_context
+        )
+
     return _row_to_action(action_row)
 
 
