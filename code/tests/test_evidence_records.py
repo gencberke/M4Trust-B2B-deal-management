@@ -120,6 +120,33 @@ def test_evidence_records_bound_fields_immutable(conn) -> None:
         )
 
 
+def test_evidence_provenance_fields_are_immutable(conn) -> None:
+    record = svc.submit_evidence(
+        conn,
+        transaction_id="tx-5a",
+        milestone_id=None,
+        evidence_type="video",
+        source="analyzer",
+        actor_context=_actor(),
+        payload={"counts": {}, "unit_count": 1, "damage_signals": [], "confidence": 0.9},
+        verification_status="verified",
+        storage_ref="tx-5a/video-provenance",
+        file_sha256="c" * 64,
+        analyzer_provider="fake",
+        analyzer_version="v1",
+    )
+    with pytest.raises(Exception):
+        conn.execute(
+            "UPDATE evidence_records SET analyzer_provider = 'other' WHERE id = ?",
+            (record.id,),
+        )
+    with pytest.raises(Exception):
+        conn.execute(
+            "UPDATE evidence_records SET analyzer_version = 'v2' WHERE id = ?",
+            (record.id,),
+        )
+
+
 # --- idempotency ---------------------------------------------------------------------
 
 

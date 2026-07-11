@@ -34,6 +34,7 @@ _MIGRATION_MODULES = (
     "backend.app.db.migrations.012_ratifications",
     "backend.app.db.migrations.013_evidence_records",
     "backend.app.db.migrations.014_disputes",
+    "backend.app.db.migrations.023_plan05_remediation_constraints",
 )
 
 _LEGACY_COLUMNS = {

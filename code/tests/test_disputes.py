@@ -23,10 +23,14 @@ _TX_ID = "tx-5b"
 _OTHER_TX_ID = "tx-5b-other"
 
 
-def _actor(user_id: str = "u-buyer", entity_id: str = "entity-buyer") -> ActorContext:
+def _actor(
+    user_id: str = "u-buyer",
+    entity_id: str = "entity-buyer",
+    platform_role: str | None = None,
+) -> ActorContext:
     return ActorContext(
         actor_type="user", user_id=user_id, acting_entity_id=entity_id,
-        auth_method="session", request_id="req-5b",
+        platform_role=platform_role, auth_method="session", request_id="req-5b",
     )
 
 
@@ -177,6 +181,26 @@ def test_cancel_only_by_opener(conn) -> None:
         svc.record_dispute_action(
             conn, dispute_id=dispute.id, actor_context=_actor("u-other", "entity-buyer"), action="cancel"
         )
+
+
+def test_resolve_only_by_opener_or_platform_reviewer(conn) -> None:
+    dispute = _open(conn, actor=_actor("u-buyer", "entity-buyer"))
+    with pytest.raises(svc.DisputeAuthorizationError):
+        svc.record_dispute_action(
+            conn,
+            dispute_id=dispute.id,
+            actor_context=_actor("u-other", "entity-buyer"),
+            action="resolve",
+            payload={"resolution_code": "QUALITY_REVIEWED"},
+        )
+
+    svc.record_dispute_action(
+        conn,
+        dispute_id=dispute.id,
+        actor_context=_actor("u-buyer", "entity-buyer", platform_role="reviewer"),
+        action="resolve",
+        payload={"resolution_code": "QUALITY_REVIEWED"},
+    )
 
 
 def test_state_changing_action_on_resolved_dispute_is_rejected(conn) -> None:

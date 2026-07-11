@@ -7,9 +7,10 @@ sınır, v2 §2.14 — hardening hedefi sonraki bir iştir). Sözleşme:
   atomic yazar (temp dosya + fsync + `os.replace`) ve aynı `storage_ref` için
   sessiz overwrite yapmaz — aynı ref+aynı byte idempotent, aynı ref+farklı
   byte reddedilir.
-- `storage_ref`, `transaction_id`/`document_id`'den türetilir (her ikisi de
-  çağıranın ürettiği UUID'lerdir); kullanıcı dosya adı (`original_filename`)
-  hiçbir zaman path bileşeni olarak kullanılmaz — traversal mümkün değildir.
+- `storage_ref`, `transaction_id`/`document_id`'den türetilir; çağıran
+  idempotent upload'larda içerik hash'ini `document_id` olarak kullanabilir.
+  Kullanıcı dosya adı (`original_filename`) hiçbir zaman path bileşeni olarak
+  kullanılmaz — traversal mümkün değildir.
 """
 
 from __future__ import annotations
