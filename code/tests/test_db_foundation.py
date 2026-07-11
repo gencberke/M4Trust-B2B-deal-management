@@ -60,8 +60,16 @@ def test_empty_db_applies_complete_baseline(tmp_path: Path) -> None:
         "mock_payments",
         "evidence",
         "tracking_policies",
+        "users",
+        "sessions",
+        "legal_entities",
+        "memberships",
     }
-    assert conn.execute("SELECT version FROM schema_migrations").fetchall()[0][0] == "001"
+    assert [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")] == [
+        "001",
+        "003",
+        "004",
+    ]
     assert "manager_token" in {
         row[1] for row in conn.execute("PRAGMA table_info(transactions)")
     }
@@ -78,8 +86,16 @@ def test_recognized_legacy_is_stamped_without_reapplying(tmp_path: Path) -> None
 
     init_db(conn)
 
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+    # 001 stamp edilir (yeniden uygulanmaz); 003/004 henüz uygulanmadığından
+    # normal döngüyle eklenir — additive legacy upgrade.
+    assert [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")] == [
+        "001",
+        "003",
+        "004",
+    ]
     assert conn.execute("SELECT state FROM transactions WHERE id='kept'").fetchone()[0] == "uploaded"
+    assert "users" in _tables(conn)
+    assert "legal_entities" in _tables(conn)
     conn.close()
 
 
