@@ -24,6 +24,8 @@ from pydantic import BaseModel
 
 from backend.app.api.errors import ApiError
 from backend.app.db import get_db
+from backend.app.repositories import participants as participants_repo
+from backend.app.repositories.transactions import load_transaction
 from backend.app.schemas.payments import FundingScheduleSpec
 from backend.app.schemas.ratification import RatificationOutcome, RatificationPackagePublicView
 from backend.app.services import participants as participants_service
@@ -40,6 +42,7 @@ from backend.app.services.ratification_package import (
     build_current_package,
     get_current,
     open_package,
+    supersede_if_inputs_changed,
 )
 
 router = APIRouter(tags=["ratifications"])
@@ -64,6 +67,33 @@ def _require_access(conn: Connection, transaction_id: str, actor: ActorContext) 
         )
 
 
+def _require_creator_manager(conn: Connection, transaction_id: str, actor: ActorContext) -> None:
+    """Package build/amend yalnız creator-side manager'a açıktır (routers/rule_sets.py
+    ile aynı yetki deseni). `_require_access` (herhangi bir manager/approver/viewer)
+    burada YETERSİZ -- viewer/karşı-taraf approver `funding_schedule_spec`'i
+    değiştirip mevcut package'ı sürekli supersede ederek akışı kilitleyebilirdi."""
+    transaction = load_transaction(conn, transaction_id)
+    if transaction is None:
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="İşlem bulunamadı.")
+    owner_entity_id = transaction["owner_entity_id"]
+    assignment = (
+        participants_repo.get_active_assignment(conn, transaction_id, actor.user_id, role="manager")
+        if actor.user_id is not None
+        else None
+    )
+    if (
+        owner_entity_id is None
+        or actor.acting_entity_id != owner_entity_id
+        or assignment is None
+        or assignment["legal_entity_id"] != owner_entity_id
+    ):
+        raise ApiError(
+            status_code=403,
+            code="RATIFICATION_PACKAGE_AMENDMENT_FORBIDDEN",
+            message="Yalnız creator-side manager package build/amend işlemi yapabilir.",
+        )
+
+
 def _to_public_view(package) -> RatificationPackagePublicView:
     return RatificationPackagePublicView(
         id=package.id,
@@ -76,6 +106,17 @@ def _to_public_view(package) -> RatificationPackagePublicView:
         opened_at=package.opened_at,
         completed_at=package.completed_at,
     )
+
+
+def _raise_package_api_error(exc: Exception) -> None:
+    """Package domain hatalarını standart `ApiError` zarfına çevirir (tek yerde)."""
+    if isinstance(exc, (PackageNotReadyError, PackageConflictError)):
+        raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
+    if isinstance(exc, PackageIntegrityError):
+        raise ApiError(status_code=409, code="PACKAGE_INTEGRITY_FAILED", message=str(exc)) from exc
+    if isinstance(exc, PackageNotFoundError):
+        raise ApiError(status_code=404, code="PACKAGE_NOT_FOUND", message=str(exc)) from exc
+    raise exc
 
 
 def _client_ip_hash(request: Request) -> str | None:
@@ -101,7 +142,7 @@ def build_and_open_ratification_package(
     _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: Connection = Depends(get_db),
 ) -> RatificationPackagePublicView:
-    _require_access(conn, transaction_id, actor)
+    _require_creator_manager(conn, transaction_id, actor)
     try:
         package = build_current_package(
             conn,
@@ -110,16 +151,32 @@ def build_and_open_ratification_package(
             capabilities=MOKA_STANDARD_PROFILE,
             actor_context=actor,
         )
-        package = open_package(conn, package_id=package.id, actor_context=actor)
-    except PackageNotReadyError as exc:
-        raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
     except PackageConflictError as exc:
-        raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
-    except PackageIntegrityError as exc:
-        raise ApiError(status_code=409, code="PACKAGE_INTEGRITY_FAILED", message=str(exc)) from exc
-    except PackageNotFoundError as exc:
-        raise ApiError(status_code=404, code="PACKAGE_NOT_FOUND", message=str(exc)) from exc
-    conn.commit()
+        if exc.reason_code != "PACKAGE_INPUTS_CHANGED":
+            _raise_package_api_error(exc)
+        # Girdiler (rule revision/policy/participant) değişti -- donmuş amendment
+        # seam'i üzerinden yeni version'ı superseded edip güncel package'ı üretir.
+        # Aksi halde ilk (yanlış) package'ı oluşturan herhangi bir transaction-access
+        # sahibi akışı kalıcı olarak kilitleyebilirdi (düzeltilmiş schedule'a giden
+        # API yolu yoktu).
+        try:
+            package = supersede_if_inputs_changed(
+                conn,
+                transaction_id=transaction_id,
+                funding_schedule_spec=body.funding_schedule_spec,
+                capabilities=MOKA_STANDARD_PROFILE,
+                actor_context=actor,
+            )
+        except (PackageNotReadyError, PackageConflictError, PackageIntegrityError, PackageNotFoundError) as inner_exc:
+            _raise_package_api_error(inner_exc)
+    except (PackageNotReadyError, PackageIntegrityError, PackageNotFoundError) as exc:
+        _raise_package_api_error(exc)
+
+    try:
+        package = open_package(conn, package_id=package.id, actor_context=actor)
+    except (PackageConflictError, PackageIntegrityError, PackageNotFoundError) as exc:
+        _raise_package_api_error(exc)
+
     return _to_public_view(package)
 
 
@@ -163,5 +220,4 @@ def submit_ratification(
         raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
     except FundingCoordinatorError as exc:
         raise ApiError(status_code=409, code="FUNDING_COORDINATOR_CONFLICT", message=str(exc)) from exc
-    conn.commit()
     return outcome

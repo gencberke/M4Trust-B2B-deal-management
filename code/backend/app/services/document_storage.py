@@ -117,18 +117,13 @@ class LocalDocumentStorageProvider:
 
         storage_ref, final_path = self._final_path(transaction_id, document_id)
 
-        if final_path.exists():
-            existing = final_path.read_bytes()
-            if existing == content:
-                return StoredDocument(
-                    storage_ref=storage_ref,
-                    content_sha256=actual_sha256,
-                    size_bytes=len(content),
-                )
-            raise DocumentStorageConflictError(
-                f"storage_ref zaten farklı içerikle var: {storage_ref!r} (immutable)"
-            )
-
+        # Major 5 remediation: önceden `final_path.exists()` ön-kontrolü + koşulsuz
+        # `os.replace()` kullanılıyordu -- iki concurrent farklı-içerikli yazıcı
+        # ikisi de "yok" görüp ikisi de üzerine yazabiliyordu (TOCTOU), son yazan
+        # sessizce kazanıyordu. `os.link()` (hard-link) OS seviyesinde atomiktir:
+        # hedef zaten varsa `FileExistsError` garanti kesin/kör bir yarış olmadan
+        # döner; ancak o zaman mevcut byte'lar karşılaştırılır (aynıysa idempotent,
+        # farklıysa conflict).
         final_path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(dir=str(final_path.parent), prefix=".tmp-")
         try:
@@ -136,10 +131,16 @@ class LocalDocumentStorageProvider:
                 tmp_file.write(content)
                 tmp_file.flush()
                 os.fsync(tmp_file.fileno())
-            os.replace(tmp_name, final_path)
-        except BaseException:
+            try:
+                os.link(tmp_name, final_path)
+            except FileExistsError:
+                existing = final_path.read_bytes()
+                if existing != content:
+                    raise DocumentStorageConflictError(
+                        f"storage_ref zaten farklı içerikle var: {storage_ref!r} (immutable)"
+                    ) from None
+        finally:
             Path(tmp_name).unlink(missing_ok=True)
-            raise
 
         return StoredDocument(
             storage_ref=storage_ref, content_sha256=actual_sha256, size_bytes=len(content)

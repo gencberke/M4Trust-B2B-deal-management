@@ -26,6 +26,7 @@ from backend.app.services import audit
 from backend.app.services import participants as participants_service
 from backend.app.services import review as review_service
 from backend.app.services.access_control import ActorContext
+from backend.app.services.account_lifecycle import AccountLifecycleError, transition_account_state
 from backend.app.services.payments.domain import MOKA_STANDARD_PROFILE, ProviderCapabilities
 from backend.app.services.payments.funding_plan import (
     FundingPlanDraft,
@@ -37,6 +38,12 @@ from backend.app.services.tracking_policy import load_tracking_policy
 PACKAGE_SCHEMA_VERSION = "ratification_package_v1"
 OTHER_TRX_CODE_DERIVATION_VERSION = "transaction_id_v1"
 PROVIDER_PROFILE = "moka_standard_v1"
+
+# Major 1 remediation: package açılınca account transaction gerçekten
+# `awaiting_ratification`'a geçer (strateji kontratının preparation ->
+# awaiting_ratification -> funding_pending zinciri). PASS validasyonu
+# sonrası `awaiting_approval`dadır; review resolution sonrası `preparation`.
+_STATES_BEFORE_RATIFICATION_OPEN = frozenset({"preparation", "awaiting_approval"})
 
 
 class RatificationPackageError(Exception):
@@ -430,6 +437,28 @@ def open_package(
             metadata={"package_version": package.version},
             transaction_id=package.transaction_id,
         )
+
+    if package.status in (RatificationPackageStatus.draft, RatificationPackageStatus.open):
+        # Backfill: `open_package` daha önce (remediation'dan önce) draft->open
+        # yaptıysa ama account state hiç taşınmadıysa, ya da her nedenle state
+        # hâlâ awaiting_ratification'a gelmemişse, tekrar open çağrısı bunu
+        # düzeltir -- yalnız ilk (draft->open) çağrıda değil, HER open
+        # çağrısında denenir (idempotent: zaten hedefteyse no-op).
+        try:
+            transition_account_state(
+                conn,
+                transaction_id=package.transaction_id,
+                expected_states=_STATES_BEFORE_RATIFICATION_OPEN,
+                target_state="awaiting_ratification",
+                actor_context=actor_context,
+                reason_code="RATIFICATION_PACKAGE_OPENED",
+            )
+        except AccountLifecycleError as exc:
+            raise PackageConflictError(
+                "ACCOUNT_STATE_TRANSITION_FAILED",
+                f"Package open ama account state awaiting_ratification'a geçemedi: {exc}",
+            ) from exc
+
     return _row_to_package(packages_repo.get_by_id(conn, package_id))
 
 

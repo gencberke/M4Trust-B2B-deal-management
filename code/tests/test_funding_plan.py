@@ -147,6 +147,25 @@ def test_negative_or_zero_total_rejected(total: int) -> None:
         compile_funding_plan([rule("a", 100)], total, "TRY", NO_OVERRIDES, MOKA_STANDARD_PROFILE)
 
 
+def test_zero_percentage_rule_rejected() -> None:
+    rules = [rule("avans", 0), rule("teslimat", 100)]
+    with pytest.raises(FundingPlanValidationError):
+        compile_funding_plan(rules, 100_00, "TRY", NO_OVERRIDES, MOKA_STANDARD_PROFILE)
+
+
+def test_tranche_count_greater_than_amount_minor_rejected() -> None:
+    rules = [rule("teslimat", 100)]
+    spec = FundingScheduleSpec(
+        overrides=(
+            MilestoneReleaseOverride(
+                rule_index=0, release_mode=RequestedReleaseMode.FIXED_TRANCHES, tranche_count=2
+            ),
+        )
+    )
+    with pytest.raises(FundingPlanValidationError):
+        compile_funding_plan(rules, 1, "TRY", spec, MOKA_STANDARD_PROFILE)
+
+
 def test_percentage_sum_not_100_rejected() -> None:
     rules = [rule("a", 50), rule("b", 40)]
     with pytest.raises(FundingPlanValidationError):

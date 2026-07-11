@@ -175,6 +175,20 @@ def test_open_package_is_idempotent_and_integrity_failure_is_rejected(ready_conn
     assert package_service.verify_integrity(tampered) is False
 
 
+def test_open_package_transitions_account_state_to_awaiting_ratification(ready_conn) -> None:
+    """Major 1 remediation: gerçek PASS-sonrası state (`awaiting_approval`) --
+    ki pipeline validator PASS'ta transaction'ı buraya bırakır -- package open
+    olunca stratejik kontrattaki `awaiting_ratification`'a geçmeli (önceden bu
+    geçiş hiç yapılmıyordu, FundingCoordinator `awaiting_approval`'dan
+    doğrudan `funding_pending`'e atlıyordu)."""
+    conn, tx_id = ready_conn
+    conn.execute("UPDATE transactions SET state = 'awaiting_approval' WHERE id = ?", (tx_id,))
+    package = _build(conn, tx_id)
+    package_service.open_package(conn, package_id=package.id, actor_context=_actor())
+    tx_row = conn.execute("SELECT state FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+    assert tx_row["state"] == "awaiting_ratification"
+
+
 def test_package_bound_inputs_are_db_immutable(ready_conn) -> None:
     conn, tx_id = ready_conn
     package = _build(conn, tx_id)

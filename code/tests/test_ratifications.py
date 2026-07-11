@@ -33,7 +33,6 @@ from backend.app.services.payments.domain import MOKA_STANDARD_PROFILE
 from backend.app.services.payments.funding_coordinator import FundingCoordinatorError
 from backend.app.services.tracking_policy import create_draft_policy
 
-_ratifications_migration = import_module("backend.app.db.migrations.012_ratifications")
 
 _PAYLOAD = {
     "contract_id": "contract-4e",
@@ -76,7 +75,6 @@ def make_db(db_path=None):
     resolved = Path(db_path) if db_path is not None else Path(":memory:")
     conn = connect(Settings(db_path=resolved))
     init_db(conn)
-    _ratifications_migration.apply(conn)
     return conn
 
 
@@ -238,6 +236,27 @@ def test_same_user_cannot_ratify_both_sides(ready, monkeypatch: pytest.MonkeyPat
 def test_superseded_package_cannot_be_ratified(ready) -> None:
     conn, tx_id, package_id = ready
     conn.execute("UPDATE ratification_packages SET status = 'superseded' WHERE id = ?", (package_id,))
+    with pytest.raises(ratifications_service.RatificationConflictError) as exc:
+        ratifications_service.create_ratification(
+            conn, package_id=package_id, actor_context=_actor("u-buyer", "entity-buyer"), auth_method="session"
+        )
+    assert exc.value.reason_code == "PACKAGE_SUPERSEDED"
+
+
+def test_replay_after_supersede_by_same_participant_returns_409_not_200(ready) -> None:
+    """Test boşluğu (2. review turu): buyer ratify -> package supersede ->
+    AYNI buyer tekrar dener -> 409 PACKAGE_SUPERSEDED. Mevcut ratification
+    satırı bulunduğu için idempotency kapısının bunu yanlışlıkla 200'e
+    çevirmediğini doğrular (_reject_if_terminal idempotency kontrolünden
+    ÖNCE çalışmalı)."""
+    conn, tx_id, package_id = ready
+    outcome = ratifications_service.create_ratification(
+        conn, package_id=package_id, actor_context=_actor("u-buyer", "entity-buyer"), auth_method="session"
+    )
+    assert outcome.package_status.value == "open"
+
+    conn.execute("UPDATE ratification_packages SET status = 'superseded' WHERE id = ?", (package_id,))
+
     with pytest.raises(ratifications_service.RatificationConflictError) as exc:
         ratifications_service.create_ratification(
             conn, package_id=package_id, actor_context=_actor("u-buyer", "entity-buyer"), auth_method="session"

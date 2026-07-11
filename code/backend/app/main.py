@@ -24,6 +24,7 @@ from backend.app.routers import (
     evidence,
     invitations,
     participants,
+    ratifications,
     reviews,
     rule_sets,
     transactions,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(invitations.router)
     app.include_router(reviews.router)
     app.include_router(rule_sets.router)
+    app.include_router(ratifications.router)
 
     return app
 

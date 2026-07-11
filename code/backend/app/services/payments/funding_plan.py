@@ -196,6 +196,12 @@ def _build_funding_units(
         )
 
     assert tranche_count is not None  # _resolve_release_mode garanti eder
+    if tranche_count > amount_minor:
+        raise FundingPlanValidationError(
+            f"rule_index={rule_index}: tranche_count ({tranche_count}) milestone "
+            f"amount_minor'dan ({amount_minor}) büyük olamaz — sıfır tutarlı tranche "
+            "üretilemez (provider domain komutu amount_minor<=0'ı zaten reddeder)."
+        )
     tranche_amounts = _largest_remainder_distribution(
         total=amount_minor,
         weights=[1] * tranche_count,
@@ -244,6 +250,12 @@ def compile_funding_plan(
     overrides_by_index = _validate_overrides(spec, rule_count=len(rule_set))
 
     basis_points = [_percentage_to_basis_points(rule.percentage) for rule in rule_set]
+    for rule_index, bp in enumerate(basis_points):
+        if bp <= 0:
+            raise FundingPlanValidationError(
+                f"rule_index={rule_index}: percentage sıfır (veya negatif) olamaz — "
+                "sıfır tutarlı milestone/funding unit üretilemez."
+            )
     basis_points_total = sum(basis_points)
     if basis_points_total != _BASIS_POINTS_TOTAL:
         raise FundingPlanValidationError(
@@ -256,6 +268,13 @@ def compile_funding_plan(
         weights=basis_points,
         tie_break=list(range(len(rule_set))),
     )
+    for rule_index, amount in enumerate(milestone_amounts):
+        if amount <= 0:
+            raise FundingPlanValidationError(
+                f"rule_index={rule_index}: largest-remainder dağıtımı sıfır tutarlı "
+                "milestone üretti (total_amount_minor bu rule sayısı/oranı için çok "
+                "küçük) — provider domain komutu amount_minor<=0'ı zaten reddeder."
+            )
 
     milestones: list[MilestoneDraft] = []
     sequence = 1

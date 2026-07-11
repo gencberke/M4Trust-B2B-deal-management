@@ -31,6 +31,7 @@ _MIGRATION_MODULES = (
     "backend.app.db.migrations.009_rule_set_versions",
     "backend.app.db.migrations.010_review_cases",
     "backend.app.db.migrations.011_ratification_packages",
+    "backend.app.db.migrations.012_ratifications",
 )
 
 _LEGACY_COLUMNS = {

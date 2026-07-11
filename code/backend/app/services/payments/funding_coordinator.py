@@ -90,7 +90,14 @@ def ensure_pool_funded(
         transition_account_state(
             conn,
             transaction_id=transaction_id,
-            expected_states={"preparation", "awaiting_ratification", "awaiting_approval"},
+            # Major 1 remediation: `awaiting_approval` artık kabul edilmez --
+            # `ratification_package.open_package` package'ı açarken transaction'ı
+            # gerçekten `awaiting_ratification`'a taşır (bkz. o modül); bu bridge
+            # eskiden o eksik geçişi maskeliyordu (preparation -> awaiting_ratification
+            # -> funding_pending yerine awaiting_approval -> funding_pending).
+            # `preparation` hâlâ geçerlidir: paket açıkken yeni bir blocking review
+            # case'i açılıp 4F-2 akışıyla çözülürse state buraya dönebilir.
+            expected_states={"preparation", "awaiting_ratification"},
             target_state="funding_pending",
             actor_context=actor_context,
             reason_code="RATIFICATION_COMPLETE",

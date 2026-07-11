@@ -47,6 +47,7 @@ business mutation + audit aynı DB transaction'ındadır.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any
 
@@ -63,12 +64,18 @@ from backend.app.schemas.reviews import (
     ReviewStatus,
 )
 from backend.app.services import audit
+from backend.app.services import privacy
 from backend.app.services.access_control import ActorContext
 from backend.app.services.account_lifecycle import AccountLifecycleError, transition_account_state
 
 _ACCOUNT_STATES_RETURNABLE_TO_PREPARATION = frozenset(
     {"awaiting_review", "awaiting_approval", "awaiting_ratification", "preparation"}
 )
+
+# capability/session token'ları secrets.token_urlsafe(32) ile üretilir (~43
+# karakter, [A-Za-z0-9_-]) -- 24+ karakterlik kesintisiz aynı-alfabe dizisi
+# opak bir secret/token adayı sayılır ve fail-closed reddedilir.
+_TOKEN_LIKE_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{24,}(?![A-Za-z0-9_-])")
 
 _ACTIVE_STATUS_VALUES = tuple(s.value for s in ACTIVE_REVIEW_STATUSES)
 
@@ -94,6 +101,50 @@ class ReviewCaseClosedError(Exception):
 class ReviewActionForbiddenError(Exception):
     """`pre_ratification` fazı dışındaki blocking case `resolve_continue` ile bypass edilemez
     (bu fazlar için resolution semantiği henüz tanımlı değil — Plan 06/07)."""
+
+
+class ReviewCommentRejectedError(Exception):
+    """`comment`/`resolution_code` içinde PII, kart verisi veya token/secret benzeri
+    bir değer tespit edildi — fail closed reddedilir (append-only + değiştirilemez
+    olduğu için önce burada durdurulmalı, sonradan temizlenemez)."""
+
+
+_RESOLUTION_CODE_FORMAT_RE = re.compile(r"^[A-Z0-9_]+$")
+
+
+def _reject_if_sensitive_comment(value: str | None) -> None:
+    if not value:
+        return
+    report = privacy.analyze(value)
+    if report.detected_types or report.mapping:
+        raise ReviewCommentRejectedError(
+            "comment alanı PII veya kart verisi benzeri bir değer içeriyor."
+        )
+    if _TOKEN_LIKE_RE.search(value):
+        raise ReviewCommentRejectedError(
+            "comment alanı token/secret benzeri opak bir değer içeriyor."
+        )
+
+
+def _reject_if_invalid_resolution_code(value: str | None) -> None:
+    """`resolution_code` serbest metin değildir -- yalnız `RATIFICATION_COMPLETE`
+    gibi sabit kod formatı beklenir. Comment'teki genel 24+ karakter token
+    deseni burada KULLANILMAZ: meşru uzun kodlar (ör.
+    `VALIDATOR_REVISION_REVALIDATED`, 31 karakter) yanlışlıkla opak bir
+    secret/token sayılırdı. Bunun yerine dar `^[A-Z0-9_]+$` format kontrolü
+    kullanılır; PII/kart taraması yine de yapılır (savunma amaçlı)."""
+    if not value:
+        return
+    report = privacy.analyze(value)
+    if report.detected_types or report.mapping:
+        raise ReviewCommentRejectedError(
+            "resolution_code alanı PII veya kart verisi benzeri bir değer içeriyor."
+        )
+    if not _RESOLUTION_CODE_FORMAT_RE.fullmatch(value):
+        raise ReviewCommentRejectedError(
+            "resolution_code yalnız büyük harf/rakam/alt çizgi içerebilir "
+            "(ör. RATIFICATION_COMPLETE)."
+        )
 
 
 class ReviewResolutionPreconditionError(Exception):
@@ -333,6 +384,9 @@ def record_action(
 
     if action not in _ACTION_TRANSITIONS:
         raise ValueError(f"Bilinmeyen review action: {action}")
+
+    _reject_if_sensitive_comment((payload or {}).get("comment"))
+    _reject_if_invalid_resolution_code((payload or {}).get("resolution_code"))
 
     new_status, is_resolution = _ACTION_TRANSITIONS[action]
 

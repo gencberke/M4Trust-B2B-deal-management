@@ -201,8 +201,15 @@ def _apply_success_side_effects(
             )
 
 
-def _apply_no_extraction_side_effects(conn: Connection, transaction_id: str, reason: str) -> None:
-    """Geçerli extraction üretilemediğinde ortak state/event davranışı (§13)."""
+def _apply_no_extraction_side_effects(conn: Connection, transaction_id: str, safe_message: str) -> None:
+    """Geçerli extraction üretilemediğinde ortak state/event davranışı (§13).
+
+    `safe_message` yalnız `_SAFE_FAILURE_REASON`'daki sabit kategorilerden biri
+    olmalıdır -- ham provider/exception mesajı (`extraction.py::ExtractionResult
+    .reason`, `str(exc)`) buraya ASLA girmez; aksi halde `rules_validated`
+    event'i (kalıcı `events` tablosu) üzerinden PII/secret/provider-detayı
+    sızabilir (Bloklayıcı 1).
+    """
     conn.execute(
         "UPDATE transactions SET state = 'awaiting_review' WHERE id = ?", (transaction_id,)
     )
@@ -212,7 +219,9 @@ def _apply_no_extraction_side_effects(conn: Connection, transaction_id: str, rea
         "rules_validated",
         {
             "status": "NEEDS_REVIEW",
-            "findings": [{"code": "EXTRACTION_UNAVAILABLE", "severity": "review", "message": reason}],
+            "findings": [
+                {"code": "EXTRACTION_UNAVAILABLE", "severity": "review", "message": safe_message}
+            ],
         },
         "pipeline",
     )
@@ -223,9 +232,14 @@ def _persist_legacy(
     transaction_id: str,
     settings: Settings,
     extraction: ExtractionJSON | None,
-    reason: str | None,
+    safe_reason_key: str,
 ) -> None:
-    """`legacy_v1` — `extracted_rules`'a yazar (mevcut davranış, DEĞİŞMEDİ)."""
+    """`legacy_v1` — `extracted_rules`'a yazar (mevcut davranış, DEĞİŞMEDİ).
+
+    `safe_reason_key`, `_SAFE_FAILURE_REASON`'daki sabit kategorilerden biridir
+    -- ham adapter/exception mesajı `extracted_rules.validator_report`'a
+    ASLA yazılmaz (Bloklayıcı 1).
+    """
     if extraction is not None:
         validator_report = validate(
             extraction, confidence_threshold=settings.validator_confidence_threshold
@@ -250,13 +264,14 @@ def _persist_legacy(
             conn, transaction_id, extraction, validator_report.status, findings_payload
         )
     else:
+        safe_message = _SAFE_FAILURE_REASON[safe_reason_key]
         conn.execute(
             "INSERT INTO extracted_rules "
             "(transaction_id, extraction_json, validator_status, validator_report, created_at) "
             "VALUES (?, NULL, 'NEEDS_REVIEW', ?, ?)",
-            (transaction_id, reason, _utc_now_iso()),
+            (transaction_id, safe_message, _utc_now_iso()),
         )
-        _apply_no_extraction_side_effects(conn, transaction_id, reason or "Bilinmeyen sebep")
+        _apply_no_extraction_side_effects(conn, transaction_id, safe_message)
 
 
 def _persist_account(
@@ -268,7 +283,6 @@ def _persist_account(
     privacy_report: PrivacyReport,
     extraction: ExtractionJSON | None,
     raw_result_data: ExtractionJSON | None,
-    reason: str | None,
     safe_reason_key: str,
 ) -> None:
     """`account_v2` — `contract_documents`/`extraction_runs`/`rule_set_versions`'a yazar.
@@ -347,7 +361,7 @@ def _persist_account(
             failure_reason=_SAFE_FAILURE_REASON[safe_reason_key],
             now=now,
         )
-        _apply_no_extraction_side_effects(conn, transaction_id, reason or "Bilinmeyen sebep")
+        _apply_no_extraction_side_effects(conn, transaction_id, _SAFE_FAILURE_REASON[safe_reason_key])
 
 
 def _execute_pipeline(
@@ -381,20 +395,20 @@ def _execute_pipeline(
 
     extraction: ExtractionJSON | None = None
     raw_result_data: ExtractionJSON | None = None
-    reason: str | None = None
     safe_reason_key = "extraction_failed"
 
     # §6.7 / PCI: SAD (CVV/track/PIN) tespitinde canlı (openai) provider çağrılmaz.
+    # Not (Bloklayıcı 1): burada ADAPTER/exception ham mesajı hiçbir zaman tutulmaz --
+    # yalnız `_SAFE_FAILURE_REASON`'daki sabit kategori anahtarı taşınır; gerçek
+    # mesaj (provider response body, endpoint detayı, PII/secret içerebilir)
+    # `extraction.py::ExtractionResult.reason`/`str(exc)` içinde kalır ve bu
+    # fonksiyonun dışına, hiçbir kalıcı alana (events/extracted_rules/
+    # extraction_runs) sızmaz.
     if report.blocking_findings and settings.llm_provider == "openai":
-        reason = (
-            "Hassas ödeme doğrulama verisi tespit edildi; dış LLM çağrısı atlandı: "
-            + "; ".join(report.blocking_findings)
-        )
         safe_reason_key = "blocking"
     else:
         result = make_extraction_service(settings).extract(report.masked_text, context)
         if result.status != "ok" or result.data is None:
-            reason = result.reason or "Extraction başarısız oldu."
             safe_reason_key = "extraction_failed"
         else:
             raw_result_data = result.data
@@ -404,8 +418,7 @@ def _execute_pipeline(
             )
             try:
                 extraction = ExtractionJSON.model_validate(restored)
-            except ValidationError as exc:
-                reason = f"restore sonrası doğrulama başarısız: {exc}"
+            except ValidationError:
                 safe_reason_key = "restore_invalid"
 
     if account_input is not None:
@@ -418,11 +431,10 @@ def _execute_pipeline(
             report,
             extraction,
             raw_result_data,
-            reason,
             safe_reason_key,
         )
     else:
-        _persist_legacy(conn, transaction_id, settings, extraction, reason)
+        _persist_legacy(conn, transaction_id, settings, extraction, safe_reason_key)
 
 
 def _materialize_account_temp_file(content: bytes, suffix: str) -> Path:
@@ -468,10 +480,14 @@ def run_pipeline(
 
         try:
             _execute_pipeline(conn, transaction_id, file_path, is_passthrough, settings, account_input)
-        except Exception as exc:  # noqa: BLE001 — hat asla sessizce çökmez (Notes for Implementer)
+        except Exception:  # noqa: BLE001 — hat asla sessizce çökmez (Notes for Implementer)
             conn.execute(
                 "UPDATE transactions SET state = 'awaiting_review' WHERE id = ?", (transaction_id,)
             )
+            # Bloklayıcı 1: ham exception mesajı (traceback, provider response body,
+            # PII olabilecek herhangi bir değer) kalıcı event payload'ına ASLA
+            # girmez -- yalnız sabit, güvenli `_SAFE_FAILURE_REASON["pipeline_error"]`
+            # yazılır.
             emit(
                 conn,
                 transaction_id,
@@ -479,7 +495,11 @@ def run_pipeline(
                 {
                     "status": "NEEDS_REVIEW",
                     "findings": [
-                        {"code": "PIPELINE_ERROR", "severity": "review", "message": str(exc)}
+                        {
+                            "code": "PIPELINE_ERROR",
+                            "severity": "review",
+                            "message": _SAFE_FAILURE_REASON["pipeline_error"],
+                        }
                     ],
                 },
                 "pipeline",
