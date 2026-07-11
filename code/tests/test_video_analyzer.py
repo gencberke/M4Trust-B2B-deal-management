@@ -238,3 +238,119 @@ def test_make_video_analyzer_returns_roboflow_when_configured():
     settings = Settings(video_provider="roboflow", roboflow_api_key="key123")
     analyzer = make_video_analyzer(settings)
     assert isinstance(analyzer, RoboflowVideoAnalyzer)
+
+
+# --- ek senaryolar: sahte video/foto ipuçları + Roboflow edge-case'leri ---
+
+
+def test_fake_analyzer_filename_hints_are_case_insensitive():
+    """Dosya adı büyük/karışık harfle gelse de ipuçları aynı şekilde tanınmalı."""
+    analyzer = FakeVideoAnalyzer()
+
+    result = analyzer.analyze(Path("TESLIMAT_HASARLI.MP4"))
+    assert [s["type"] for s in result["damage_signals"]] == ["hasar_tespiti"]
+
+    result = analyzer.analyze(Path("Teslimat_Eksik.Mp4"))
+    assert result["unit_count"] == 7
+
+
+def test_fake_analyzer_hints_work_identically_for_photo_extensions(tmp_path):
+    """Fake analyzer uzantıya bakmaz -- ipuçları .jpg/.png foto için de aynı sonucu üretmeli
+    (Roboflow'un aksine, fake analyzer video/foto ayrımı yapmaz)."""
+    analyzer = FakeVideoAnalyzer()
+
+    video_result = analyzer.analyze(tmp_path / "teslimat_hasarli.mp4")
+    photo_result = analyzer.analyze(tmp_path / "teslimat_hasarli.jpg")
+
+    assert video_result["unit_count"] == photo_result["unit_count"]
+    assert [s["type"] for s in video_result["damage_signals"]] == [
+        s["type"] for s in photo_result["damage_signals"]
+    ]
+
+
+def test_analyze_image_with_no_detections_reports_zero_confidence(tmp_path):
+    """Hiç koli/hasar tespiti yoksa (boş/karanlık fotoğraf) confidence 0'a düşmeli,
+    ortalamanın 0/0'a bölünmesi (ZeroDivisionError) yaşanmamalı."""
+    image_path = tmp_path / "bos_fotograf.jpg"
+    image_path.write_bytes(b"x")
+    analyzer = RoboflowVideoAnalyzer(
+        api_key="key", box_detector=FakeDetector([]), damage_detector=FakeDetector([])
+    )
+
+    result = analyzer.analyze(image_path)
+
+    assert result["counts"] == {}
+    assert result["unit_count"] == 0
+    assert result["damage_signals"] == []
+    assert result["confidence"] == 0.0
+
+
+def test_analyze_image_merges_counts_across_class_name_casing(tmp_path):
+    """Model bazen 'Cardboard Box' bazen 'cardboard box' dönebilir -- sayım
+    büyük/küçük harften bağımsız tek sınıf altında toplanmalı (aksi halde
+    unit_count yanlış bölünmüş görünür)."""
+    image_path = tmp_path / "frame.jpg"
+    image_path.write_bytes(b"x")
+    boxes = [
+        det(100, 100, "Cardboard Box", 0.9),
+        det(300, 300, "cardboard box", 0.8),
+    ]
+    analyzer = RoboflowVideoAnalyzer(
+        api_key="key", box_detector=FakeDetector(boxes), damage_detector=FakeDetector([])
+    )
+
+    result = analyzer.analyze(image_path)
+
+    assert result["counts"] == {"cardboard box": 2}
+    assert result["unit_count"] == 2
+
+
+def test_damage_on_carrier_class_box_still_produces_signal_despite_unit_count_exclusion(tmp_path):
+    """Palet (taşıyıcı sınıf) unit_count'a girmez ama üzerindeki hasar sinyali
+    kaybolmamalı -- decision engine risk sinyalini görebilmeli (§3.4)."""
+    image_path = tmp_path / "frame.jpg"
+    image_path.write_bytes(b"x")
+    boxes = [det(100, 100, "wood pallet", 0.9, w=200, h=200)]
+    damages = [det(100, 100, "wet", 0.5, w=10, h=10)]
+    analyzer = RoboflowVideoAnalyzer(
+        api_key="key", box_detector=FakeDetector(boxes), damage_detector=FakeDetector(damages)
+    )
+
+    result = analyzer.analyze(image_path)
+
+    assert result["unit_count"] == 0
+    assert [s["type"] for s in result["damage_signals"]] == ["wet"]
+    assert result["damage_signals"][0]["matched_box"] is True
+
+
+def test_analyze_dispatches_image_for_non_mp4_photo_extensions(tmp_path):
+    """.png/.jpeg gibi diğer foto uzantıları da görsel yoluna gitmeli, video'ya değil."""
+    analyzer = RoboflowVideoAnalyzer(
+        api_key="key", box_detector=FakeDetector([]), damage_detector=FakeDetector([])
+    )
+
+    for suffix in (".png", ".jpeg", ".JPG"):
+        image_path = tmp_path / f"delivery{suffix}"
+        image_path.write_bytes(b"x")
+        with patch.object(analyzer, "_analyze_video") as mock_video, patch.object(
+            analyzer, "_analyze_image"
+        ) as mock_image:
+            analyzer.analyze(image_path)
+            mock_image.assert_called_once()
+            mock_video.assert_not_called()
+
+
+def test_analyze_dispatches_video_for_uppercase_video_extension(tmp_path):
+    """Uzantı büyük harfle gelse bile (.MP4) video yoluna gitmeli."""
+    analyzer = RoboflowVideoAnalyzer(
+        api_key="key", box_detector=FakeDetector([]), damage_detector=FakeDetector([])
+    )
+    video_path = tmp_path / "delivery.MP4"
+    video_path.write_bytes(b"x")
+
+    with patch.object(analyzer, "_analyze_video") as mock_video, patch.object(
+        analyzer, "_analyze_image"
+    ) as mock_image:
+        analyzer.analyze(video_path)
+        mock_video.assert_called_once()
+        mock_image.assert_not_called()
