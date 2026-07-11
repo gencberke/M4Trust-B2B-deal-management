@@ -28,21 +28,6 @@ _SAMPLE_MARKDOWN = (
 )
 
 
-@pytest.fixture(autouse=True)
-def _isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    db_path = tmp_path / "m4trust_test.db"
-    monkeypatch.setenv("DB_PATH", str(db_path))
-    monkeypatch.setenv("LLM_PROVIDER", "fake")
-
-
-@pytest.fixture()
-def client():
-    from backend.app.main import app
-
-    with TestClient(app) as c:
-        yield c
-
-
 def _extract_token(link: str) -> str:
     return link.split("token=", 1)[1]
 

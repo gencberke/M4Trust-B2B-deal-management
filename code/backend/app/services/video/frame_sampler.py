@@ -9,15 +9,31 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from importlib import import_module
 from pathlib import Path
-
-import cv2
+from types import ModuleType
 
 from .exceptions import VideoAnalyzerError
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SAMPLE_FPS = 1.0
+
+
+def _load_cv2() -> ModuleType:
+    """OpenCV'yi yalnız gerçek video kare örneklemesi istendiğinde yükler.
+
+    Fake analyzer ve görsel-tabanlı Roboflow yolları CI'da OpenCV olmadan
+    import edilebilir. Video sampling seçildiğinde ise eksik opsiyonel profil
+    sessiz bir import/collection hatası yerine güvenli domain hatası üretir.
+    """
+    try:
+        return import_module("cv2")
+    except ModuleNotFoundError as exc:
+        raise VideoAnalyzerError(
+            "Video kare örneklemesi için opsiyonel video bağımlılıkları gerekli; "
+            "requirements-video.txt profilini kurun."
+        ) from exc
 
 
 def extract_frames(video_path: Path, sample_fps: float = DEFAULT_SAMPLE_FPS) -> list[Path]:
@@ -30,6 +46,7 @@ def extract_frames(video_path: Path, sample_fps: float = DEFAULT_SAMPLE_FPS) -> 
     if not video_path.exists():
         raise FileNotFoundError(video_path)
 
+    cv2 = _load_cv2()
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise VideoAnalyzerError(f"Video dosyası açılamadı: {video_path}")
