@@ -133,6 +133,48 @@ def test_create_invitation_survives_notification_delivery_failure(conn) -> None:
     assert row["status"] == "pending"
 
 
+def test_create_invitation_supersedes_existing_pending_for_same_role(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    provider = FakeNotificationProvider()
+
+    first = svc.create_invitation(
+        conn, tx_id, "seller", "first@example.com", actor("u1"), provider,
+        invite_link_builder=_link_builder,
+    )
+    second = svc.create_invitation(
+        conn, tx_id, "seller", "second@example.com", actor("u1"), provider,
+        invite_link_builder=_link_builder,
+    )
+
+    rows = conn.execute(
+        "SELECT id, status FROM transaction_invitations WHERE transaction_id = ? "
+        "AND participant_role = 'seller' ORDER BY created_at",
+        (tx_id,),
+    ).fetchall()
+    statuses = {row["id"]: row["status"] for row in rows}
+    assert statuses[first.invitation_id] == "revoked"
+    assert statuses[second.invitation_id] == "pending"
+    assert sum(row["status"] == "pending" for row in rows) == 1
+
+
+def test_create_invitation_rejects_role_already_bound_to_entity(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    participants_svc.create_counterparty_placeholder(conn, tx_id, "seller", None)
+    conn.execute(
+        "UPDATE transaction_participants SET legal_entity_id = 'entity-2', status = 'ready' "
+        "WHERE transaction_id = ? AND role = 'seller'",
+        (tx_id,),
+    )
+
+    with pytest.raises(svc.InvitationRoleAlreadyBoundError):
+        svc.create_invitation(
+            conn, tx_id, "seller", "other@example.com", actor("u1"),
+            FakeNotificationProvider(), invite_link_builder=_link_builder,
+        )
+
+
 # --- preview_invitation -----------------------------------------------------------
 
 

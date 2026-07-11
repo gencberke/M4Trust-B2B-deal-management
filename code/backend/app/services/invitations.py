@@ -37,6 +37,10 @@ class InvitationNotRevocableError(Exception):
     """Invitation zaten `pending` dışında bir durumda (accepted/expired/revoked)."""
 
 
+class InvitationRoleAlreadyBoundError(Exception):
+    """İlgili participant rolü zaten bir legal entity'ye bağlanmış."""
+
+
 @dataclass(frozen=True, slots=True)
 class CreatedInvitation:
     """Create sonucunun servis-katmanı görünümü — `raw_token` yalnız burada bulunur.
@@ -105,6 +109,17 @@ def create_invitation(
     participants_service.create_counterparty_placeholder(
         conn, transaction_id, participant_role, None
     )
+    participant = participants_repo.get_participant(conn, transaction_id, participant_role)
+    if participant is None:
+        raise RuntimeError("Invitation için participant placeholder oluşturulamadı.")
+    if participant["legal_entity_id"] is not None or participant["status"] != "invited":
+        raise InvitationRoleAlreadyBoundError(
+            "Bu participant rolü zaten bağlanmış; yeni davet oluşturulamaz."
+        )
+
+    # Aynı role ait tek canlı pending invitation tutulur. Yeni davet açıkça
+    # öncekini supersede eder; eski token artık accept edilemez.
+    invitations_repo.revoke_pending_for_role(conn, transaction_id, participant_role)
 
     raw_token = secrets.token_urlsafe(32)
     token_hash = _hash_invitation_token(raw_token)

@@ -73,14 +73,20 @@ def _upload_account_mode(
     acting_entity_id: str,
     own_role: str = "buyer",
     counterparty_email: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict:
     data = {"acting_entity_id": acting_entity_id, "own_role": own_role}
     if counterparty_email is not None:
         data["counterparty_email"] = counterparty_email
+    effective_headers = headers
+    if effective_headers is None:
+        csrf_token = client.cookies.get("m4t_csrf")
+        effective_headers = {"X-CSRF-Token": csrf_token} if csrf_token else {}
     response = client.post(
         "/api/transactions",
         data=data,
         files={"file": ("sozlesme.md", io.BytesIO(_SAMPLE_MARKDOWN.encode()), "text/markdown")},
+        headers=effective_headers,
     )
     return response
 
@@ -124,6 +130,45 @@ def test_account_create_requires_active_membership(identity_keys) -> None:
     response = _upload_account_mode(client, acting_entity_id=other_entity_id, own_role="buyer")
     assert response.status_code == 403
     assert response.json()["code"] == "ACTING_ENTITY_NOT_AUTHORIZED"
+
+
+def test_account_create_requires_valid_csrf_and_origin_without_breaking_legacy(identity_keys) -> None:
+    client = _full_app()
+    _register_login(client, "csrf-account@example.com")
+    entity_id = _create_entity(client)
+
+    missing = _upload_account_mode(
+        client, acting_entity_id=entity_id, headers={}
+    )
+    assert missing.status_code == 403
+    assert missing.json()["code"] == "CSRF_TOKEN_INVALID"
+
+    wrong = _upload_account_mode(
+        client,
+        acting_entity_id=entity_id,
+        headers={"X-CSRF-Token": "wrong-token"},
+    )
+    assert wrong.status_code == 403
+    assert wrong.json()["code"] == "CSRF_TOKEN_INVALID"
+
+    wrong_origin = _upload_account_mode(
+        client,
+        acting_entity_id=entity_id,
+        headers={**_csrf(client), "Origin": "https://attacker.example"},
+    )
+    assert wrong_origin.status_code == 403
+    assert wrong_origin.json()["code"] == "CSRF_ORIGIN_MISMATCH"
+
+    correct = _upload_account_mode(client, acting_entity_id=entity_id)
+    assert correct.status_code == 200, correct.text
+
+    anonymous = _full_app()
+    legacy = anonymous.post(
+        "/api/transactions",
+        files={"file": ("sozlesme.md", io.BytesIO(_SAMPLE_MARKDOWN.encode()), "text/markdown")},
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert "buyer_link" in legacy.json()
 
 
 def test_account_create_rejects_invalid_own_role(identity_keys) -> None:
@@ -273,7 +318,9 @@ def test_account_mode_end_to_end_onboarding_gate(identity_keys) -> None:
     counterparty_entity = _create_entity(counterparty, "Gate Satıcı Ltd.")
 
     accept = counterparty.post(
-        f"/api/invitations/{invite_token}/accept", json={"legal_entity_id": counterparty_entity}
+        f"/api/invitations/{invite_token}/accept",
+        json={"legal_entity_id": counterparty_entity},
+        headers=_csrf(counterparty),
     )
     assert accept.status_code == 200, accept.text
     assert accept.json()["role"] == "seller"
@@ -281,16 +328,89 @@ def test_account_mode_end_to_end_onboarding_gate(identity_keys) -> None:
     profile = counterparty.put(
         f"/api/transactions/{transaction_id}/participants/me/profile",
         json={"snapshot": {"name": "Gate Satıcı Ltd.", "contact_email": "gate-counterparty@example.com"}},
+        headers=_csrf(counterparty),
     )
     assert profile.status_code == 200, profile.text
 
-    confirm = counterparty.post(f"/api/transactions/{transaction_id}/participants/me/confirm")
+    confirm = counterparty.post(
+        f"/api/transactions/{transaction_id}/participants/me/confirm",
+        headers=_csrf(counterparty),
+    )
     assert confirm.status_code == 200, confirm.text
     assert confirm.json()["status"] == "confirmed"
 
     participants = client.get(f"/api/transactions/{transaction_id}/participants").json()
     seller = next(p for p in participants if p["role"] == "seller")
     assert seller["confirmed"] is True
+
+
+def test_invitation_and_participant_mutations_enforce_csrf_on_real_app(identity_keys) -> None:
+    creator = _full_app()
+    _register_login(creator, "csrf-creator@example.com")
+    creator_entity = _create_entity(creator, "CSRF Alıcı A.Ş.")
+    transaction_id = _upload_account_mode(
+        creator, acting_entity_id=creator_entity, own_role="buyer"
+    ).json()["id"]
+    invite_url = f"/api/transactions/{transaction_id}/invitations"
+    invite_body = {"participant_role": "seller", "invited_email": "csrf-party@example.com"}
+
+    for headers in ({}, {"X-CSRF-Token": "wrong-token"}):
+        denied = creator.post(invite_url, json=invite_body, headers=headers)
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "CSRF_TOKEN_INVALID"
+    created_invite = creator.post(invite_url, json=invite_body, headers=_csrf(creator))
+    assert created_invite.status_code == 200, created_invite.text
+    token = created_invite.json()["invite_link"].rsplit("/", 2)[1]
+
+    counterparty = _full_app()
+    _register_login(counterparty, "csrf-party@example.com")
+    counterparty_entity = _create_entity(counterparty, "CSRF Satıcı Ltd.")
+    accept_url = f"/api/invitations/{token}/accept"
+    for headers in ({}, {"X-CSRF-Token": "wrong-token"}):
+        denied = counterparty.post(
+            accept_url, json={"legal_entity_id": counterparty_entity}, headers=headers
+        )
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "CSRF_TOKEN_INVALID"
+    accepted = counterparty.post(
+        accept_url,
+        json={"legal_entity_id": counterparty_entity},
+        headers=_csrf(counterparty),
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    profile_url = f"/api/transactions/{transaction_id}/participants/me/profile"
+    profile_body = {"snapshot": {"name": "CSRF Satıcı Ltd."}}
+    for headers in ({}, {"X-CSRF-Token": "wrong-token"}):
+        denied = counterparty.put(profile_url, json=profile_body, headers=headers)
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "CSRF_TOKEN_INVALID"
+    assert counterparty.put(
+        profile_url, json=profile_body, headers=_csrf(counterparty)
+    ).status_code == 200
+
+    confirm_url = f"/api/transactions/{transaction_id}/participants/me/confirm"
+    for headers in ({}, {"X-CSRF-Token": "wrong-token"}):
+        denied = counterparty.post(confirm_url, headers=headers)
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "CSRF_TOKEN_INVALID"
+    assert counterparty.post(confirm_url, headers=_csrf(counterparty)).status_code == 200
+
+    revoke_tx = _upload_account_mode(
+        creator, acting_entity_id=creator_entity, own_role="buyer"
+    ).json()["id"]
+    revoke_created = creator.post(
+        f"/api/transactions/{revoke_tx}/invitations",
+        json={"participant_role": "seller", "invited_email": "revoke@example.com"},
+        headers=_csrf(creator),
+    )
+    invitation_id = revoke_created.json()["invitation_id"]
+    revoke_url = f"/api/transactions/{revoke_tx}/invitations/{invitation_id}/revoke"
+    for headers in ({}, {"X-CSRF-Token": "wrong-token"}):
+        denied = creator.post(revoke_url, headers=headers)
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "CSRF_TOKEN_INVALID"
+    assert creator.post(revoke_url, headers=_csrf(creator)).status_code == 200
 
 
 # --- canonical_state (legacy_v1) — v2 §2.8 projeksiyonu doğru sinyalle besleniyor mu ----

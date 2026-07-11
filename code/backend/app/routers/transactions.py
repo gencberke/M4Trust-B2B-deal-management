@@ -25,7 +25,7 @@ from pathlib import Path
 from sqlite3 import Connection, Row
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Import köprüsü: `document_parser` `code/scripts/` altında yaşar (bkz.
@@ -66,6 +66,7 @@ from backend.app.schemas.tracking import (  # noqa: E402
 from backend.app.services import invitations as invitations_service  # noqa: E402
 from backend.app.services import participants as participants_service  # noqa: E402
 from backend.app.services import transaction_state  # noqa: E402
+from backend.app.services.auth import verify_csrf  # noqa: E402
 from backend.app.services.access_control import (  # noqa: E402
     ActorContext,
     get_current_actor,
@@ -354,6 +355,7 @@ async def _create_account_transaction(
 @router.post("")
 async def create_transaction(
     background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
     acting_entity_id: str | None = Form(None),
     own_role: str | None = Form(None),
@@ -370,6 +372,9 @@ async def create_transaction(
     `LEGACY_CAPABILITY_ACCESS_ENABLED=false`) bu fazın kapsamında DEĞİLDİR.
     """
     if acting_entity_id is not None or own_role is not None:
+        # Aynı endpoint'teki anonim legacy_v1 upload korunur; yalnız session
+        # kullanan account_v2 mutation CSRF + Origin doğrulamasından geçer.
+        verify_csrf(conn, request=request)
         return await _create_account_transaction(
             background_tasks, file, acting_entity_id, own_role, counterparty_email, actor, conn
         )

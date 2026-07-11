@@ -72,13 +72,19 @@ def list_participants(conn: sqlite3.Connection, transaction_id: str) -> list[sql
 
 def link_participant_to_entity(
     conn: sqlite3.Connection, participant_id: str, *, legal_entity_id: str, status: str
-) -> sqlite3.Row:
-    conn.execute(
+) -> sqlite3.Row | None:
+    """Unbound/invited participant'ı atomik compare-and-set ile bağlar.
+
+    Daha önce bağlanmış, confirmed veya başka bir state'e geçmiş satırda
+    hiçbir değişiklik yapmaz ve `None` döner.
+    """
+    cursor = conn.execute(
         "UPDATE transaction_participants SET legal_entity_id = ?, status = ?, updated_at = ? "
-        "WHERE id = ?",
+        "WHERE id = ? AND legal_entity_id IS NULL AND status = 'invited' "
+        "AND confirmed_at IS NULL",
         (legal_entity_id, status, _now_iso(), participant_id),
     )
-    return get_participant_by_id(conn, participant_id)
+    return get_participant_by_id(conn, participant_id) if cursor.rowcount == 1 else None
 
 
 def update_declared_snapshot(

@@ -34,6 +34,8 @@ gerçekleşmemiş bir aksiyonu iddia etmemelidir).
 açıkça listeler; listede olmayan bir anahtar `DisallowedMetadataError`
 fırlatır. Bu, "birisi ileride debug amaçlı tüm request body'sini metadata'ya
 koyar" sınıfı hataları derleme zamanında değil ama ilk çağrıda yakalar.
+Allowlist yalnız alan adını yetkilendirir; değer yine doğrulanır. Metadata
+serbest note metni taşımaz, yalnız scalar enum/ID/status biçimlidir.
 
 ## Kural 3 — Token/secret/PII yasak (savunma derinliği)
 

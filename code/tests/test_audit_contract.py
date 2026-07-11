@@ -137,6 +137,47 @@ def test_record_rejects_forbidden_key_patterns_even_if_allowlisted(
     assert conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()["n"] == 0
 
 
+@pytest.mark.parametrize(
+    "sensitive_value",
+    [
+        "TCKN 12345678901",
+        "token=abc-super-secret",
+        "abc-super-secret",
+        "private@example.com",
+        "TR330006100519786457841326",
+        "4111111111111111",
+        "Sensitive Person Home Address",
+    ],
+)
+def test_record_rejects_sensitive_or_free_text_value_under_safe_key(
+    conn, actor, sensitive_value: str
+) -> None:
+    tx_id = create_test_transaction(conn)
+    with pytest.raises(DisallowedMetadataError):
+        record(
+            conn,
+            actor,
+            "review.approve",
+            f"transaction:{tx_id}",
+            frozenset({"note"}),
+            metadata={"note": sensitive_value},
+        )
+    assert conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()["n"] == 0
+
+
+def test_record_rejects_nested_metadata_even_if_allowlisted(conn, actor) -> None:
+    tx_id = create_test_transaction(conn)
+    with pytest.raises(DisallowedMetadataError):
+        record(
+            conn,
+            actor,
+            "review.approve",
+            f"transaction:{tx_id}",
+            frozenset({"note"}),
+            metadata={"note": {"value": "token=abc"}},
+        )
+
+
 def test_metadata_validation_runs_before_any_insert(conn, actor) -> None:
     tx_id = create_test_transaction(conn)
     with pytest.raises(DisallowedMetadataError):

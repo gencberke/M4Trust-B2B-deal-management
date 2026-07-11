@@ -32,6 +32,7 @@ from backend.app.schemas.participants import (
 from backend.app.services import invitations as invitations_service
 from backend.app.services import participants as participants_service
 from backend.app.services.access_control import ActorContext, require_authenticated_user
+from backend.app.services.auth import require_csrf_protection
 from backend.app.services.notifications import FakeNotificationProvider, NotificationProvider
 
 router = APIRouter(tags=["invitations"])
@@ -55,6 +56,7 @@ def create_invitation(
     body: InvitationCreateRequest,
     request: Request,
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
     notification_provider: Annotated[NotificationProvider, Depends(get_notification_provider)],
     conn: Connection = Depends(get_db),
 ) -> InvitationCreateResult:
@@ -70,6 +72,8 @@ def create_invitation(
         )
     except invitations_service.InvitationAuthorizationError as exc:
         raise ApiError(status_code=403, code="INVITATION_FORBIDDEN", message=str(exc)) from exc
+    except invitations_service.InvitationRoleAlreadyBoundError as exc:
+        raise ApiError(status_code=409, code="INVITATION_ROLE_ALREADY_BOUND", message=str(exc)) from exc
 
     return InvitationCreateResult(
         invitation_id=created.invitation_id,
@@ -92,6 +96,7 @@ def accept_invitation(
     token: str,
     body: InvitationAcceptRequest,
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: Connection = Depends(get_db),
 ) -> Participant:
     try:
@@ -113,6 +118,7 @@ def revoke_invitation(
     transaction_id: str,
     invitation_id: str,
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: Connection = Depends(get_db),
 ) -> dict:
     try:

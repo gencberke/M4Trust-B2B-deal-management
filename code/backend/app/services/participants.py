@@ -259,6 +259,17 @@ def accept_invitation(
     updated = participants_repo.link_participant_to_entity(
         conn, participant_row["id"], legal_entity_id=legal_entity_id, status="ready"
     )
+    if updated is None:
+        raise ParticipantConflictError(
+            "Participant daha önce bağlanmış veya uygun başlangıç durumunda değil."
+        )
+
+    invitations_repo.revoke_pending_for_role(
+        conn,
+        invitation["transaction_id"],
+        own_role,
+        exclude_invitation_id=invitation["id"],
+    )
 
     if (
         participants_repo.get_active_assignment(conn, invitation["transaction_id"], actor_context.user_id)

@@ -19,6 +19,7 @@ Ayrıntı ve gerekçe: `code/backend/app/services/AUDIT_CONTRACT.md`.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -38,6 +39,17 @@ _FORBIDDEN_KEY_MARKERS = (
     "tckn",
     "vkn",
     "iban",
+)
+
+# Audit metadata serbest metin alanı değildir. Yalnız enum/status/role ve
+# opaque ID benzeri dar değerler kabul edilir; boşluk, `@`, `=` vb. içeren
+# note/PII/token metinleri allowlist anahtarı altında saklanamaz.
+_SAFE_METADATA_STRING = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_SENSITIVE_METADATA_VALUES = (
+    re.compile(r"(?i)(?:^|[^A-Za-z0-9])(?:token|password|secret|checkkey|card|pan|cvc|cvv|tckn|vkn|iban)(?:$|[^A-Za-z0-9])"),
+    re.compile(r"(?i)\bTR\d{24}\b"),
+    re.compile(r"\b\d{10,19}\b"),
+    re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+"),
 )
 
 
@@ -78,6 +90,19 @@ def _validate_metadata(
         lowered = key.lower()
         if any(marker in lowered for marker in _FORBIDDEN_KEY_MARKERS):
             raise DisallowedMetadataError(f"Yasak metadata alanı: {key}")
+        value = metadata[key]
+        if isinstance(value, str) and any(
+            pattern.search(value) for pattern in _SENSITIVE_METADATA_VALUES
+        ):
+            raise DisallowedMetadataError(f"Audit metadata hassas değer içeremez: {key}")
+        if isinstance(value, str) and not _SAFE_METADATA_STRING.fullmatch(value):
+            raise DisallowedMetadataError(
+                f"Audit metadata serbest metin/PII içeremez: {key}"
+            )
+        if not isinstance(value, (str, int, float, bool, type(None))):
+            raise DisallowedMetadataError(
+                f"Audit metadata yalnız scalar enum/ID/status değerleri taşıyabilir: {key}"
+            )
     return dict(metadata)
 
 

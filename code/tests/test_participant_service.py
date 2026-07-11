@@ -308,6 +308,55 @@ def test_accept_invitation_concurrent_double_accept_only_one_succeeds(conn) -> N
         svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
 
 
+def test_two_invitations_cannot_overwrite_bound_participant_or_leave_stale_assignment(conn) -> None:
+    """Legacy/yarış kaynaklı iki pending satır bulunsa bile ilk accept rolü
+    atomik bağlar, diğerini revoke eder ve ikinci entity ownership'i ezemez."""
+    tx_id = create_test_transaction(conn)
+    svc.create_counterparty_placeholder(conn, tx_id, "seller", None)
+    from datetime import datetime, timedelta, timezone
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    tokens = (("token-a", "a@example.com", "u2", "entity-a"),
+              ("token-b", "b@example.com", "u3", "entity-b"))
+    for raw_token, email, user_id, entity_id in tokens:
+        invitations_repo.create_invitation(
+            conn,
+            transaction_id=tx_id,
+            participant_role="seller",
+            invited_email_normalized=email,
+            token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+            expires_at=expires_at,
+            created_by_user_id="u1",
+        )
+        create_test_user(conn, email_normalized=email, user_id=user_id)
+        create_test_membership(conn, user_id=user_id, legal_entity_id=entity_id)
+
+    accepted = svc.accept_invitation(conn, "token-a", actor("u2"), "entity-a")
+    assert accepted.legal_entity_id == "entity-a"
+
+    with pytest.raises(svc.InvitationNotAcceptableError):
+        svc.accept_invitation(conn, "token-b", actor("u3"), "entity-b")
+
+    participant = conn.execute(
+        "SELECT legal_entity_id, status, confirmed_at FROM transaction_participants "
+        "WHERE transaction_id = ? AND role = 'seller'",
+        (tx_id,),
+    ).fetchone()
+    assert dict(participant) == {
+        "legal_entity_id": "entity-a",
+        "status": "ready",
+        "confirmed_at": None,
+    }
+    assignments = conn.execute(
+        "SELECT user_id, legal_entity_id FROM transaction_assignments "
+        "WHERE transaction_id = ? AND role = 'approver'",
+        (tx_id,),
+    ).fetchall()
+    assert [dict(row) for row in assignments] == [
+        {"user_id": "u2", "legal_entity_id": "entity-a"}
+    ]
+
+
 # --- profile / confirm ---------------------------------------------------------
 
 

@@ -90,3 +90,22 @@ def mark_revoked(conn: sqlite3.Connection, invitation_id: str) -> bool:
         (_now_iso(), invitation_id),
     )
     return cursor.rowcount == 1
+
+
+def revoke_pending_for_role(
+    conn: sqlite3.Connection,
+    transaction_id: str,
+    participant_role: str,
+    *,
+    exclude_invitation_id: str | None = None,
+) -> int:
+    """Aynı transaction/role için diğer canlı davetleri açıkça geçersizleştirir."""
+    params: list[str] = [_now_iso(), transaction_id, participant_role]
+    sql = (
+        "UPDATE transaction_invitations SET status = 'revoked', revoked_at = ? "
+        "WHERE transaction_id = ? AND participant_role = ? AND status = 'pending'"
+    )
+    if exclude_invitation_id is not None:
+        sql += " AND id != ?"
+        params.append(exclude_invitation_id)
+    return conn.execute(sql, params).rowcount

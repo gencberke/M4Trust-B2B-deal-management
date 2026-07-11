@@ -166,7 +166,7 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 
 | Endpoint | İş |
 |---|---|
-| `POST /api/transactions` | **Dual-mode (Plan 03, additive):** `acting_entity_id`+`own_role` yoksa anonim `legacy_v1` akışı (değişmedi) → `{id, buyer_link, seller_link, manager_link}`; verilmişse authenticated `account_v2` akışı (session zorunlu, capability token YOK) → `{id, lifecycle_version, own_role, acting_entity_id, invitation}` |
+| `POST /api/transactions` | **Dual-mode (Plan 03, additive):** `acting_entity_id`+`own_role` yoksa anonim `legacy_v1` akışı (değişmedi) → `{id, buyer_link, seller_link, manager_link}`; verilmişse authenticated `account_v2` akışı (session + CSRF zorunlu, capability token YOK) → `{id, lifecycle_version, own_role, acting_entity_id, invitation}` |
 | `GET /api/transactions` | Authenticated user yalnız aktif assignment'ı olduğu işlemleri görür; anonim istek yalnız `DEMO_PUBLIC_DASHBOARD=true` iken (legacy demo listesi) tüm işlemleri görür, aksi hâlde 403 |
 | `GET /api/transactions/{id}` | Detay: extraction (redacted), validator raporu, event timeline, ödeme durumu, `lifecycle_version`, `canonical_state` (§2.8 projeksiyonu, yalnız `legacy_v1`). `account_v2` satırlar authenticated + assignment'lı erişim ister (401/403); `legacy_v1` açık kalır |
 | `GET /api/transactions/{id}/party-view?token=…` | Taraf perspektifi (token → party çözümü) + `tracking_summary` — legacy_v1, `LEGACY_CAPABILITY_ACCESS_ENABLED` arkasında |
@@ -197,12 +197,12 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 | `POST /api/auth/sessions/revoke` | User'ın TÜM aktif session'larını revoke eder (CSRF zorunlu) |
 | `POST /api/entities` | Legal entity oluşturur, oluşturan otomatik `owner` membership alır |
 | `GET /api/entities` · `GET /api/entities/{id}` · `PATCH /api/entities/{id}` | Yalnız aktif membership sahibi görür/günceller (member salt-okunur); ciphertext/HMAC hiçbir response'a girmez |
-| `POST /api/transactions/{id}/invitations` | Yalnız transaction manager/creator; raw token yalnız bu response'ta bir kez döner |
+| `POST /api/transactions/{id}/invitations` | CSRF zorunlu; yalnız transaction manager/creator. Bağlanmış role yeni davet reddedilir; yeni davet aynı role ait eski pending daveti revoke/supersede eder. |
 | `GET /api/invitations/{token}/preview` | Auth'suz, PII'siz güvenli önizleme |
-| `POST /api/invitations/{token}/accept` | Authenticated user, email eşleşmesi zorunlu, creator kendi davetini kabul edemez |
-| `POST /api/transactions/{id}/invitations/{invitation_id}/revoke` | Yalnız manager/creator |
+| `POST /api/invitations/{token}/accept` | CSRF zorunlu; authenticated user, email eşleşmesi zorunlu, creator kendi davetini kabul edemez; participant yalnız unbound+invited ise atomik bağlanır. |
+| `POST /api/transactions/{id}/invitations/{invitation_id}/revoke` | CSRF zorunlu; yalnız manager/creator |
 | `GET /api/transactions/{id}/participants` | Transaction access sahibi (assignment) |
-| `PUT .../participants/me/profile` · `POST .../participants/me/confirm` | Declared → confirmed snapshot; confirmed sonrası kilitlenir |
+| `PUT .../participants/me/profile` · `POST .../participants/me/confirm` | CSRF zorunlu; declared → confirmed snapshot; confirmed sonrası kilitlenir |
 
 **Session/CSRF:** cookie `HttpOnly` + `SameSite=Lax` (+ prod'da `Secure`, `SESSION_COOKIE_SECURE`); mutating uçlarda `X-CSRF-Token` header zorunlu (sabit-zamanlı karşılaştırma) + verilmişse `Origin` host eşleşmesi. Session/CSRF raw token'ları DB'de yalnız SHA-256 hash. `X-Acting-Entity-ID` header'ı yalnız gerçek aktif membership doğrulanırsa `ActorContext.acting_entity_id`'yi doldurur.
 
@@ -260,7 +260,7 @@ Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager
 
 - `users` (`UNIQUE(email_normalized)`) · `sessions` (`UNIQUE(token_hash)`, `FK user_id ON DELETE CASCADE`, `last_seen_at` throttled) — parola/session (§4.1.1).
 - `legal_entities` (`tax_identifier_ciphertext` AES-256-GCM, `tax_identifier_lookup_hmac` deterministik HMAC-SHA256, `tax_identifier_last4`) · `memberships` (`UNIQUE(user_id, legal_entity_id)`, `role: owner|admin|member`).
-- `transaction_participants` (`role: buyer|seller`, extracted/declared/confirmed snapshot) · `transaction_assignments` (`role: manager|approver|viewer`, list/detail scoping bunun üzerinden yapılır) · `transaction_invitations` (token yalnız hash'lenmiş saklanır, expiry, tek kullanım).
+- `transaction_participants` (`role: buyer|seller`, extracted/declared/confirmed snapshot) · `transaction_assignments` (`role: manager|approver|viewer`, list/detail scoping bunun üzerinden yapılır) · `transaction_invitations` (token yalnız hash'lenmiş saklanır, expiry, tek kullanım; aynı role tek canlı pending davet; accept participant'ı compare-and-set ile bağlar).
 - `audit_events` — actor/entity/request_id + allowlist'li metadata; business mutation ile **aynı connection/transaction'da** yazılır (`services/audit.py::record`), kendi commit/rollback yapmaz.
 
 ### 5.2 `lifecycle_version` — iki paralel akış (v2 §2.8, additive)
@@ -319,5 +319,6 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 9. **Video tek başına para hareketi üretemez.** Opsiyonel (platform) videosu advisory'dir: teslim miktarını, kısmi ödeme oranını, release'i veya dispute'u belirleyemez; en fazla `hold` + manuel inceleme tetikler (§3.4).
 10. **Sözleşmesel kanıt platform tercihini yener.** Extraction'daki `required_evidence` yönetici policy'siyle devre dışı bırakılamaz **veya zayıflatılamaz**; sözleşmesel video `tracking_mode=document_and_video` zorunlu kılar. Çelişkide policy kilidi 409 ile reddedilir. LLM/RAG takip politikasını **seçmez** — politika `ExtractionJSON` içine yazılmaz.
 11. **Takip politikası taraf onaylarından önce kilitlenir** ve iki tarafa da gösterilir. Kilitlenmemiş policy'de onay 409'dur; kilit sonrası policy değişmez (amendment akışı kapsam dışı — yeni transaction açılır).
-12. **Audit event, business mutation ile aynı connection/transaction'da yazılır** (`services/audit.py::record`); kendi commit/rollback/close yapmaz — business mutation rollback olursa audit satırı da rollback olur. Token/secret/ham PII metadata'ya asla giremez (allowlist + yasak-örüntü kontrolü).
-13. **`ParticipantService` (v2 §8.1) donmuş bir arayüzdür** — `attach_creator`/`create_counterparty_placeholder`/`accept_invitation` idempotenttir; aynı legal entity aynı işlemde iki taraf olamaz, creator kendi davetini kabul edemez.
+12. **Audit event, business mutation ile aynı connection/transaction'da yazılır** (`services/audit.py::record`); kendi commit/rollback/close yapmaz — business mutation rollback olursa audit satırı da rollback olur. Metadata serbest metin değildir; yalnız scalar enum/ID/status değerleri kabul edilir, token/secret/ham PII güvenli anahtar altında da reddedilir.
+13. **`ParticipantService` (v2 §8.1) donmuş bir arayüzdür** — `attach_creator`/`create_counterparty_placeholder`/`accept_invitation` idempotenttir; aynı legal entity aynı işlemde iki taraf olamaz, creator kendi davetini kabul edemez. Accept yalnız `legal_entity_id IS NULL ∧ status=invited ∧ confirmed_at IS NULL` participant'ı atomik bağlar; mevcut ownership/confirmed snapshot ezilemez.
+14. **Session-authenticated mutation CSRF korumalıdır.** Account transaction create, entity, invitation ve participant mutation'ları `X-CSRF-Token` doğrular; verilmiş `Origin` request host ile eşleşmelidir. Anonim `legacy_v1` upload etkilenmez.

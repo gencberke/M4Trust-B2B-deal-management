@@ -26,6 +26,7 @@ from backend.app.schemas.participants import (
 )
 from backend.app.services import participants as participants_service
 from backend.app.services.access_control import ActorContext, require_authenticated_user
+from backend.app.services.auth import require_csrf_protection
 
 router = APIRouter(prefix="/api/transactions/{transaction_id}/participants", tags=["participants"])
 
@@ -69,6 +70,7 @@ def update_my_profile(
     transaction_id: str,
     body: ProfileUpdateRequest,
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: Connection = Depends(get_db),
 ) -> Participant:
     try:
@@ -85,6 +87,7 @@ def update_my_profile(
 def confirm_my_profile(
     transaction_id: str,
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: Connection = Depends(get_db),
 ) -> Participant:
     try:
