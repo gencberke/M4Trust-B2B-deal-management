@@ -20,8 +20,10 @@ from backend.app.routers import (
     approvals,
     auth,
     delivery,
+    disputes,
     entities,
     evidence,
+    evidence_submit,
     invitations,
     participants,
     ratifications,
@@ -53,6 +55,8 @@ def create_app() -> FastAPI:
     app.include_router(approvals.router)
     app.include_router(delivery.router)
     app.include_router(evidence.router)
+    app.include_router(evidence_submit.router)
+    app.include_router(disputes.router)
     app.include_router(auth.router)
     app.include_router(entities.router)
     app.include_router(participants.router)

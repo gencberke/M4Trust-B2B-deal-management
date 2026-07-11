@@ -1,0 +1,214 @@
+"""Plan 05 kapanış gate'i: evidence -> review/dispute guard -> release."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from backend.app.config import Settings
+from backend.app.main import create_app
+from backend.app.services import disputes as disputes_service
+from backend.app.services import evidence_records as evidence_service
+from backend.app.services import review as review_service
+from backend.app.services import settlement
+from backend.app.services.access_control import ActorContext
+from reviews_fixtures import create_real_user
+from test_ratifications import _setup_open_package, make_db
+
+
+def test_main_wires_plan05_routers() -> None:
+    paths = set(create_app().openapi()["paths"])
+    assert "/api/transactions/{transaction_id}/evidence/e-irsaliye" in paths
+    assert "/api/transactions/{transaction_id}/evidence/video" in paths
+    assert "/api/transactions/{transaction_id}/disputes" in paths
+    assert "/api/disputes/{dispute_id}/actions" in paths
+
+
+def _actor(user_id: str, entity_id: str) -> ActorContext:
+    return ActorContext(
+        actor_type="user",
+        user_id=user_id,
+        acting_entity_id=entity_id,
+        auth_method="session",
+        request_id="req-plan05-close",
+    )
+
+
+def _create_entity(conn, entity_id: str, user_id: str) -> None:
+    conn.execute(
+        "INSERT INTO legal_entities (id, entity_type, legal_name, tax_identifier_type, "
+        "tax_identifier_ciphertext, tax_identifier_lookup_hmac, tax_identifier_last4, "
+        "verification_status, created_by_user_id, created_at, updated_at) "
+        "VALUES (?, 'company', ?, 'vkn', 'cipher', 'hmac', '1234', 'self_declared', ?, "
+        "'now', 'now')",
+        (entity_id, entity_id, user_id),
+    )
+
+
+def _prepare_account_transaction(conn, transaction_id: str) -> None:
+    buyer_user_id = create_real_user(
+        conn, email_normalized="plan05-buyer@example.com", user_id="u-buyer"
+    )
+    seller_user_id = create_real_user(
+        conn, email_normalized="plan05-seller@example.com", user_id="u-seller"
+    )
+    _create_entity(conn, "entity-buyer", buyer_user_id)
+    _create_entity(conn, "entity-seller", seller_user_id)
+    _setup_open_package(conn, transaction_id)
+
+    # Plan 05 account fixture'i funding cutover'ından önce gerçek bir funded
+    # transaction gibi davranır; 015-017 registry'ye alınmadığı için bu satır
+    # bilinçli olarak fixture tarafından sağlanır.
+    conn.execute(
+        "UPDATE transactions SET state = 'active' WHERE id = ?", (transaction_id,)
+    )
+    conn.execute(
+        "UPDATE tracking_policies SET manager_physical_delivery_confirmed = 1, "
+        "tracking_mode = 'document_and_video', status = 'locked', locked_at = 'now' "
+        "WHERE transaction_id = ?",
+        (transaction_id,),
+    )
+    conn.executemany(
+        "INSERT INTO approvals (transaction_id, party, created_at) VALUES (?, ?, 'now')",
+        [(transaction_id, "buyer"), (transaction_id, "seller")],
+    )
+    conn.execute(
+        "INSERT INTO mock_payments (transaction_id, other_trx_code, virtual_pos_order_id, "
+        "status, amount, created_at) VALUES (?, ?, 'order-plan05', 'pool', 100.0, 'now')",
+        (transaction_id, transaction_id),
+    )
+    conn.commit()
+
+
+def test_video_anomaly_opens_review_and_dispute_blocks_release_until_resolved(
+    tmp_path: Path,
+) -> None:
+    transaction_id = "tx-plan05-close"
+    conn = make_db(tmp_path / "plan05-close.db")
+    _prepare_account_transaction(conn, transaction_id)
+    seller = _actor("u-seller", "entity-seller")
+
+    evidence_service.submit_evidence(
+        conn,
+        transaction_id=transaction_id,
+        milestone_id=None,
+        evidence_type="e_irsaliye",
+        source="external_api",
+        actor_context=seller,
+        payload={"delivered_quantity": 10},
+        verification_status="verified",
+        external_reference="irsaliye-plan05",
+    )
+    anomalous_video = evidence_service.submit_evidence(
+        conn,
+        transaction_id=transaction_id,
+        milestone_id=None,
+        evidence_type="video",
+        source="analyzer",
+        actor_context=seller,
+        payload={
+            "counts": {},
+            "unit_count": 7,
+            "damage_signals": [],
+            "confidence": 0.95,
+        },
+        verification_status="verified",
+        external_reference="video-anomaly-plan05",
+        storage_ref="tx-plan05/video-anomaly",
+        file_sha256="a" * 64,
+        analyzer_provider="fake",
+        analyzer_version="v1",
+    )
+    conn.commit()
+
+    first = settlement.evaluate_settlement(
+        conn, transaction_id, Settings(db_path=tmp_path / "plan05-close.db")
+    )
+    assert first is not None
+    assert first["action"] == "hold"
+    assert "REVIEW_BLOCKING_RELEASE" in {item["code"] for item in first["findings"]}
+    assert conn.execute(
+        "SELECT COUNT(*) FROM review_cases WHERE transaction_id = ? "
+        "AND source_type = 'video' AND status = 'open'",
+        (transaction_id,),
+    ).fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT status FROM mock_payments WHERE transaction_id = ?", (transaction_id,)
+    ).fetchone()[0] == "pool"
+
+    dispute = disputes_service.open_dispute(
+        conn,
+        transaction_id=transaction_id,
+        milestone_id=None,
+        reason_code="QUALITY_ISSUE",
+        description="Teslimat manuel inceleme bekliyor.",
+        actor_context=seller,
+    )
+    disputes_service.record_dispute_action(
+        conn,
+        dispute_id=dispute.id,
+        actor_context=seller,
+        action="attach_evidence",
+        evidence_id=anomalous_video.id,
+    )
+    conn.commit()
+
+    blocked = settlement.evaluate_settlement(
+        conn, transaction_id, Settings(db_path=tmp_path / "plan05-close.db")
+    )
+    assert blocked is not None
+    assert blocked["action"] == "hold"
+    blocked_codes = {item["code"] for item in blocked["findings"]}
+    assert {"REVIEW_BLOCKING_RELEASE", "DISPUTE_BLOCKING_RELEASE"} <= blocked_codes
+
+    disputes_service.record_dispute_action(
+        conn,
+        dispute_id=dispute.id,
+        actor_context=seller,
+        action="resolve",
+        payload={"resolution_code": "QUALITY_REVIEWED"},
+    )
+    case = next(
+        case
+        for case in review_service.list_cases(conn, transaction_id)
+        if case.source_type.value == "video"
+    )
+    review_service.resolve_case(
+        conn,
+        case_id=case.id,
+        actor_context=seller,
+        resolution_code="VIDEO_REVIEWED",
+    )
+    evidence_service.submit_evidence(
+        conn,
+        transaction_id=transaction_id,
+        milestone_id=None,
+        evidence_type="video",
+        source="analyzer",
+        actor_context=seller,
+        payload={
+            "counts": {},
+            "unit_count": 10,
+            "damage_signals": [],
+            "confidence": 0.95,
+        },
+        verification_status="verified",
+        external_reference="video-aligned-plan05",
+        storage_ref="tx-plan05/video-aligned",
+        file_sha256="b" * 64,
+        analyzer_provider="fake",
+        analyzer_version="v1",
+    )
+    conn.commit()
+
+    released = settlement.evaluate_settlement(
+        conn, transaction_id, Settings(db_path=tmp_path / "plan05-close.db")
+    )
+    assert released is not None
+    assert released["action"] == "capture"
+    assert conn.execute(
+        "SELECT state FROM transactions WHERE id = ?", (transaction_id,)
+    ).fetchone()[0] == "decided"
+    assert conn.execute(
+        "SELECT status FROM mock_payments WHERE transaction_id = ?", (transaction_id,)
+    ).fetchone()[0] == "released"
+    conn.close()
