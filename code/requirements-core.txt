@@ -1,0 +1,13 @@
+pydantic>=2,<3
+openai>=1.40
+pymupdf==1.28.0
+python-docx==1.2.0
+pytesseract==0.3.13
+pillow==12.3.0
+requests==2.34.2
+python-dotenv==1.2.2
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+simplejson>=3.19,<4

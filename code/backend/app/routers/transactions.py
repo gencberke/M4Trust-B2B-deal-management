@@ -24,7 +24,7 @@ from pathlib import Path
 from sqlite3 import Connection, Row
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Import köprüsü: `document_parser` `code/scripts/` altında yaşar (bkz.
@@ -44,8 +44,14 @@ from document_parser import (  # noqa: E402
 )
 
 from backend.app.config import Settings  # noqa: E402
-from backend.app.db import connect  # noqa: E402
+from backend.app.db import get_db, open_background_connection  # noqa: E402
 from backend.app.eventbus import emit  # noqa: E402
+from backend.app.repositories.transactions import (  # noqa: E402
+    list_transaction_events,
+    list_transaction_payments,
+    list_transaction_rows,
+    load_transaction,
+)
 from backend.app.schemas.extraction import ExtractionJSON  # noqa: E402
 from backend.app.schemas.tracking import (  # noqa: E402
     PolicyConflict,
@@ -86,13 +92,6 @@ _VALIDATOR_STATUS_TO_STATE = {
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def load_transaction(conn: Connection, transaction_id: str) -> Row | None:
-    """`transactions` tablosundan tek bir satır çeker (`approvals.py` da kullanır)."""
-    return conn.execute(
-        "SELECT * FROM transactions WHERE id = ?", (transaction_id,)
-    ).fetchone()
 
 
 def resolve_party(row: Row, token: str) -> str | None:
@@ -197,6 +196,7 @@ class TrackingPolicyLockRequest(BaseModel):
 async def create_transaction(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    conn: Connection = Depends(get_db),
 ) -> dict:
     """Sözleşme dosyasını kaydeder, işlem satırını açar, pipeline'ı arka plana atar."""
     settings = Settings.from_env()
@@ -225,18 +225,15 @@ async def create_transaction(
     seller_token = secrets.token_urlsafe(32)
     manager_token = secrets.token_urlsafe(32)
 
-    conn = connect(settings)
-    try:
-        conn.execute(
+    conn.execute(
             "INSERT INTO transactions "
             "(id, state, buyer_token, seller_token, manager_token, markdown, masked_markdown, created_at) "
             "VALUES (?, 'uploaded', ?, ?, ?, NULL, NULL, ?)",
             (transaction_id, buyer_token, seller_token, manager_token, _utc_now_iso()),
         )
-        create_draft_policy(conn, transaction_id)
-        conn.commit()
-    finally:
-        conn.close()
+    create_draft_policy(conn, transaction_id)
+    # Background task kendi connection'ını açar; satırı başlamadan görünür kıl.
+    conn.commit()
 
     background_tasks.add_task(run_pipeline, transaction_id, temp_path, is_passthrough, settings)
 
@@ -249,99 +246,77 @@ async def create_transaction(
 
 
 @router.get("")
-def list_transactions() -> list[dict]:
+def list_transactions(conn: Connection = Depends(get_db)) -> list[dict]:
     """Kısa liste — ham içerik yok, taraf adları (varsa) persist edilmiş extraction'dan."""
     settings = Settings.from_env()
     if not settings.demo_public_dashboard:
         raise HTTPException(status_code=403, detail="Liste erişimi kapalı.")
-    conn = connect(settings)
-    try:
-        rows = conn.execute(
-            "SELECT id, state, created_at FROM transactions ORDER BY created_at"
-        ).fetchall()
-        result: list[dict] = []
-        for row in rows:
-            extraction = _load_extraction(conn, row["id"])
-            buyer_name = None
-            seller_name = None
-            if extraction is not None:
-                parties = extraction.get("parties") or {}
-                buyer_name = (parties.get("buyer") or {}).get("name")
-                seller_name = (parties.get("seller") or {}).get("name")
-            result.append(
-                {
-                    "id": row["id"],
-                    "state": row["state"],
-                    "created_at": row["created_at"],
-                    "buyer_name": buyer_name,
-                    "seller_name": seller_name,
-                }
-            )
-        return result
-    finally:
-        conn.close()
+    rows = list_transaction_rows(conn)
+    result: list[dict] = []
+    for row in rows:
+        extraction = _load_extraction(conn, row["id"])
+        buyer_name = None
+        seller_name = None
+        if extraction is not None:
+            parties = extraction.get("parties") or {}
+            buyer_name = (parties.get("buyer") or {}).get("name")
+            seller_name = (parties.get("seller") or {}).get("name")
+        result.append(
+            {
+                "id": row["id"],
+                "state": row["state"],
+                "created_at": row["created_at"],
+                "buyer_name": buyer_name,
+                "seller_name": seller_name,
+            }
+        )
+    return result
 
 
 @router.get("/{transaction_id}")
-def get_transaction(transaction_id: str) -> dict:
+def get_transaction(transaction_id: str, conn: Connection = Depends(get_db)) -> dict:
     """Detay — extraction, validator raporu, event zaman çizelgesi, ödeme durumu."""
-    settings = Settings.from_env()
-    conn = connect(settings)
-    try:
-        row = load_transaction(conn, transaction_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+    row = load_transaction(conn, transaction_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
 
-        events = [
-            {
-                "id": ev["id"],
-                "event_type": ev["event_type"],
-                "payload": json.loads(ev["payload"]) if ev["payload"] else None,
-                "source": ev["source"],
-                "created_at": ev["created_at"],
-            }
-            for ev in conn.execute(
-                "SELECT id, event_type, payload, source, created_at FROM events "
-                "WHERE transaction_id = ? ORDER BY id",
-                (transaction_id,),
-            ).fetchall()
-        ]
-
-        payments = [
-            {
-                "other_trx_code": p["other_trx_code"],
-                "virtual_pos_order_id": p["virtual_pos_order_id"],
-                "status": p["status"],
-                "amount": p["amount"],
-                "created_at": p["created_at"],
-            }
-            for p in conn.execute(
-                "SELECT other_trx_code, virtual_pos_order_id, status, amount, created_at "
-                "FROM mock_payments WHERE transaction_id = ?",
-                (transaction_id,),
-            ).fetchall()
-        ]
-
-        return {
-            "id": row["id"],
-            "state": row["state"],
-            "created_at": row["created_at"],
-            # Token istemeyen genel detay: `source_quote` DÖNMEZ (maskeleme NER
-            # olmadığı için alıntıdaki isim/adres/ticari ifade temizlenmiyor).
-            "extraction": redacted_extraction_projection(_load_extraction(conn, transaction_id)),
-            "validator": _load_validator(conn, transaction_id),
-            "events": events,
-            "payment": payments or None,
+    events = [
+        {
+            "id": ev["id"],
+            "event_type": ev["event_type"],
+            "payload": json.loads(ev["payload"]) if ev["payload"] else None,
+            "source": ev["source"],
+            "created_at": ev["created_at"],
         }
-    finally:
-        conn.close()
+        for ev in list_transaction_events(conn, transaction_id)
+    ]
+
+    payments = [
+        {
+            "other_trx_code": p["other_trx_code"],
+            "virtual_pos_order_id": p["virtual_pos_order_id"],
+            "status": p["status"],
+            "amount": p["amount"],
+            "created_at": p["created_at"],
+        }
+        for p in list_transaction_payments(conn, transaction_id)
+    ]
+
+    return {
+        "id": row["id"],
+        "state": row["state"],
+        "created_at": row["created_at"],
+        # Token istemeyen genel detay: `source_quote` DÖNMEZ.
+        "extraction": redacted_extraction_projection(_load_extraction(conn, transaction_id)),
+        "validator": _load_validator(conn, transaction_id),
+        "events": events,
+        "payment": payments or None,
+    }
 
 
 @router.get("/{transaction_id}/party-view")
-def get_party_view(transaction_id: str, token: str) -> dict:
+def get_party_view(transaction_id: str, token: str, conn: Connection = Depends(get_db)) -> dict:
     """Token -> taraf çözümlü özet görünüm; yanlış/eksik token -> 403."""
-    settings = Settings.from_env()
-    conn = connect(settings)
     try:
         row = load_transaction(conn, transaction_id)
         if row is None:
@@ -397,14 +372,12 @@ def get_party_view(transaction_id: str, token: str) -> dict:
             "tracking_summary": tracking_summary(policy, contractual_requirements),
         }
     finally:
-        conn.close()
+        pass
 
 
 @router.get("/{transaction_id}/manager-view")
-def get_manager_view(transaction_id: str, token: str) -> dict:
+def get_manager_view(transaction_id: str, token: str, conn: Connection = Depends(get_db)) -> dict:
     """Manager capability ile policy hazırlık görünümü; token sızdırmaz."""
-    settings = Settings.from_env()
-    conn = connect(settings)
     try:
         row = load_transaction(conn, transaction_id)
         if row is None:
@@ -436,14 +409,12 @@ def get_manager_view(transaction_id: str, token: str) -> dict:
             ),
         }
     finally:
-        conn.close()
+        pass
 
 
 @router.put("/{transaction_id}/tracking-policy")
-def update_tracking_policy(transaction_id: str, body: TrackingPolicyUpdateRequest) -> dict:
+def update_tracking_policy(transaction_id: str, body: TrackingPolicyUpdateRequest, conn: Connection = Depends(get_db)) -> dict:
     """Manager'ın taslak takip seçimini değiştirir; aynı seçim idempotenttir."""
-    settings = Settings.from_env()
-    conn = connect(settings)
     try:
         row = load_transaction(conn, transaction_id)
         if row is None:
@@ -487,14 +458,12 @@ def update_tracking_policy(transaction_id: str, body: TrackingPolicyUpdateReques
         conn.commit()
         return {"updated": updated, "tracking_policy": policy.model_dump(mode="json")}
     finally:
-        conn.close()
+        pass
 
 
 @router.post("/{transaction_id}/tracking-policy/lock")
-def lock_tracking_policy(transaction_id: str, body: TrackingPolicyLockRequest) -> dict:
+def lock_tracking_policy(transaction_id: str, body: TrackingPolicyLockRequest, conn: Connection = Depends(get_db)) -> dict:
     """Manager'ın hazır policy'yi onaylardan önce değişmez hale getirmesi."""
-    settings = Settings.from_env()
-    conn = connect(settings)
     try:
         row = load_transaction(conn, transaction_id)
         if row is None:
@@ -532,7 +501,7 @@ def lock_tracking_policy(transaction_id: str, body: TrackingPolicyLockRequest) -
         conn.commit()
         return {"locked": locked, "tracking_policy": policy.model_dump(mode="json")}
     finally:
-        conn.close()
+        pass
 
 
 # --- arka plan pipeline ------------------------------------------------------
@@ -691,12 +660,12 @@ def run_pipeline(transaction_id: str, file_path: Path, is_passthrough: bool, set
     """`BackgroundTasks` tarafından çağrılan pipeline task'ı — kendi DB bağlantısını açar.
 
     İstek anındaki `get_db` bağlantısı task koşana kadar kapanmış olur (Pinned
-    design decision #2); bu yüzden `db.connect(settings)` ile bağımsız bir
+    design decision #2); bu yüzden `open_background_connection(settings)` ile bağımsız bir
     bağlantı açılır, `finally`'de commit/close edilir. Hat asla sessizce
     çökmez: beklenmeyen bir istisna `awaiting_review` + hata event'ine düşer,
     `extracting`'te asla takılı kalınmaz.
     """
-    conn = connect(settings)
+    conn = open_background_connection(settings)
     try:
         conn.execute(
             "UPDATE transactions SET state = 'extracting' WHERE id = ?", (transaction_id,)

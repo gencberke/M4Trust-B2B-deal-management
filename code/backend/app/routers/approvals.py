@@ -13,13 +13,14 @@ import json
 from datetime import datetime, timezone
 from sqlite3 import Connection
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.app.config import Settings
-from backend.app.db import connect
+from backend.app.db import get_db
 from backend.app.eventbus import emit
-from backend.app.routers.transactions import load_transaction, resolve_party
+from backend.app.repositories.transactions import load_transaction
+from backend.app.routers.transactions import resolve_party
 from backend.app.services.payment_provider import make_payment_provider
 from backend.app.services.settlement import evaluate_settlement
 from backend.app.services.tracking_policy import load_tracking_policy
@@ -70,9 +71,10 @@ def _policy_not_locked_detail() -> dict:
 
 
 @router.post("/{transaction_id}/approvals")
-def create_approval(transaction_id: str, body: ApprovalRequest) -> dict:
+def create_approval(
+    transaction_id: str, body: ApprovalRequest, conn: Connection = Depends(get_db)
+) -> dict:
     settings = Settings.from_env()
-    conn = connect(settings)
     try:
         row = load_transaction(conn, transaction_id)
         if row is None:
@@ -144,4 +146,4 @@ def create_approval(transaction_id: str, body: ApprovalRequest) -> dict:
             "approvals": {"buyer": "buyer" in approved, "seller": "seller" in approved},
         }
     finally:
-        conn.close()
+        pass
