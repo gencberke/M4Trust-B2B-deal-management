@@ -39,7 +39,7 @@ code/
 │   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
 │   ├── schemas/      # extraction.py (ikili sözleşme) · tracking/identity/participants · rule_sets/reviews/ratification
 │   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence ·
-│   │                 # auth · entities · participants · invitations (Plan 03) · reviews (Plan 04 Wave A)
+│   │                 # auth · entities · participants · invitations (Plan 03) · reviews · rule_sets (Plan 04)
 │   └── services/
 │       ├── documents/         # DocumentExtractor: pdf_digital · docx · ocr · normalizer
 │       ├── rag.py             # Chroma retrieval (BGE-M3 lazy singleton, düşük seviye)
@@ -83,6 +83,8 @@ code/
 > **Uygulama notu (2026-07-11, Plan 04 Wave A):** Document provenance (`contract_documents`), immutable extraction runs, immutable/validator-bound rule-set versions ve manual review/reconciliation çekirdeği kuruldu. Migration runner `008 → 009 → 010` sırasını uygular; reviews router gerçek app'e bağlıdır. Account pipeline'da validator `NEEDS_REVIEW` sonucu blocking `validator` case açar; participant confirm current rule-set ile party reconciliation çalıştırır. Merkezi `repositories/rule_sets.py::get_current` reader'ı transactions/delivery/settlement yanında approvals/evidence tarafından da kullanılır. `ExtractionJSON` şeması değişmedi; legacy `extracted_rules` fallback'i korunur.
 
 > **Uygulama notu (2026-07-11, Plan 04 Faz 4C/4D):** 4C saf funding-plan compiler'ı ve 4D canonical ratification package/funding coordinator v1 integration branch'e alındı. Migration runner `011_ratification_packages` ile `ratification_packages` tablosunu ekler; canonical payload ve bağlı hash alanları DB trigger'larıyla immutable'dır. `RatificationPackageService` yalnız account_v2 için document/rule/confirmed participant/locked policy/funding schedule girdilerini bağlar. `FundingCoordinator.ensure_pool_funded` bu fazda provider çağırmadan `funding_pending` + tek `funding_required` event/audit üretir; gerçek pool funding Plan 06'dadır. `ExtractionJSON`, Moka contract'ları ve legacy approval/payment/evidence yolu değişmedi.
+
+> **Uygulama notu (2026-07-11, Plan 04 Faz 4E/4F-1):** Yusuf’un account ratification API ve legacy approval cutover dosyaları `program/domain-evolution-v2`'ye merge edildi; `012_ratifications` registry/app wiring’i Plan 04 kapanış entegrasyonuna bırakıldı. 4F-1 ile `rule_sets` router’ı gerçek app’e bağlandı: creator-side manager için session+CSRF korumalı tam `ExtractionJSON` revision ve revalidation uçları yeni immutable rule version üretir, otomatik validator çalıştırır, NEEDS_REVIEW case’i açar ve rule input’u değişen package’ı fail-closed supersede eder. Eski blocking review PASS ile otomatik kapanmaz; legacy ve funding sonrası işlemler revision kabul etmez.
 
 Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi). Authenticated account akışının frontend'i Plan 03 kapsamı dışıdır (Program 6/Faz 08).
 
@@ -189,6 +191,8 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 | `POST /api/transactions/{id}/events/e-irsaliye?token=…` | E-irsaliye simülasyonu (demo butonu); seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409, `LEGACY_CAPABILITY_ACCESS_ENABLED=false` → 403 |
 | `POST /api/transactions/{id}/delivery-video?token=…` | Video upload → inline analiz; seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409, `LEGACY_CAPABILITY_ACCESS_ENABLED=false` → 403 |
 | `GET /api/transactions/{id}/evidence?token=…` | Kanıt paketi (JSON bundle, tracking policy snapshot'ı dahil); buyer/seller/manager token'larından biri zorunlu, aksi hâlde **403** |
+| `POST /api/transactions/{id}/rule-sets/{version}/revisions` | Session + CSRF; yalnız account_v2 creator-side manager ve pre-ratification. Body tam `ExtractionJSON`; parent immutable kalır, yeni version otomatik validate edilir, NEEDS_REVIEW ise blocking validator case açılır |
+| `POST /api/transactions/{id}/rule-sets/{version}/validate` | Session + CSRF; yalnız current account_v2 version için deterministic revalidation. Eski blocking review otomatik bypass edilmez |
 
 **Policy/delivery 409 gövdesi** her zaman `detail: {code, message, conflicts[]}` şeklindedir. Kodlar: `POLICY_NOT_CONFIGURABLE` (validator PASS değil veya state `awaiting_approval` değil) · `POLICY_LOCKED` · `POLICY_INVALID` · `POLICY_CONTRACT_CONFLICT` · `POLICY_NOT_LOCKED` (onay öncesi) · `TRACKING_NOT_ENABLED` · `TRANSACTION_DECIDED`.
 
@@ -260,7 +264,7 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 
 Tüm modüller `eventbus.emit()` ile konuşur; her event `events` tablosuna yazılır (evidence bundle buradan derlenir). Zarf: `transaction_id · event_type · payload · source · created_at`.
 
-Event tipleri: `contract_extracted` · `rules_validated` · `tracking_policy_recommended` · `tracking_policy_updated` · `tracking_policy_locked` · `buyer_approved` · `seller_approved` · `e_irsaliye_received` · `delivery_video_analyzed` · `payment_decision_created` · `mock_payment_executed` · `dispute_opened`
+Event tipleri: `contract_extracted` · `rules_validated` · `rule_set_revised` · `tracking_policy_recommended` · `tracking_policy_updated` · `tracking_policy_locked` · `buyer_approved` · `seller_approved` · `e_irsaliye_received` · `delivery_video_analyzed` · `payment_decision_created` · `mock_payment_executed` · `dispute_opened`
 
 `payment_decision_created` payload'ı `action` · `capture_ratio` · `rationale` · `findings[{code, severity, message}]` · `manual_review_required` taşır. `dispute_opened` yalnızca gerçek (insan kararlı) dispute içindir — **opsiyonel video anomalisi bu event'i üretmez**, `action=hold` + `manual_review_required=true` üretir.
 
@@ -342,3 +346,4 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 12. **Audit event, business mutation ile aynı connection/transaction'da yazılır** (`services/audit.py::record`); kendi commit/rollback/close yapmaz — business mutation rollback olursa audit satırı da rollback olur. Metadata serbest metin değildir; yalnız scalar enum/ID/status değerleri kabul edilir, token/secret/ham PII güvenli anahtar altında da reddedilir.
 13. **`ParticipantService` (v2 §8.1) donmuş bir arayüzdür** — `attach_creator`/`create_counterparty_placeholder`/`accept_invitation` idempotenttir; aynı legal entity aynı işlemde iki taraf olamaz, creator kendi davetini kabul edemez. Accept yalnız `legal_entity_id IS NULL ∧ status=invited ∧ confirmed_at IS NULL` participant'ı atomik bağlar; mevcut ownership/confirmed snapshot ezilemez.
 14. **Session-authenticated mutation CSRF korumalıdır.** Account transaction create, entity, invitation ve participant mutation'ları `X-CSRF-Token` doğrular; verilmiş `Origin` request host ile eşleşmelidir. Anonim `legacy_v1` upload etkilenmez.
+15. **Rule revision fail-closed'dur.** Yalnız owner entity adına aktif creator-side manager current parent'ı CAS ile supersede ederek yeni immutable version üretebilir; stale parent, legacy ve funding sonrası state reddedilir. Validator PASS eski blocking review'u kapatmaz; input değişen pre-funding package ratify edilemez.

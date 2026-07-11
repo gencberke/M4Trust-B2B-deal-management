@@ -102,6 +102,29 @@ def mark_superseded(conn: Connection, *, version_id: str) -> None:
     conn.execute("UPDATE rule_set_versions SET status = 'superseded' WHERE id = ?", (version_id,))
 
 
+def mark_superseded_if_current(
+    conn: Connection, *, transaction_id: str, version_id: str
+) -> bool:
+    """Current version'ı tek SQL koşuluyla superseded yapar.
+
+    Revision endpoint'inin optimistic-concurrency kapısıdır: iki manager aynı
+    parent'a eşzamanlı revision başlatırsa yalnızca current satırı ilk isteğin
+    transaction'ında supersede edilebilir; diğer istek `False` alıp stale
+    conflict döner. İçerik alanları değil, yalnızca izinli status alanı değişir.
+    """
+    cursor = conn.execute(
+        """UPDATE rule_set_versions SET status = 'superseded'
+        WHERE id = ? AND transaction_id = ? AND status != 'superseded'
+          AND id = (
+              SELECT id FROM rule_set_versions
+              WHERE transaction_id = ? AND status != 'superseded'
+              ORDER BY version DESC LIMIT 1
+          )""",
+        (version_id, transaction_id, transaction_id),
+    )
+    return cursor.rowcount == 1
+
+
 def rule_set_version_row_to_current(row: Row) -> CurrentRuleSet:
     """`rule_set_versions` satırından `CurrentRuleSet` üretir (repo + service ortak kullanır)."""
     validator_report = row["validator_report_json"]

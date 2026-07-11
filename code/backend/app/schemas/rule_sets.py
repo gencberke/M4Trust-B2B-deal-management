@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict
+
 from backend.app.schemas.extraction import ExtractionJSON
 
 RuleSetStatus = Literal["draft", "validated", "ratifiable", "superseded", "ratified"]
@@ -56,3 +58,25 @@ class CurrentRuleSet:
     extraction: ExtractionJSON | None
     validator_status: str | None
     validator_report: object
+
+
+class RuleSetVersionPublicView(BaseModel):
+    """Rule revision uçlarının PII'siz version görünümü.
+
+    Revision isteği tam `ExtractionJSON` alır; cevap ise public projection'dır.
+    Vergi numarası ve source quote bu session-authenticated uçta dönmez.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    transaction_id: str
+    version: int
+    parent_version_id: str | None
+    extraction: dict
+    rules_hash: str
+    validator_status: str | None
+    validator_report: list[dict] | None
+    status: RuleSetStatus
+    created_by_user_id: str | None
+    created_at: str
