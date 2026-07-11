@@ -29,6 +29,8 @@ ratification_packages = import_module(
     "backend.app.db.migrations.011_ratification_packages"
 )
 ratifications = import_module("backend.app.db.migrations.012_ratifications")
+evidence_records = import_module("backend.app.db.migrations.013_evidence_records")
+disputes = import_module("backend.app.db.migrations.014_disputes")
 
 __all__ = [
     "baseline_current_schema",
@@ -42,4 +44,6 @@ __all__ = [
     "review_cases",
     "ratification_packages",
     "ratifications",
+    "evidence_records",
+    "disputes",
 ]

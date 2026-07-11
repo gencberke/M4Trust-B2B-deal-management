@@ -18,7 +18,17 @@ def _apply_6a(conn) -> None:
         "016_funding_units_provider_payments",
         "017_release_instructions",
     ):
-        import_module(f"backend.app.db.migrations.{name}").apply(conn)
+        table_name = {
+            "015_milestones": "milestones",
+            "016_funding_units_provider_payments": "funding_units",
+            "017_release_instructions": "release_instructions",
+        }[name]
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        if exists is None:
+            import_module(f"backend.app.db.migrations.{name}").apply(conn)
 
 
 def _seed_complete_package(conn) -> tuple[str, str]:

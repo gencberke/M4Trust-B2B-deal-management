@@ -56,32 +56,34 @@ def test_deterministic_core_hash_ignores_generated_at() -> None:
 
 
 def test_bundle_core_has_no_write_side_effect_and_redacts_optional_records(monkeypatch) -> None:
-    transaction_id, _, _ = _seed_account_transaction(monkeypatch, transaction_id="tx-records")
+    transaction_id, user_id, _ = _seed_account_transaction(monkeypatch, transaction_id="tx-records")
     conn = connect()
     conn.execute(
-        """CREATE TABLE evidence_records (
-            id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL, evidence_type TEXT,
-            source TEXT, verification_status TEXT, submitted_by_entity_id TEXT,
-            external_reference TEXT, file_sha256 TEXT, analyzer_provider TEXT,
-            analyzer_version TEXT, storage_ref TEXT, raw_payload TEXT,
-            created_at TEXT, verified_at TEXT, milestone_id TEXT
-        )"""
+        "INSERT INTO legal_entities (id, entity_type, legal_name, tax_identifier_type, "
+        "tax_identifier_ciphertext, tax_identifier_lookup_hmac, tax_identifier_last4, "
+        "verification_status, created_by_user_id, created_at, updated_at) "
+        "VALUES ('entity-bundle', 'company', 'Bundle Entity', 'vkn', 'cipher', 'hmac', "
+        "'1234', 'self_declared', ?, 'now', 'now')",
+        (user_id,),
     )
     conn.execute(
-        "INSERT INTO evidence_records VALUES (?, ?, 'video', 'account', 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        """INSERT INTO evidence_records (
+            id, transaction_id, milestone_id, evidence_type, source,
+            submitted_by_user_id, submitted_by_entity_id, external_reference,
+            storage_ref, file_sha256, payload_json, verification_status,
+            analyzer_provider, analyzer_version, created_at, verified_at
+        ) VALUES (?, ?, NULL, 'video', 'analyzer', ?, 'entity-bundle', ?, ?, ?, ?,
+                  'verified', ?, ?, 'now', NULL)""",
         (
             "ev-1",
             transaction_id,
-            "entity-bundle",
+            user_id,
             "delivery-video-1",
+            "/secret/local/path.mp4",
             "a" * 64,
+            '{"email":"user@example.com","traceback":"secret"}',
             "fake",
             "v1",
-            "/secret/local/path.mp4",
-            '{"email":"user@example.com","traceback":"secret"}',
-            "now",
-            None,
-            None,
         ),
     )
     conn.commit()
@@ -95,8 +97,8 @@ def test_bundle_core_has_no_write_side_effect_and_redacts_optional_records(monke
         {
             "id": "ev-1",
             "evidence_type": "video",
-            "source": "account",
-            "verification_status": "submitted",
+            "source": "analyzer",
+            "verification_status": "verified",
             "submitted_by_entity_id": "entity-bundle",
             "submitted_by_role": None,
             "external_reference": "delivery-video-1",

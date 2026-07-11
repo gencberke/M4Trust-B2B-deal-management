@@ -58,8 +58,14 @@ def _create_entity(conn, entity_id: str, created_by_user_id: str) -> None:
 def conn(tmp_path: Path):
     connection = connect(Settings(db_path=tmp_path / "5b_api.db"))
     init_db(connection)
-    _evidence_migration.apply(connection)
-    _disputes_migration.apply(connection)
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_records'"
+    ).fetchone() is None:
+        _evidence_migration.apply(connection)
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='disputes'"
+    ).fetchone() is None:
+        _disputes_migration.apply(connection)
 
     for uid, email in (
         ("u-manager", "manager@example.com"),

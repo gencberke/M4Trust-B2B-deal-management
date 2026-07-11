@@ -2,11 +2,13 @@
 
 > **Durum:** Koordinasyon dokümanı (canlı) — 2026-07-11
 > **Kaynak masterlar:** [m4trust_stratejik_domain_evrimi_programi_v2.md](m4trust_stratejik_domain_evrimi_programi_v2.md) · [m4trust_moka_contract_faithful_payment_refactor_plan.md](m4trust_moka_contract_faithful_payment_refactor_plan.md)
-> **Child planlar:** `plans/done/00_*.md` … `plans/done/04_*.md` (uygulandı) · `plans/ready/05_*.md` … `09_*.md` — her biri bağımsız uygulanabilir, sırası aşağıda.
+> **Child planlar:** `plans/done/00_*.md` … `plans/done/05_*.md` (uygulandı) · `plans/ready/06_*.md` … `09_*.md` — her biri bağımsız uygulanabilir, sırası aşağıda.
 > **Bağlayıcı kararlar (2026-07-10, ekip):** Demo öncesi yalnız **00 (H0) + 01 (Moka M0-M1, additive yan panel)** yapılır; Moka funding-unit cutover'ı (M2/M3) **package-tabanlıdır** ve Program 04'ten sonra gelir (06). Eski `moka_cüzdan_entegrasyonu.md` ödeme yolu anlatısı, Moka contract planıyla **supersede** edilmiştir.
 > **Revizyon (2026-07-10, koordinasyon review'u sonrası):** (1) **Account funding 04'te YAPILMAZ** — çift ratification sonrası işlem `funding_pending` kalır, ilk gerçek funding 06'dadır; "funding exactly once" kabulü 06'ya taşındı. (2) `LEGACY_CAPABILITY_ACCESS_ENABLED` default-false cutover'ı ve tam senaryo fixture göçü 04'ten **06'ya taşındı** (v2 §2.2 Wave-3 ifadesinden bilinçli sapma; gerekçe: account evidence 05'te, funding/settlement 06'da geliyor — 04'te account ödeme senaryosu uçtan uca koşamaz). (3) **Genel kural:** Yusuf router/middleware/handler MODÜLÜ üretir; `main.py`/app-factory kaydını her wave'de Berke'nin küçük integration commit'i yapar. (4) `FakePaymentGateway` request'ler arası state korumak için 06'da SQLite-backed store'a bağlanır. (5) **Görev dağılımı ince ayarı:** 05 evidence ingestion Yusuf'a geçti (v2 §10.1 "verification lead" ile uyum; Berke 05'te bundle + settlement hook'larını alır ve 6A'ya erken başlar); 4F ikiye bölündü (rule-revision endpoint'leri = Berke — kendi 4A dosyaları; review resolution = Yusuf); `transaction_state.py` kontratını 02'de Yusuf yazar, implementasyon 03'ten itibaren Berke'dedir; ortak `tests/conftest.py`'nin tek sahibi Yusuf'tur.
 > **Wave A kapanışı (2026-07-11):** 4A + 4B feature commit'leri PR #33 ile master'a taşındı; `integration/plan-04-wave-a-close` kapanışında migration `010` registry, reviews app wiring, validator→review, participant confirm→reconciliation ve approvals/evidence current-rule seam entegrasyonları tamamlandı. Wave A gate yeşildir; **Wave B ancak bu kapanıştan sonra başlar.**
-> **Wave B kapanışı (2026-07-11):** 4C PR #35, 4D PR #36, 4E PR #37 ve 4F-1/4F-2 PR #38/#39 `program/domain-evolution-v2`'ye merge edildi. `integration/plan-04-close` üzerinde migration `012` registry/alias, ratifications app wiring, gerçek app ratification/funding gate’i ve Plan 04 doc-sync tamamlandı. Plan 04 kapanmıştır; sıradaki child plan 05’tir.
+> **Wave B kapanışı (2026-07-11):** 4C PR #35, 4D PR #36, 4E PR #37 ve 4F-1/4F-2 PR #38/#39 `program/domain-evolution-v2`'ye merge edildi. `integration/plan-04-close` üzerinde migration `012` registry/alias, ratifications app wiring, gerçek app ratification/funding gate’i ve Plan 04 doc-sync tamamlandı. Plan 04 kapanmıştır.
+
+> **Plan 05 kapanışı (2026-07-11):** `integration/plan-05-close` üzerinde migration `013-014` registry, evidence/dispute app wiring, first-class account evidence settlement adapter'ı, video→review hook'u, review/dispute release guard'ı ve 5C read-only bundle/explicit snapshot semantiği tamamlandı. 015-017 erken 6A persistence kodu Plan 06 app cutover'ını bekler; sıradaki child plan 06'dır.
 
 ## 1. Uygulama sırası ve bağımlılık zinciri
 
@@ -20,7 +22,7 @@ DEMO SONRASI (program/domain-evolution-v2 integration branch'i):
   02_foundation_migration_db_api_ci     ← uygulandı: `plans/done/02_foundation_migration_db_api_ci.md`
   03_identity_legal_entity_party_onboarding ← uygulandı: `plans/done/03_identity_legal_entity_party_onboarding.md`
   04_rule_versioning_ratification_manual_review   ← tamamlandı: Wave A + Wave B + kapanış entegrasyonu
-  05_evidence_dispute_lifecycle                   ← sıradaki plan
+  05_evidence_dispute_lifecycle                   ← tamamlandı: 013-014 + evidence/dispute/release integration gate
   06_milestone_funding_units_settlement ← Moka M2+M3 (package-tabanlı cutover)
   07_payment_lifecycle_operational_hardening
   08_frontend_vertical_slices           ← 03'ten itibaren kısmen paralel yürüyebilir

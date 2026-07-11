@@ -33,12 +33,12 @@ code/
 ├── scripts/          # offline hazırlık + demo_moka_contract.py gerçek HTTP demo sürücüsü
 ├── backend/app/
 │   ├── main.py · config.py · eventbus.py
-│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-011
-│   ├── repositories/ # transactions · identity/participants · documents/extraction_runs · rule_sets/reviews/packages
+│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-014
+│   ├── repositories/ # transactions · identity/participants · documents/extraction_runs · rule_sets/reviews/packages/evidence/disputes
 │   ├── api/          # yeni uçlar için standart hata zarfı
 │   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
 │   ├── schemas/      # extraction.py (ikili sözleşme) · tracking/identity/participants · rule_sets/reviews/ratification
-│   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence ·
+│   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence · evidence_submit · disputes ·
 │   │                 # auth · entities · participants · invitations (Plan 03) · reviews · rule_sets · ratifications (Plan 04)
 │   └── services/
 │       ├── documents/         # DocumentExtractor: pdf_digital · docx · ocr · normalizer
@@ -85,6 +85,8 @@ code/
 > **Uygulama notu (2026-07-11, Plan 04 Faz 4C/4D):** 4C saf funding-plan compiler'ı ve 4D canonical ratification package/funding coordinator v1 integration branch'e alındı. Migration runner `011_ratification_packages` ile `ratification_packages` tablosunu ekler; canonical payload ve bağlı hash alanları DB trigger'larıyla immutable'dır. `RatificationPackageService` yalnız account_v2 için document/rule/confirmed participant/locked policy/funding schedule girdilerini bağlar. `FundingCoordinator.ensure_pool_funded` bu fazda provider çağırmadan `funding_pending` + tek `funding_required` event/audit üretir; gerçek pool funding Plan 06'dadır. `ExtractionJSON`, Moka contract'ları ve legacy approval/payment/evidence yolu değişmedi.
 
 > **Uygulama notu (2026-07-11, Plan 04 Wave B):** Yusuf’un 4E account ratification API/legacy approval cutover’ı ve 4F-2 recoverable review flow’u integration branch’e merge edildi. Kapanış entegrasyonunda migration `012_ratifications` registry/alias’ı ve `ratifications` router app wiring’i tamamlandı; `rule_sets` router’ı 4F-1’den beri gerçek app’e bağlıdır. Account ratification uçları yalnız canonical package hash’i üzerinden çalışır; çift ratification sonrası işlem provider çağrısı olmadan `funding_pending` kalır. 4F-1 revision/revalidation akışı creator-side manager, session+CSRF, immutable version, validator/review ve package supersede kapılarını korur.
+
+> **Uygulama notu (2026-07-11, Plan 05 kapanışı):** Migration runner `013_evidence_records` ve `014_disputes` kayıtlarını boş ve legacy DB startup'ında uygular; 015-017 erken 6A persistence branch'inde kalır ve Plan 06 app cutover'ını bekler. `evidence_submit` ve `disputes` router'ları gerçek app'e bağlandı. Account settlement `EvidenceService.collect_transaction_delivery_evidence` üzerinden first-class kanıt okur; yüksek güvenli video anomaly'si settlement review case açar, açık blocking review/dispute tek release guard'da provider çağrısını durdurur. 5C bundle yalnız okur; explicit snapshot ayrı mutation'dır.
 
 Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi). Authenticated account akışının frontend'i Plan 03 kapsamı dışıdır (Program 6/Faz 08).
 
@@ -191,6 +193,12 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 | `POST /api/transactions/{id}/events/e-irsaliye?token=…` | E-irsaliye simülasyonu (demo butonu); seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409, `LEGACY_CAPABILITY_ACCESS_ENABLED=false` → 403 |
 | `POST /api/transactions/{id}/delivery-video?token=…` | Video upload → inline analiz; seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409, `LEGACY_CAPABILITY_ACCESS_ENABLED=false` → 403 |
 | `GET /api/transactions/{id}/evidence?token=…` | Kanıt paketi (JSON bundle, tracking policy snapshot'ı dahil); buyer/seller/manager token'larından biri zorunlu, aksi hâlde **403** |
+| `POST /api/transactions/{id}/evidence/e-irsaliye` | Account v2 first-class e-irsaliye kaydı; session + CSRF, seller assignment veya manager gerekir; aynı external reference ile tekrar idempotenttir |
+| `POST /api/transactions/{id}/evidence/video` | Account v2 first-class video kaydı; session + CSRF, seller assignment veya manager gerekir; hash/storage reference kaydedilir, ham payload event'e yazılmaz |
+| `GET /api/transactions/{id}/evidence-bundle` | Account assignment sahibine side-effect-free güncel bundle; `evidence_records` özeti ve ratification/package projection'ı içerir |
+| `POST /api/transactions/{id}/evidence-snapshots` | Session + CSRF ile açıkça istenen immutable snapshot; aynı canonical snapshot hash'i idempotent replay eder |
+| `POST /api/transactions/{id}/disputes` | Account v2 buyer/seller participant approver'ının insan kararıyla dispute açması; system/video/validator açamaz |
+| `GET /api/transactions/{id}/disputes` · `POST /api/disputes/{id}/actions` | Dispute listesi ve comment/attach_evidence/escalate/resolve/cancel yaşam döngüsü; action'lar actor/entity audit'li ve transaction-scope kontrollüdür |
 | `POST /api/transactions/{id}/ratification-packages` | Account v2 current package build/open; readiness, package hash ve blocking review kapıları uygulanır |
 | `GET /api/transactions/{id}/ratification-packages/current` | Buyer/seller assignment sahibi için aynı canonical package projection ve aynı `package_hash` |
 | `POST /api/ratification-packages/{package_id}/ratifications` | Session + CSRF; actor yalnız kendi participant/entity'si adına ratify eder; ikinci taraf sonrası `FundingCoordinator` çağrılır, provider çağrılmaz |
@@ -265,9 +273,9 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 
 ### 4.3 İç event zarfı
 
-Tüm modüller `eventbus.emit()` ile konuşur; her event `events` tablosuna yazılır (evidence bundle buradan derlenir). Zarf: `transaction_id · event_type · payload · source · created_at`.
+Tüm modüller `eventbus.emit()` ile konuşur; her event `events` tablosuna yazılır. Evidence bundle, event timeline'ını ve first-class `evidence_records` özetini birlikte derler. Zarf: `transaction_id · event_type · payload · source · created_at`.
 
-Event tipleri: `contract_extracted` · `rules_validated` · `rule_set_revised` · `tracking_policy_recommended` · `tracking_policy_updated` · `tracking_policy_locked` · `buyer_approved` · `seller_approved` · `e_irsaliye_received` · `delivery_video_analyzed` · `payment_decision_created` · `mock_payment_executed` · `dispute_opened`
+Event tipleri: `contract_extracted` · `rules_validated` · `rule_set_revised` · `tracking_policy_recommended` · `tracking_policy_updated` · `tracking_policy_locked` · `buyer_approved` · `seller_approved` · `e_irsaliye_received` · `delivery_video_analyzed` · `evidence_submitted` · `payment_decision_created` · `mock_payment_executed` · `dispute_opened` · `dispute_action_recorded`
 
 `payment_decision_created` payload'ı `action` · `capture_ratio` · `rationale` · `findings[{code, severity, message}]` · `manual_review_required` taşır. `dispute_opened` yalnızca gerçek (insan kararlı) dispute içindir — **opsiyonel video anomalisi bu event'i üretmez**, `action=hold` + `manual_review_required=true` üretir.
 
@@ -275,7 +283,11 @@ Event payload'larında capability token (`manager_token`/`buyer_token`/`seller_t
 
 ## 5. Veri modeli ve state machine
 
-Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager_token**, markdown, + Plan 03: `created_by_user_id`, `owner_entity_id`, `lifecycle_version`, `content_sha256`) · `extracted_rules` (extraction_json, validator_status, validator_report) · **`tracking_policies`** · `approvals` · `events` · `mock_payments` · `evidence`
+Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager_token**, markdown, + Plan 03: `created_by_user_id`, `owner_entity_id`, `lifecycle_version`, `content_sha256`) · `extracted_rules` (extraction_json, validator_status, validator_report) · **`tracking_policies`** · `approvals` · `events` · `mock_payments` · `evidence` · `evidence_records` · `disputes` · `dispute_actions`
+
+`evidence_records` (migration 013) account teslimat kanıtının first-class kaydıdır: actor/entity, evidence tipi/kaynağı, external reference, storage reference, SHA-256, güvenli tipli `payload_json`, verification durumu ve analyzer sürümünü taşır. `external_reference` ve `file_sha256` transaction kapsamında idempotency kapısıdır; bağlı alanlar immutable, yalnız doğrulama durumu değiştirilebilir. Bundle projection'ı `storage_ref`, raw payload, token ve PII taşımaz.
+
+`disputes` + `dispute_actions` (migration 014) insan kontrollü ticari itiraz yaşam döngüsüdür. Açık dispute ilgili transaction/milestone release'ini bloklar; video, validator veya system actor otomatik dispute açamaz. Action kayıtları append-only'dir ve `evidence_id` yalnız aynı transaction'a bağlanabilir.
 
 `tracking_policies` (transaction başına en fazla bir satır, `transaction_id` PK): `recommendation` (`yes|no|uncertain`, sistem önerisi) · `recommendation_reason_codes` (JSON, güvenli kod listesi — sözleşme metni taşımaz) · `manager_physical_delivery_confirmed` (`null` iken kilitlenemez) · `tracking_mode` (`off|document_only|document_and_video`) · `video_role` (sabit `advisory`) · `status` (`draft|locked`) · `configured_at` · `locked_at`.
 
@@ -327,7 +339,7 @@ Plan 06'nın kapsamıdır — Plan 04 `funding_pending`'de durur. `legacy_v1`'in
 | evidence_pending | active / blocked_evidence (son `payment_decision_created.manual_review_required`) |
 | decided | settled / partially_settled (`mock_payments.status`) |
 
-**Migration:** `init_db()` versiyonlu migration runner'a delegedir. Sıra: `001_baseline_current_schema` (sekiz legacy runtime tablosu) → `003_identity_sessions` → `004_legal_entities_memberships` → `005_participants_invitations` → `006_audit_events` → `007_transaction_lifecycle_v2` → `008_documents_extraction_runs` → `009_rule_set_versions` → `010_review_cases` → `011_ratification_packages` → `012_ratifications`. `007`, `transactions`'a additive kolonlar ekler ve mevcut satırları `legacy_v1` backfill eder. `008`, `contract_documents` + immutable `extraction_runs`; `009`, immutable-content `rule_set_versions`; `010`, `review_cases` + append-only `review_actions`; `011`, canonical `ratification_packages` + bound-input immutability trigger'ını ekler; `012`, append-only account ratification kayıtlarını ve package/participant uniqueness kapısını ekler. `002` kasıtlı olarak rezerve/kullanılmamıştır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir, sonraki migration'lar normal döngüyle eklenir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
+**Migration:** `init_db()` versiyonlu migration runner'a delegedir. Sıra: `001_baseline_current_schema` (sekiz legacy runtime tablosu) → `003_identity_sessions` → `004_legal_entities_memberships` → `005_participants_invitations` → `006_audit_events` → `007_transaction_lifecycle_v2` → `008_documents_extraction_runs` → `009_rule_set_versions` → `010_review_cases` → `011_ratification_packages` → `012_ratifications` → `013_evidence_records` → `014_disputes`. `007`, `transactions`'a additive kolonlar ekler ve mevcut satırları `legacy_v1` backfill eder. `008`, `contract_documents` + immutable `extraction_runs`; `009`, immutable-content `rule_set_versions`; `010`, `review_cases` + append-only `review_actions`; `011`, canonical `ratification_packages` + bound-input immutability trigger'ını ekler; `012`, append-only account ratification kayıtlarını ve package/participant uniqueness kapısını ekler; `013`, actor/entity/hash bağlı first-class kanıt kayıtlarını ve immutable-bound-field trigger'larını ekler; `014`, dispute/action tablolarını ve append-only action trigger'larını ekler. `015-017` Plan 06'nın erken persistence branch'idir; app startup registry'sine bu Plan 05 kapanışında alınmaz. `002` kasıtlı olarak rezerve/kullanılmamıştır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir, sonraki migration'lar normal döngüyle eklenir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
 
 `ratification_packages` canonical payload'ı; document hash, current rule version/hash, confirmed participant snapshot hash, locked tracking policy snapshot/hash, 4C funding schedule, commercial summary, provider profile ve OtherTrxCode türetme versiyonunu bağlar. Ham document, raw extraction, token, password, API key veya audit serbest metni package'a girmez. Package status/timestamp geçişleri servis tarafından yapılır; canonical payload ve bound hash alanları update edilemez/silinemez.
 
@@ -349,15 +361,15 @@ validator REJECT → rejected (akış durur; policy yapılandırılamaz)
 
 Policy yaşam döngüsü transaction state'inden **ayrıdır**: UI "takip politikası bekleniyor" durumunu `policy.status`'ten türetir, yeni transaction state'i eklenmez. `hold` sonucunda transaction `decided` yapılmaz.
 
-Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (oran yalnız birincil kanıttan) · eksik/şüpheli kanıt `hold` (capture çağrılmaz, evidence snapshot alınır). `dispute` literal'i geriye uyumluluk için `DecisionResult`ta durur; opsiyonel video onu üretmez.
+Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (oran yalnız birincil kanıttan) · eksik/şüpheli kanıt `hold` (capture çağrılmaz, evidence snapshot alınır). `dispute` literal'i geriye uyumluluk için `DecisionResult`ta durur; opsiyonel video onu üretmez. Account settlement'ta açık blocking `review_case` veya dispute varsa karar provider'a gitmeden `hold` projection'ına çevrilir; bu iki kontrol tek release guard'ın parçasıdır.
 
 ## 6. Dışına çıkılmayacak tasarım kalıpları
 
 1. **LLM para yolunda değildir.** LLM önerir → validator (deterministik) denetler → insanlar onaylar → motor uygular. Release endpoint'ini yalnızca deterministik motor çağırır.
 2. **Validator kapısı atlanamaz.** LLM çıktısı PASS almadan aktif kural olmaz; NEEDS_REVIEW insan ister; REJECT akışı durdurur. UI her zaman gerekçeyi gösterir.
 3. **Her dış bağımlılık adapter + fake çifti olarak yazılır** ve env ile seçilir (LLM, ödeme, video). Fake'ler demo fallback'idir.
-4. **Event bus = events tablosu.** Ayrı mesajlaşma altyapısı kurulmaz; kanıt zinciri bu tablodan üretilir.
-5. **Decision engine saf fonksiyondur** — I/O yapmaz, girdi/çıktısı test edilebilir. DB/event/ödeme orkestrasyonu `services/settlement.py`'de yaşar; release guard **tek yerdedir** ve router'lar birbirinin private fonksiyonlarını import etmez.
+4. **Event bus = events tablosu.** Ayrı mesajlaşma altyapısı kurulmaz; kanıt zinciri event timeline'ı ile first-class evidence kayıtlarının güvenli projection'ından üretilir.
+5. **Decision engine saf fonksiyondur** — I/O yapmaz, girdi/çıktısı test edilebilir. DB/event/ödeme orkestrasyonu `services/settlement.py`'de yaşar; evidence adapter'ı ile review/dispute release guard'ı da burada birleşir. Release guard **tek yerdedir** ve router'lar birbirinin private fonksiyonlarını import etmez.
 6. **Taraf kimliği = token (yalnız `legacy_v1` — Plan 03 ile legacy geçiş aracına indirgendi).** Capability URL modeli anonim/legacy akışta yaşamaya devam eder; yönetici de bir capability token'ıdır (`secrets.token_urlsafe(32)`), token'lar log/event/evidence'a girmez, yanlış rol token'ı endpoint bazında 403 alır. `account_v2` akışında kimlik artık session-cookie + `users`/`memberships`/`transaction_assignments`'tır — capability token üretilmez (§5.1-5.2, v2 §2.2). İki model additive olarak bir arada yaşar; legacy'nin kaldırılması Wave 3 hard cutover'a kadar yapılmaz.
 7. **Local-first.** Runtime'daki tek dış çağrı LLM API'sidir; o da yalnızca maskelenmiş içerik alır.
 8. **Gerçek para hareketi ve gerçek kart verisi yoktur** (demo). Prod anlatısı: lisanslı altyapının (Moka havuz/cüzdan) üstünde karar-kanıt katmanı.
@@ -370,3 +382,4 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 13. **`ParticipantService` (v2 §8.1) donmuş bir arayüzdür** — `attach_creator`/`create_counterparty_placeholder`/`accept_invitation` idempotenttir; aynı legal entity aynı işlemde iki taraf olamaz, creator kendi davetini kabul edemez. Accept yalnız `legal_entity_id IS NULL ∧ status=invited ∧ confirmed_at IS NULL` participant'ı atomik bağlar; mevcut ownership/confirmed snapshot ezilemez.
 14. **Session-authenticated mutation CSRF korumalıdır.** Account transaction create, entity, invitation ve participant mutation'ları `X-CSRF-Token` doğrular; verilmiş `Origin` request host ile eşleşmelidir. Anonim `legacy_v1` upload etkilenmez.
 15. **Rule revision fail-closed'dur.** Yalnız owner entity adına aktif creator-side manager current parent'ı CAS ile supersede ederek yeni immutable version üretebilir; stale parent, legacy ve funding sonrası state reddedilir. Validator PASS eski blocking review'u kapatmaz; input değişen pre-funding package ratify edilemez.
+16. **Evidence first-class'tır ve insan kontrollüdür.** Account teslimat kararı `evidence_records` adapter'ından okur; raw payload/path event, audit veya bundle projection'ına taşınmaz. Video anomaly yalnız blocking review açabilir; dispute yalnız yetkili buyer/seller approver insanın explicit aksiyonudur.
