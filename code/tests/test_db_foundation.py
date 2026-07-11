@@ -64,13 +64,23 @@ def test_empty_db_applies_complete_baseline(tmp_path: Path) -> None:
         "sessions",
         "legal_entities",
         "memberships",
+        "transaction_participants",
+        "transaction_assignments",
+        "transaction_invitations",
+        "audit_events",
     }
     assert [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")] == [
         "001",
         "003",
         "004",
+        "005",
+        "006",
+        "007",
     ]
     assert "manager_token" in {
+        row[1] for row in conn.execute("PRAGMA table_info(transactions)")
+    }
+    assert "lifecycle_version" in {
         row[1] for row in conn.execute("PRAGMA table_info(transactions)")
     }
     conn.close()
@@ -86,16 +96,24 @@ def test_recognized_legacy_is_stamped_without_reapplying(tmp_path: Path) -> None
 
     init_db(conn)
 
-    # 001 stamp edilir (yeniden uygulanmaz); 003/004 henüz uygulanmadığından
+    # 001 stamp edilir (yeniden uygulanmaz); 003-007 henüz uygulanmadığından
     # normal döngüyle eklenir — additive legacy upgrade.
     assert [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")] == [
         "001",
         "003",
         "004",
+        "005",
+        "006",
+        "007",
     ]
-    assert conn.execute("SELECT state FROM transactions WHERE id='kept'").fetchone()[0] == "uploaded"
+    kept_row = conn.execute(
+        "SELECT state, lifecycle_version FROM transactions WHERE id='kept'"
+    ).fetchone()
+    assert kept_row["state"] == "uploaded"
+    assert kept_row["lifecycle_version"] == "legacy_v1"
     assert "users" in _tables(conn)
     assert "legal_entities" in _tables(conn)
+    assert "transaction_participants" in _tables(conn)
     conn.close()
 
 

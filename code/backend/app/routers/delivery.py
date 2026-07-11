@@ -128,9 +128,17 @@ def _guard_evidence_channel(conn: Connection, transaction_id: str, *, channel: s
 
 
 def _authorize_delivery_submission(
-    conn: Connection, transaction_id: str, token: str | None
+    conn: Connection, transaction_id: str, token: str | None, settings: Settings
 ) -> None:
-    """Teslimat kanıtını yalnız satıcı veya yönetici capability'siyle kabul eder."""
+    """Teslimat kanıtını yalnız satıcı veya yönetici capability'siyle kabul eder.
+
+    `LEGACY_CAPABILITY_ACCESS_ENABLED=false` (Wave 3 hard cutover hazırlığı,
+    v2 §2.2) capability-token tabanlı erişimi tamamen kapatır — bu fazda
+    varsayılan `true` olduğundan davranış değişmez.
+    """
+    if not settings.legacy_capability_access_enabled:
+        raise HTTPException(status_code=403, detail="Legacy capability erişimi kapalı.")
+
     row = load_transaction(conn, transaction_id)
     if row is None:
         raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
@@ -150,7 +158,7 @@ def receive_e_irsaliye(
     """E-irsaliye simülasyon event'i — birincil nicel kanıt; ardından settlement."""
     settings = Settings.from_env()
     try:
-        _authorize_delivery_submission(conn, transaction_id, token)
+        _authorize_delivery_submission(conn, transaction_id, token, settings)
         _guard_evidence_channel(conn, transaction_id, channel="e_irsaliye")
 
         emit(conn, transaction_id, "e_irsaliye_received", body.model_dump(), "e_irsaliye")
@@ -177,7 +185,7 @@ async def upload_delivery_video(
     """
     settings = Settings.from_env()
     try:
-        _authorize_delivery_submission(conn, transaction_id, token)
+        _authorize_delivery_submission(conn, transaction_id, token, settings)
         _guard_evidence_channel(conn, transaction_id, channel="video")
 
         contents = await file.read()
