@@ -13,9 +13,13 @@ STATEMENTS = (
         funding_unit_id TEXT NOT NULL,
         provider_payment_id TEXT NOT NULL,
         operation_type TEXT NOT NULL DEFAULT 'approve_pool_payment',
+        amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+        currency TEXT NOT NULL,
         idempotency_key TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL
             CHECK (status IN ('created', 'submitted', 'confirmed', 'failed', 'unknown')),
+        provider TEXT NOT NULL,
+        provider_reference TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE(funding_unit_id, operation_type),

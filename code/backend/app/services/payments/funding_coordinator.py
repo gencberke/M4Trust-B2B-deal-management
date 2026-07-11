@@ -88,75 +88,175 @@ def _provider_profile(package_payload: dict[str, Any]) -> str:
     return str(package_payload.get("provider_profile") or "moka_standard_v1")
 
 
-def _persist_package_schedule(conn: Connection, *, transaction_id: str, package) -> list:
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _expected_schedule(transaction_id: str, package) -> list[dict[str, Any]]:
+    """Derive the canonical, byte-stable schedule from the package payload.
+
+    Unit sequence must be globally stable across milestones (Moka §9.3); a drift
+    is a malformed package and fails closed before any row is written.
+    """
+
     payload = json.loads(package.canonical_payload_json)
     schedule = payload.get("funding_schedule") or {}
-    milestones = schedule.get("milestones") or []
     provider_profile = _provider_profile(payload)
-    existing = milestones_repo.list_for_package(conn, package.id)
-    if existing:
-        units = funding_units_repo.list_for_transaction(conn, transaction_id)
-        if len(units) == sum(len(item.get("funding_units") or []) for item in milestones):
-            return units
-
-    unit_sequence = 0
-    for milestone_payload in milestones:
-        rule_index = int(milestone_payload["rule_index"])
-        milestone = next(
-            (row for row in existing if row["rule_index"] == rule_index), None
+    rule_set_version_id = str(payload["rule_set"]["id"])
+    milestones: list[dict[str, Any]] = []
+    running_sequence = 0
+    for milestone_payload in schedule.get("milestones") or []:
+        currency = str(milestone_payload["currency"])
+        units: list[dict[str, Any]] = []
+        for unit_payload in milestone_payload.get("funding_units") or []:
+            running_sequence += 1
+            sequence = int(unit_payload["sequence"])
+            if sequence != running_sequence:
+                raise FundingCoordinatorError(
+                    "Funding unit sequence global package sırasıyla stabil değil "
+                    f"(beklenen {running_sequence}, gelen {sequence})."
+                )
+            units.append(
+                {
+                    "sequence": sequence,
+                    "amount_minor": int(unit_payload["amount_minor"]),
+                    "currency": currency,
+                    "eligibility_type": str(unit_payload["eligibility_type"]),
+                    "eligibility_payload_json": _canonical_json(
+                        unit_payload.get("eligibility_payload") or {}
+                    ),
+                    "provider_profile": provider_profile,
+                    "other_trx_code": (
+                        f"M4T-{_tx8(transaction_id)}-P{package.version}-U{sequence:02d}"
+                    ),
+                }
+            )
+        milestones.append(
+            {
+                "rule_index": int(milestone_payload["rule_index"]),
+                "title": str(milestone_payload["title"]),
+                "trigger_type": str(milestone_payload["trigger_type"]),
+                "basis_points": int(milestone_payload["basis_points"]),
+                "amount_minor": int(milestone_payload["amount_minor"]),
+                "currency": currency,
+                "required_evidence_json": _canonical_json(
+                    milestone_payload.get("required_evidence") or []
+                ),
+                "release_mode": str(milestone_payload["release_mode"]),
+                "rule_set_version_id": rule_set_version_id,
+                "units": units,
+            }
         )
-        if milestone is None:
-            milestone = milestones_repo.insert(
+    return milestones
+
+
+def _assert_no_drift(kind: str, identity: str, expected: dict[str, Any], row) -> None:
+    for field, want in expected.items():
+        got = row[field]
+        if str(got) != str(want):
+            raise FundingCoordinatorError(
+                f"Persist edilen {kind} ({identity}) package payload'ıyla uyuşmuyor "
+                f"[{field}: kayıt={got!r} beklenen={want!r}] — fail closed."
+            )
+
+
+def _persist_package_schedule(conn: Connection, *, transaction_id: str, package) -> list:
+    """Idempotently materialize a complete package schedule into 015/016.
+
+    Existing rows are verified field-by-field against the canonical package
+    payload; any drift (or partial/incomplete materialization) fails closed
+    instead of silently succeeding (Plan 06A §5).
+    """
+
+    expected = _expected_schedule(transaction_id, package)
+    if not expected:
+        raise FundingCoordinatorError("Package funding schedule boş olamaz.")
+
+    existing_milestones = {
+        row["rule_index"]: row for row in milestones_repo.list_for_package(conn, package.id)
+    }
+    for milestone in expected:
+        row = existing_milestones.get(milestone["rule_index"])
+        if row is None:
+            row = milestones_repo.insert(
                 conn,
                 milestone_id=milestones_repo.new_id(),
                 transaction_id=transaction_id,
                 ratification_package_id=package.id,
-                rule_set_version_id=payload["rule_set"]["id"],
-                rule_index=rule_index,
-                title=str(milestone_payload["title"]),
-                trigger_type=str(milestone_payload["trigger_type"]),
-                percentage_basis_points=int(milestone_payload["basis_points"]),
-                amount_minor=int(milestone_payload["amount_minor"]),
-                currency=str(milestone_payload["currency"]),
-                required_evidence_json=json.dumps(
-                    milestone_payload.get("required_evidence") or [],
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ),
-                release_mode=str(milestone_payload["release_mode"]),
+                rule_set_version_id=milestone["rule_set_version_id"],
+                rule_index=milestone["rule_index"],
+                title=milestone["title"],
+                trigger_type=milestone["trigger_type"],
+                percentage_basis_points=milestone["basis_points"],
+                amount_minor=milestone["amount_minor"],
+                currency=milestone["currency"],
+                required_evidence_json=milestone["required_evidence_json"],
+                release_mode=milestone["release_mode"],
+            )
+        else:
+            _assert_no_drift(
+                "milestone",
+                f"rule_index={milestone['rule_index']}",
+                {
+                    "amount_minor": milestone["amount_minor"],
+                    "currency": milestone["currency"],
+                    "release_mode": milestone["release_mode"],
+                    "required_evidence_json": milestone["required_evidence_json"],
+                    "trigger_type": milestone["trigger_type"],
+                    "percentage_basis_points": milestone["basis_points"],
+                    "rule_set_version_id": milestone["rule_set_version_id"],
+                },
+                row,
             )
 
-        for unit_payload in milestone_payload.get("funding_units") or []:
-            unit_sequence += 1
-            existing_unit = funding_units_repo.get_by_package_and_sequence(
-                conn, package_id=package.id, sequence=unit_sequence
+        for unit in milestone["units"]:
+            unit_row = funding_units_repo.get_by_package_and_sequence(
+                conn, package_id=package.id, sequence=unit["sequence"]
             )
-            if existing_unit is not None:
-                continue
-            sequence = int(unit_payload["sequence"])
-            other_trx_code = f"M4T-{_tx8(transaction_id)}-P{package.version}-U{sequence:02d}"
-            funding_units_repo.insert(
-                conn,
-                unit_id=uuid4().hex,
-                transaction_id=transaction_id,
-                ratification_package_id=package.id,
-                milestone_id=milestone["id"],
-                sequence=sequence,
-                title=str(milestone_payload["title"]),
-                amount_minor=int(unit_payload["amount_minor"]),
-                currency=str(milestone_payload["currency"]),
-                eligibility_type=str(unit_payload["eligibility_type"]),
-                eligibility_payload_json=json.dumps(
-                    unit_payload.get("eligibility_payload") or {},
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ),
-                provider_profile=provider_profile,
-                other_trx_code=other_trx_code,
-            )
-    return funding_units_repo.list_for_transaction(conn, transaction_id)
+            if unit_row is None:
+                funding_units_repo.insert(
+                    conn,
+                    unit_id=uuid4().hex,
+                    transaction_id=transaction_id,
+                    ratification_package_id=package.id,
+                    milestone_id=row["id"],
+                    sequence=unit["sequence"],
+                    title=milestone["title"],
+                    amount_minor=unit["amount_minor"],
+                    currency=unit["currency"],
+                    eligibility_type=unit["eligibility_type"],
+                    eligibility_payload_json=unit["eligibility_payload_json"],
+                    provider_profile=unit["provider_profile"],
+                    other_trx_code=unit["other_trx_code"],
+                )
+            else:
+                _assert_no_drift(
+                    "funding_unit",
+                    f"sequence={unit['sequence']}",
+                    {
+                        "milestone_id": row["id"],
+                        "amount_minor": unit["amount_minor"],
+                        "currency": unit["currency"],
+                        "eligibility_type": unit["eligibility_type"],
+                        "eligibility_payload_json": unit["eligibility_payload_json"],
+                        "provider_profile": unit["provider_profile"],
+                        "other_trx_code": unit["other_trx_code"],
+                    },
+                    unit_row,
+                )
+
+    package_units = [
+        unit
+        for unit in funding_units_repo.list_for_transaction(conn, transaction_id)
+        if unit["ratification_package_id"] == package.id
+    ]
+    expected_count = sum(len(milestone["units"]) for milestone in expected)
+    if len(package_units) != expected_count:
+        raise FundingCoordinatorError(
+            "Funding schedule materialization eksik: "
+            f"{len(package_units)}/{expected_count} unit — fail closed."
+        )
+    return package_units
 
 
 def persist_funding_schedule(conn: Connection, transaction_id: str, package_id: str) -> list:
@@ -426,13 +526,62 @@ def _ensure_v1_funding(
     return FundingResult(transaction_id, package_id, "funding_pending", True)
 
 
+def _emit_funding_required_once(
+    conn: Connection,
+    *,
+    transaction_id: str,
+    package_id: str,
+    units: list,
+    actor_context: ActorContext,
+) -> bool:
+    """Emit `funding_required`/audit exactly once across funding retries."""
+
+    already = conn.execute(
+        "SELECT 1 FROM events WHERE transaction_id = ? AND event_type = 'funding_required' "
+        "LIMIT 1",
+        (transaction_id,),
+    ).fetchone()
+    if already is not None:
+        return False
+    total_amount_minor = sum(int(unit["amount_minor"]) for unit in units)
+    emit(
+        conn,
+        transaction_id,
+        "funding_required",
+        {
+            "package_id": package_id,
+            "funding_schedule_version": "funding_schedule_v1",
+            "funding_unit_count": len(units),
+            "total_amount_minor": total_amount_minor,
+        },
+        "funding_coordinator",
+    )
+    audit.record(
+        conn,
+        _actor_for_audit(actor_context),
+        action="funding.required",
+        target=f"ratification_package:{package_id}",
+        metadata_allowlist=frozenset({"package_id", "funding_unit_count"}),
+        metadata={"package_id": package_id, "funding_unit_count": len(units)},
+        transaction_id=transaction_id,
+    )
+    return True
+
+
 def ensure_pool_funded(
     conn: Connection,
     transaction_id: str,
     package_id: str,
     actor_context: ActorContext,
+    *,
+    gateway: PaymentGateway | None = None,
 ) -> FundingResult:
-    """Materialize/fund every unit; fallback to frozen v1 until 6A migrations wire."""
+    """Materialize/fund every unit; fallback to frozen v1 until 6A migrations wire.
+
+    ``gateway`` is an optional injection seam for deterministic tests; when
+    omitted the configured provider is resolved via ``make_payment_gateway``
+    (default: ağsız fake SQLite gateway). The positional signature stays frozen.
+    """
 
     if not _has_v2_persistence(conn):
         return _ensure_v1_funding(conn, transaction_id, package_id, actor_context)
@@ -454,9 +603,13 @@ def ensure_pool_funded(
         raise PackageIntegrityError("Package canonical hash doğrulaması başarısız.")
     if review_service.has_blocking_case(conn, transaction_id, phase="pre_ratification"):
         raise FundingCoordinatorError("Blocking review case funding'i engelliyor.")
-    existing_units = funding_units_repo.list_for_transaction(conn, transaction_id)
-    if tx["state"] == "active" and existing_units and all(
-        unit["status"] == "pool_created" for unit in existing_units
+    package_units = [
+        unit
+        for unit in funding_units_repo.list_for_transaction(conn, transaction_id)
+        if unit["ratification_package_id"] == package.id
+    ]
+    if tx["state"] == "active" and package_units and all(
+        unit["status"] == "pool_created" for unit in package_units
     ):
         return FundingResult(transaction_id, package_id, "active", False)
     if tx["state"] in {"active", "settled", "cancelled", "rejected"}:
@@ -465,11 +618,26 @@ def ensure_pool_funded(
     units = _persist_package_schedule(conn, transaction_id=transaction_id, package=package)
     if not units:
         raise FundingCoordinatorError("Package funding schedule boş olamaz.")
-    gateway = make_payment_gateway(Settings.from_env(), conn)
+
+    funding_required_emitted = _emit_funding_required_once(
+        conn,
+        transaction_id=transaction_id,
+        package_id=package_id,
+        units=units,
+        actor_context=actor_context,
+    )
+
+    if gateway is None:
+        gateway = make_payment_gateway(Settings.from_env(), conn)
     statuses = [_create_unit_pool_payment(conn, unit=unit, gateway=gateway) for unit in units]
-    failed = any(status in {"pool_creation_failed", "pool_creation_unknown", "unknown"} for status in statuses)
+    failed = any(
+        status in {"pool_creation_failed", "pool_creation_unknown", "unknown"}
+        for status in statuses
+    )
     if failed:
-        if any(status == "pool_creation_failed" for status in statuses):
+        if any(status == "pool_creation_failed" for status in statuses) and not (
+            review_service.has_blocking_case(conn, transaction_id, phase="payment")
+        ):
             review_service.open_case(
                 conn,
                 transaction_id=transaction_id,
@@ -482,7 +650,23 @@ def ensure_pool_funded(
                 severity="blocking",
                 actor_context=actor_context,
             )
-        return FundingResult(transaction_id, package_id, "funding_pending", False)
+        try:
+            transition_account_state(
+                conn,
+                transaction_id=transaction_id,
+                expected_states={
+                    "funding_pending", "preparation", "awaiting_ratification",
+                    "awaiting_approval",
+                },
+                target_state="funding_pending",
+                actor_context=actor_context,
+                reason_code="FUNDING_POOL_CREATION_INCOMPLETE",
+            )
+        except AccountLifecycleError as exc:
+            raise FundingCoordinatorError(str(exc)) from exc
+        return FundingResult(
+            transaction_id, package_id, "funding_pending", funding_required_emitted
+        )
 
     try:
         transition_account_state(

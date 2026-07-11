@@ -26,6 +26,10 @@ def insert(
     funding_unit_id: str,
     provider_payment_id: str,
     idempotency_key: str,
+    amount_minor: int,
+    currency: str,
+    provider: str,
+    provider_reference: str | None = None,
     operation_type: str = "approve_pool_payment",
 ) -> sqlite3.Row:
     now = _now()
@@ -33,14 +37,19 @@ def insert(
     conn.execute(
         """INSERT INTO release_instructions (
             id, funding_unit_id, provider_payment_id, operation_type,
-            idempotency_key, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'created', ?, ?)""",
+            amount_minor, currency, idempotency_key, status, provider,
+            provider_reference, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?, ?)""",
         (
             instruction_id,
             funding_unit_id,
             provider_payment_id,
             operation_type,
+            amount_minor,
+            currency,
             idempotency_key,
+            provider,
+            provider_reference,
             now,
             now,
         ),

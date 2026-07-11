@@ -406,8 +406,11 @@ def test_real_app_plan05_evidence_and_dispute_guards(
             json={"external_reference": "premature", "delivered_quantity": 10},
             headers=_session_headers(seller_session, "entity-seller"),
         )
+        # Plan 06A cutover'ından sonra çift ratification işlemi gerçekten fonlar ve
+        # `active`'e taşır; dolayısıyla erken evidence artık state guard'ına değil,
+        # henüz enable edilmemiş takip policy guard'ına takılır (hâlâ 409).
         assert premature_evidence.status_code == 409
-        assert premature_evidence.json()["code"] == "EVIDENCE_SUBMISSION_STATE_INVALID"
+        assert premature_evidence.json()["code"] == "TRACKING_NOT_ENABLED"
 
     # Funding cutover Plan 06 kapsamıdır; Plan 05 adapter'ı yalnız active hesabı
     # tüketir ve account transaction'ı legacy `decided` durumuna yazamaz.
