@@ -33,7 +33,6 @@ from backend.app.services.payments.domain import MOKA_STANDARD_PROFILE
 from backend.app.services.payments.funding_coordinator import FundingCoordinatorError
 from backend.app.services.tracking_policy import create_draft_policy
 
-_ratifications_migration = import_module("backend.app.db.migrations.012_ratifications")
 
 _PAYLOAD = {
     "contract_id": "contract-4e",
@@ -76,7 +75,6 @@ def make_db(db_path=None):
     resolved = Path(db_path) if db_path is not None else Path(":memory:")
     conn = connect(Settings(db_path=resolved))
     init_db(conn)
-    _ratifications_migration.apply(conn)
     return conn
 
 

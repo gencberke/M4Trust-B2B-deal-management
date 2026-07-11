@@ -37,13 +37,14 @@ def test_empty_db_gets_full_migration_chain(tmp_path: Path) -> None:
     conn = connect(_settings(tmp_path / "empty.db"))
     init_db(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"]
     assert {
         "contract_documents",
         "extraction_runs",
         "rule_set_versions",
         "review_cases",
         "review_actions",
+        "ratifications",
     } <= _tables(conn)
     conn.close()
 
@@ -86,7 +87,7 @@ def test_plan03_db_upgrades_additively_with_008_and_009(tmp_path: Path) -> None:
     assert conn.execute("SELECT state FROM transactions WHERE id='kept'").fetchone()[0] == "uploaded"
     assert {"contract_documents", "extraction_runs", "rule_set_versions"} <= _tables(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"]
     conn.close()
 
 
@@ -96,7 +97,7 @@ def test_migration_is_idempotent_across_repeated_runs(tmp_path: Path) -> None:
     init_db(conn)
     init_db(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"]
     conn.close()
 
 
