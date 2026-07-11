@@ -1,6 +1,6 @@
 # 03 — Identity, Session, Legal Entity, Ownership ve Invitation Onboarding (Program 1)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.2, §2.13, §5.1-5.7, §6, Program 1, Wave 1
+> **Durum:** Uygulandı — 2026-07-11 · Sapmalar: (1) "Auth'suz create'in 401 dönmesi tek kırıcı değişikliktir" ifadesi literal/global uygulanmadı — `POST /api/transactions` additive dual-mode oldu: account-mode auth+CSRF zorunlu, anonim `legacy_v1` değişmeden devam eder. (2) `LEGACY_CAPABILITY_ACCESS_ENABLED` approvals cutover'ı Wave 3'e bırakıldı. (3) `create_counterparty_placeholder` upload anında `extracted_snapshot=None` alır; extraction-sonrası reconciliation Program 2 kapsamındadır. (4) Kabul review remediation'ı: invitation/participant mutation'larına CSRF eklendi; aynı role pending invitation supersede edilir, bound role reddedilir ve accept atomic compare-and-set'tir; audit metadata değerleri scalar enum/ID/status ile sınırlandı. Migration `005` değiştirilmedi, yeni migration gerekmedi. **Master ref:** v2 §2.2, §2.13, §5.1-5.7, §6, Program 1, Wave 1
 > **Bağımlılık:** 02 merge + Wave-0 freeze'leri. Integration branch: `program/domain-evolution-v2`
 > **Branch'ler:** Berke `feat/identity-session-entities` · Yusuf `feat/participants-invitations-audit` · entegrasyon: Berke `feat/transaction-ownership-cutover`
 > **Tahmin:** 4-6 gün (paralel)

@@ -1,8 +1,13 @@
-# Audit / Business Event Ayrım Kontratı (Plan 02)
+# Audit / Business Event Ayrım Kontratı (Plan 02 kontrat, Plan 03 / Faz 3B implementasyon)
 
 > Bu doküman `ARCHITECTURE.md`/`AGENTS.md`'nin yerine geçmez; global doc-sync
 > yapılmaz (o, integration checkpoint'te Berke'nin işidir). Yalnız
-> `services/audit.py`'nin donmuş kontratını açıklar.
+> `services/audit.py`'nin kontratını açıklar.
+>
+> **Durum (2026-07-11, Plan 03 / Faz 3B):** `audit_events` tablosu migration
+> `006`'da gerçek olarak var (registry kaydı Berke'nin entegrasyon commit'i);
+> `record()` artık `NotImplementedError` değil, gerçek `INSERT` yapar. Aşağıdaki
+> kurallar değişmedi — yalnız "henüz tablo yok" iskelet notu güncel değil.
 
 ## Neden ayrı bir kavram
 
@@ -29,6 +34,8 @@ gerçekleşmemiş bir aksiyonu iddia etmemelidir).
 açıkça listeler; listede olmayan bir anahtar `DisallowedMetadataError`
 fırlatır. Bu, "birisi ileride debug amaçlı tüm request body'sini metadata'ya
 koyar" sınıfı hataları derleme zamanında değil ama ilk çağrıda yakalar.
+Allowlist yalnız alan adını yetkilendirir; değer yine doğrulanır. Metadata
+serbest note metni taşımaz, yalnız scalar enum/ID/status biçimlidir.
 
 ## Kural 3 — Token/secret/PII yasak (savunma derinliği)
 
@@ -39,10 +46,14 @@ ikinci bir otomatik bariyerdir.
 
 ## Kural 4 — `events` tablosuna sessiz yazım yok
 
-Migration `006` (`audit_events`) gelene kadar `record()` bilinçli olarak
-`NotImplementedError` fırlatır — mevcut `events` tablosuna audit satırı
-sızdırmaz. Bir çağıran "audit lazım ama tablo yok" durumunda business event'e
-audit alanları eklemeye kalkışmamalıdır; bu kontrat onu engeller.
+`record()` her zaman `audit_events`'e yazar; legacy `events` tablosuna hiçbir
+koşulda audit satırı sızdırmaz. `target` parametresi `"tip:id"` biçiminde tek
+bir string'tir (örn. `"transaction:abc123"`) ve `target_type`/`target_id`
+kolonlarına güvenli şekilde ayrıştırılır (`InvalidAuditTargetError` ile
+fail-closed, colon yoksa veya tip/id boşsa reddedilir). `metadata_json`
+her zaman **stable sorted JSON**'dır (`json.dumps(..., sort_keys=True)`) —
+aynı metadata her zaman aynı byte dizisini üretir (diff/karşılaştırma
+kolaylığı, gizli alan sızıntısı riski azaltma).
 
 ## Sahiplik
 

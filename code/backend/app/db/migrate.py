@@ -22,6 +22,11 @@ class Migration:
 
 _MIGRATION_MODULES = (
     "backend.app.db.migrations.001_baseline_current_schema",
+    "backend.app.db.migrations.003_identity_sessions",
+    "backend.app.db.migrations.004_legal_entities_memberships",
+    "backend.app.db.migrations.005_participants_invitations",
+    "backend.app.db.migrations.006_audit_events",
+    "backend.app.db.migrations.007_transaction_lifecycle_v2",
 )
 
 _LEGACY_COLUMNS = {

@@ -33,21 +33,27 @@ code/
 ├── scripts/          # offline hazırlık + demo_moka_contract.py gerçek HTTP demo sürücüsü
 ├── backend/app/
 │   ├── main.py · config.py · eventbus.py
-│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · 001 baseline
-│   ├── repositories/ # transaction load/list/detail persistence seam'i
+│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-007
+│   ├── repositories/ # transactions.py · users.py · entities.py · participants.py · invitations.py
 │   ├── api/          # yeni uçlar için standart hata zarfı
 │   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
-│   ├── schemas/      # extraction.py (ikili sözleşme) · tracking.py (takip politikası) · events.py · api.py
-│   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence
+│   ├── schemas/      # extraction.py (ikili sözleşme) · tracking.py · identity.py · participants.py
+│   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence ·
+│   │                 # auth · entities · participants · invitations (Plan 03)
 │   └── services/
 │       ├── documents/         # DocumentExtractor: pdf_digital · docx · ocr · normalizer
 │       ├── rag.py             # Chroma retrieval (BGE-M3 lazy singleton, düşük seviye)
 │       ├── context_builder.py # ContextBuilder: çoklu-query/çoklu-koleksiyon RAG orkestrasyonu → ContextPack
 │       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
-│       ├── access_control.py  # ActorContext + donmuş auth/membership dependency imzaları
-│       ├── audit.py           # audit event kontratı (persistence migration 006 ile gelir)
-│       ├── transaction_state.py # legacy_v1 → canonical state saf projeksiyonu
+│       ├── auth.py            # Argon2id parola · session/CSRF token (yalnız hash) · Origin doğrulaması
+│       ├── identity.py        # legal entity + membership: AES-256-GCM tax ID + HMAC lookup
+│       ├── access_control.py  # ActorContext (anonymous · legacy_capability · user/session) + auth/membership guard'ları
+│       ├── participants.py    # ParticipantService (frozen, v2 §8.1): attach_creator/placeholder/accept_invitation
+│       ├── invitations.py     # davet yaşam döngüsü: create/preview/revoke (accept ParticipantService'te)
+│       ├── notifications.py   # NotificationProvider portu + FakeNotificationProvider
+│       ├── audit.py           # audit_events persistence (business mutation ile aynı connection/transaction)
+│       ├── transaction_state.py # legacy_v1 → canonical state saf projeksiyonu (v2 §2.8)
 │       ├── extraction_projection.py # public API'ler için redacted extraction görünümü (tax_id yok, source_quote maskeli)
 │       ├── validator.py       # deterministik kural kapısı
 │       ├── tracking_policy.py # TrackingPolicy persistence + deterministik fiziksel teslimat önerisi
@@ -64,7 +70,9 @@ code/
 
 > **Uygulama notu (2026-07-09):** `DocumentExtractor` şu an `services/documents/` altında değil — mevcut kod `code/scripts/document_parser/` içinde (Clean Architecture, testli); backend pipeline onu bir `sys.path` köprüsüyle import eder (bkz. `routers/transactions.py`). Yukarıdaki `services/documents/` hedef yapısı korunur; relokasyon ayrı bir iştir. Backend omurgası (`main`/`db`/`eventbus`/`routers`/`validator`/`decision`/`payment_provider`/`video`/`evidence`) kuruldu — [plans/done/backend_iskeleti_ve_islem_akisi.md](plans/done/backend_iskeleti_ve_islem_akisi.md).
 
-Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi).
+> **Uygulama notu (2026-07-11, Plan 03):** Identity/session/legal-entity/membership + participant/invitation/audit + transaction ownership cutover kuruldu — [plans/done/03_identity_legal_entity_party_onboarding.md](plans/done/03_identity_legal_entity_party_onboarding.md). İki paralel `lifecycle_version` sistemi bir arada yaşıyor: **`legacy_v1`** (anonim capability-link, tüm mevcut davranış değişmedi) ve **`account_v2`** (authenticated session + legal entity + participant/invitation, capability token üretmez). `POST /api/transactions` iki modu da aynı uçta additive olarak sunar (§4.1). `main.py`'ye `auth`/`entities`/`participants`/`invitations` router'ları bu entegrasyon checkpoint'inde eklendi.
+
+Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi). Authenticated account akışının frontend'i Plan 03 kapsamı dışıdır (Program 6/Faz 08).
 
 ## 2. Tech stack
 
@@ -144,22 +152,30 @@ PaymentProvider
 
 **Kart-verisi güvenlik katmanı (2026-07-09):** `mask()/restore()` üstüne `analyze(text) → PrivacyReport(masked_text, mapping, detected_types, blocking_findings, risk_flags)` eklendi. Sıra kritiktir: önce standart `mask()`, sonra kart verisi taranır (IBAN'ın gruplu hanelerinin PAN sanılmasını önlemek için). Tespit: **PAN** (13-19 hane + Luhn doğrulaması → maskelenir, placeholder `mapping`'e **girmez** = restore edilmez, `PAN_DETECTED` risk flag), **CVV/CVC · track data · PIN** (bağlam-duyarlı → **SAD**, `blocking_findings`), PAN+expiry → `CHD_CONTEXT`. `blocking_findings` doluysa ve provider `openai` ise CLI **canlı çağrıyı atlar** → tip-tutarlı `ExtractionResult(status="needs_review", data=None, reason=…)` (sahte JSON üretilmez); fake provider (dışarı veri gitmez) çalışabilir ama sonuç `needs_manual_review=true` ile işaretlenir. `risk_flags`, restore sonrası extraction JSON'ın `risk_flags` alanına birleşir (şema donuk kalır). Kaynak: `plans/done/rag_context_builder_ve_guvenlik_katmani.md`.
 
+### 3.6 Bildirim — `NotificationProvider` (Plan 03)
+
+```python
+NotificationProvider.send_invitation(to_email, transaction_id, invite_link) -> None
+```
+
+Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mevcuttur (ağa çıkmaz, link'i döndürür/loglar). Gönderim başarısız olsa bile (`NotificationDeliveryError`) invitation satırı ve audit kaydı commit'e gider — bildirim kanalı, business mutation'ı belirsiz bırakmaz (`CreatedInvitation.notification_delivered=False` ile işaretlenir).
+
 ## 4. API contract
 
 ### 4.1 REST endpoint'leri
 
 | Endpoint | İş |
 |---|---|
-| `POST /api/transactions` | Sözleşme upload → pipeline başlar → `{id, buyer_link, seller_link, manager_link}` |
-| `GET /api/transactions` | İşlem listesi — yalnız `DEMO_PUBLIC_DASHBOARD=true` iken açık, aksi hâlde 403 |
-| `GET /api/transactions/{id}` | Detay: extraction (redacted), validator raporu, event timeline, ödeme durumu |
-| `GET /api/transactions/{id}/party-view?token=…` | Taraf perspektifi (token → party çözümü) + `tracking_summary` |
-| `GET /api/transactions/{id}/manager-view?token=…` | Yönetici görünümü: sistem önerisi + reason code'lar, policy durumu, sözleşmesel kanıt şartları; **manager token** gerekir, taraf token'ı → 403 |
+| `POST /api/transactions` | **Dual-mode (Plan 03, additive):** `acting_entity_id`+`own_role` yoksa anonim `legacy_v1` akışı (değişmedi) → `{id, buyer_link, seller_link, manager_link}`; verilmişse authenticated `account_v2` akışı (session + CSRF zorunlu, capability token YOK) → `{id, lifecycle_version, own_role, acting_entity_id, invitation}` |
+| `GET /api/transactions` | Authenticated user yalnız aktif assignment'ı olduğu işlemleri görür; anonim istek yalnız `DEMO_PUBLIC_DASHBOARD=true` iken (legacy demo listesi) tüm işlemleri görür, aksi hâlde 403 |
+| `GET /api/transactions/{id}` | Detay: extraction (redacted), validator raporu, event timeline, ödeme durumu, `lifecycle_version`, `canonical_state` (§2.8 projeksiyonu, yalnız `legacy_v1`). `account_v2` satırlar authenticated + assignment'lı erişim ister (401/403); `legacy_v1` açık kalır |
+| `GET /api/transactions/{id}/party-view?token=…` | Taraf perspektifi (token → party çözümü) + `tracking_summary` — legacy_v1, `LEGACY_CAPABILITY_ACCESS_ENABLED` arkasında |
+| `GET /api/transactions/{id}/manager-view?token=…` | Yönetici görünümü: sistem önerisi + reason code'lar, policy durumu, sözleşmesel kanıt şartları; **manager token** gerekir, taraf token'ı → 403 — legacy_v1, `LEGACY_CAPABILITY_ACCESS_ENABLED` arkasında |
 | `PUT /api/transactions/{id}/tracking-policy` | Body `{manager_token, physical_delivery_confirmed, tracking_mode}` — taslak policy'yi günceller (idempotent) |
 | `POST /api/transactions/{id}/tracking-policy/lock` | Body `{manager_token}` — policy'yi onaylardan önce kilitler (idempotent) |
 | `POST /api/transactions/{id}/approvals` | Body `{token}` — token sahibi tarafın onayı; yanlış token → 403; **policy kilitli değilse → 409** |
-| `POST /api/transactions/{id}/events/e-irsaliye?token=…` | E-irsaliye simülasyonu (demo butonu); seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409 |
-| `POST /api/transactions/{id}/delivery-video?token=…` | Video upload → inline analiz; seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409 |
+| `POST /api/transactions/{id}/events/e-irsaliye?token=…` | E-irsaliye simülasyonu (demo butonu); seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409, `LEGACY_CAPABILITY_ACCESS_ENABLED=false` → 403 |
+| `POST /api/transactions/{id}/delivery-video?token=…` | Video upload → inline analiz; seller veya manager capability token zorunlu (aksi 403), kanal etkin değilse → 409, `LEGACY_CAPABILITY_ACCESS_ENABLED=false` → 403 |
 | `GET /api/transactions/{id}/evidence?token=…` | Kanıt paketi (JSON bundle, tracking policy snapshot'ı dahil); buyer/seller/manager token'larından biri zorunlu, aksi hâlde **403** |
 
 **Policy/delivery 409 gövdesi** her zaman `detail: {code, message, conflicts[]}` şeklindedir. Kodlar: `POLICY_NOT_CONFIGURABLE` (validator PASS değil veya state `awaiting_approval` değil) · `POLICY_LOCKED` · `POLICY_INVALID` · `POLICY_CONTRACT_CONFLICT` · `POLICY_NOT_LOCKED` (onay öncesi) · `TRACKING_NOT_ENABLED` · `TRANSACTION_DECIDED`.
@@ -169,6 +185,26 @@ PaymentProvider
 **Public cevaplarda redaksiyon:** detay, party/manager view ve evidence bundle `services/extraction_projection.py` üzerinden geçer — `tax_id`, capability token'ları ve ham markdown hiçbirinde bulunmaz.
 
 `source_quote` yalnızca **capability token'ı gerektiren** uçlarda döner (party-view · manager-view · evidence) ve orada da `privacy.analyze()` ile maskelenir: taraf, onaylayacağı kuralın sözleşmedeki dayanağını görebilmelidir (§6.2). Token istemeyen `GET /api/transactions/{id}` ve liste ucu alıntıyı **döndürmez** — maskeleme desen tabanlıdır (TCKN/VKN/IBAN/telefon/e-posta/kart), NER değildir; alıntıdaki kişi adı, adres veya ticari hassas ifade temizlenmez. `redacted_extraction_projection(..., include_source_quote=False)` varsayılanı bu yüzden kapalıdır. Ham alıntı yalnız DB'de kalır.
+
+### 4.1.1 Identity/entity/participant/invitation endpoint'leri (Plan 03)
+
+| Endpoint | İş |
+|---|---|
+| `POST /api/auth/register` | Kayıt (Argon2id parola hash) → `UserPublic` |
+| `POST /api/auth/login` | Giriş → session + CSRF cookie set edilir (`m4t_session` HttpOnly, `m4t_csrf` JS-okunabilir) |
+| `POST /api/auth/logout` | Mevcut session'ı revoke eder, cookie'leri temizler (CSRF zorunlu) |
+| `GET /api/auth/me` | Mevcut authenticated user (`UserPublic`) |
+| `POST /api/auth/sessions/revoke` | User'ın TÜM aktif session'larını revoke eder (CSRF zorunlu) |
+| `POST /api/entities` | Legal entity oluşturur, oluşturan otomatik `owner` membership alır |
+| `GET /api/entities` · `GET /api/entities/{id}` · `PATCH /api/entities/{id}` | Yalnız aktif membership sahibi görür/günceller (member salt-okunur); ciphertext/HMAC hiçbir response'a girmez |
+| `POST /api/transactions/{id}/invitations` | CSRF zorunlu; yalnız transaction manager/creator. Bağlanmış role yeni davet reddedilir; yeni davet aynı role ait eski pending daveti revoke/supersede eder. |
+| `GET /api/invitations/{token}/preview` | Auth'suz, PII'siz güvenli önizleme |
+| `POST /api/invitations/{token}/accept` | CSRF zorunlu; authenticated user, email eşleşmesi zorunlu, creator kendi davetini kabul edemez; participant yalnız unbound+invited ise atomik bağlanır. |
+| `POST /api/transactions/{id}/invitations/{invitation_id}/revoke` | CSRF zorunlu; yalnız manager/creator |
+| `GET /api/transactions/{id}/participants` | Transaction access sahibi (assignment) |
+| `PUT .../participants/me/profile` · `POST .../participants/me/confirm` | CSRF zorunlu; declared → confirmed snapshot; confirmed sonrası kilitlenir |
+
+**Session/CSRF:** cookie `HttpOnly` + `SameSite=Lax` (+ prod'da `Secure`, `SESSION_COOKIE_SECURE`); mutating uçlarda `X-CSRF-Token` header zorunlu (sabit-zamanlı karşılaştırma) + verilmişse `Origin` host eşleşmesi. Session/CSRF raw token'ları DB'de yalnız SHA-256 hash. `X-Acting-Entity-ID` header'ı yalnız gerçek aktif membership doğrulanırsa `ActorContext.acting_entity_id`'yi doldurur.
 
 ### 4.2 Extraction JSON şeması — **ikili sözleşme noktası**
 
@@ -216,11 +252,41 @@ Event payload'larında capability token (`manager_token`/`buyer_token`/`seller_t
 
 ## 5. Veri modeli ve state machine
 
-Tablolar: `transactions` (state, buyer_token, seller_token, **manager_token**, markdown) · `extracted_rules` (extraction_json, validator_status, validator_report) · **`tracking_policies`** · `approvals` · `events` · `mock_payments` · `evidence`
+Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager_token**, markdown, + Plan 03: `created_by_user_id`, `owner_entity_id`, `lifecycle_version`, `content_sha256`) · `extracted_rules` (extraction_json, validator_status, validator_report) · **`tracking_policies`** · `approvals` · `events` · `mock_payments` · `evidence`
 
 `tracking_policies` (transaction başına en fazla bir satır, `transaction_id` PK): `recommendation` (`yes|no|uncertain`, sistem önerisi) · `recommendation_reason_codes` (JSON, güvenli kod listesi — sözleşme metni taşımaz) · `manager_physical_delivery_confirmed` (`null` iken kilitlenemez) · `tracking_mode` (`off|document_only|document_and_video`) · `video_role` (sabit `advisory`) · `status` (`draft|locked`) · `configured_at` · `locked_at`.
 
-**Migration:** `init_db()` versiyonlu migration runner'a delegedir. `001_baseline_current_schema`, yukarıdaki sekiz runtime tablosunun ve nullable `manager_token` kolonunun tam baseline'ıdır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
+### 5.1 Identity/entity/participant tabloları (Plan 03)
+
+- `users` (`UNIQUE(email_normalized)`) · `sessions` (`UNIQUE(token_hash)`, `FK user_id ON DELETE CASCADE`, `last_seen_at` throttled) — parola/session (§4.1.1).
+- `legal_entities` (`tax_identifier_ciphertext` AES-256-GCM, `tax_identifier_lookup_hmac` deterministik HMAC-SHA256, `tax_identifier_last4`) · `memberships` (`UNIQUE(user_id, legal_entity_id)`, `role: owner|admin|member`).
+- `transaction_participants` (`role: buyer|seller`, extracted/declared/confirmed snapshot) · `transaction_assignments` (`role: manager|approver|viewer`, list/detail scoping bunun üzerinden yapılır) · `transaction_invitations` (token yalnız hash'lenmiş saklanır, expiry, tek kullanım; aynı role tek canlı pending davet; accept participant'ı compare-and-set ile bağlar).
+- `audit_events` — actor/entity/request_id + allowlist'li metadata; business mutation ile **aynı connection/transaction'da** yazılır (`services/audit.py::record`), kendi commit/rollback yapmaz.
+
+### 5.2 `lifecycle_version` — iki paralel akış (v2 §2.8, additive)
+
+`transactions.lifecycle_version` (`legacy_v1` | `account_v2`, `NOT NULL DEFAULT 'legacy_v1'`):
+
+- **`legacy_v1`**: anonim capability-link akışı, **hiç değişmedi**. `GET .../{id}` açık kalır; party/manager-view/delivery `LEGACY_CAPABILITY_ACCESS_ENABLED` (varsayılan `true`, Wave 3'e kadar) arkasında token ile çalışır. Detay cevabında `canonical_state` (aşağıda) doldurulur.
+- **`account_v2`**: `POST /api/transactions`'a `acting_entity_id`+`own_role` verildiğinde authenticated akış — capability token **üretilmez**; erişim `transaction_assignments` üzerinden scoped'dur (list/detail 401/403). Kendi state machine'i henüz tanımlı değil (Plan 03+ kapsamı dışı); `canonical_state` bu satırlarda `None`.
+
+`ParticipantService` (frozen, v2 §8.1, `services/participants.py`): `attach_creator` (işlemi başlatan actor'ı `own_role` participant'ı yapar + manager assignment açar) · `create_counterparty_placeholder` (karşı taraf için `invited` durumunda placeholder, idempotent) · `accept_invitation` (email eşleşmesi zorunlu, creator kendi davetini kabul edemez, aynı legal entity iki taraf olamaz).
+
+### 5.3 Legacy state canonical projeksiyonu (v2 §2.8)
+
+`services/transaction_state.py` (saf, DB-bağımsız), yalnız `legacy_v1` satırları canonical görünüme çevirir:
+
+| Legacy state | Canonical görünüm |
+|---|---|
+| uploaded / extracting | processing |
+| awaiting_review | preparation / blocked_review (Program 1'de her zaman blocking) |
+| awaiting_approval | preparation / ready_for_ratification (policy `locked` mı?) |
+| rejected | rejected |
+| active | active |
+| evidence_pending | active / blocked_evidence (son `payment_decision_created.manual_review_required`) |
+| decided | settled / partially_settled (`mock_payments.status`) |
+
+**Migration:** `init_db()` versiyonlu migration runner'a delegedir. Sıra: `001_baseline_current_schema` (sekiz legacy runtime tablosu) → `003_identity_sessions` → `004_legal_entities_memberships` → `005_participants_invitations` → `006_audit_events` → `007_transaction_lifecycle_v2` (`transactions`'a additive kolonlar, mevcut satırlar `legacy_v1` backfill). `002` kasıtlı olarak rezerve/kullanılmamıştır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir, sonraki migration'lar normal döngüyle eklenir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
 
 ```
 uploaded → extracting → awaiting_review | awaiting_approval | rejected
@@ -247,9 +313,12 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 3. **Her dış bağımlılık adapter + fake çifti olarak yazılır** ve env ile seçilir (LLM, ödeme, video). Fake'ler demo fallback'idir.
 4. **Event bus = events tablosu.** Ayrı mesajlaşma altyapısı kurulmaz; kanıt zinciri bu tablodan üretilir.
 5. **Decision engine saf fonksiyondur** — I/O yapmaz, girdi/çıktısı test edilebilir. DB/event/ödeme orkestrasyonu `services/settlement.py`'de yaşar; release guard **tek yerdedir** ve router'lar birbirinin private fonksiyonlarını import etmez.
-6. **Taraf kimliği = token.** Auth/users tablosu yok; capability URL modeli. Yönetici de bir capability token'ıdır (`secrets.token_urlsafe(32)`); token'lar log/event/evidence'a girmez, yanlış rol token'ı endpoint bazında 403 alır.
+6. **Taraf kimliği = token (yalnız `legacy_v1` — Plan 03 ile legacy geçiş aracına indirgendi).** Capability URL modeli anonim/legacy akışta yaşamaya devam eder; yönetici de bir capability token'ıdır (`secrets.token_urlsafe(32)`), token'lar log/event/evidence'a girmez, yanlış rol token'ı endpoint bazında 403 alır. `account_v2` akışında kimlik artık session-cookie + `users`/`memberships`/`transaction_assignments`'tır — capability token üretilmez (§5.1-5.2, v2 §2.2). İki model additive olarak bir arada yaşar; legacy'nin kaldırılması Wave 3 hard cutover'a kadar yapılmaz.
 7. **Local-first.** Runtime'daki tek dış çağrı LLM API'sidir; o da yalnızca maskelenmiş içerik alır.
 8. **Gerçek para hareketi ve gerçek kart verisi yoktur** (demo). Prod anlatısı: lisanslı altyapının (Moka havuz/cüzdan) üstünde karar-kanıt katmanı.
 9. **Video tek başına para hareketi üretemez.** Opsiyonel (platform) videosu advisory'dir: teslim miktarını, kısmi ödeme oranını, release'i veya dispute'u belirleyemez; en fazla `hold` + manuel inceleme tetikler (§3.4).
 10. **Sözleşmesel kanıt platform tercihini yener.** Extraction'daki `required_evidence` yönetici policy'siyle devre dışı bırakılamaz **veya zayıflatılamaz**; sözleşmesel video `tracking_mode=document_and_video` zorunlu kılar. Çelişkide policy kilidi 409 ile reddedilir. LLM/RAG takip politikasını **seçmez** — politika `ExtractionJSON` içine yazılmaz.
 11. **Takip politikası taraf onaylarından önce kilitlenir** ve iki tarafa da gösterilir. Kilitlenmemiş policy'de onay 409'dur; kilit sonrası policy değişmez (amendment akışı kapsam dışı — yeni transaction açılır).
+12. **Audit event, business mutation ile aynı connection/transaction'da yazılır** (`services/audit.py::record`); kendi commit/rollback/close yapmaz — business mutation rollback olursa audit satırı da rollback olur. Metadata serbest metin değildir; yalnız scalar enum/ID/status değerleri kabul edilir, token/secret/ham PII güvenli anahtar altında da reddedilir.
+13. **`ParticipantService` (v2 §8.1) donmuş bir arayüzdür** — `attach_creator`/`create_counterparty_placeholder`/`accept_invitation` idempotenttir; aynı legal entity aynı işlemde iki taraf olamaz, creator kendi davetini kabul edemez. Accept yalnız `legal_entity_id IS NULL ∧ status=invited ∧ confirmed_at IS NULL` participant'ı atomik bağlar; mevcut ownership/confirmed snapshot ezilemez.
+14. **Session-authenticated mutation CSRF korumalıdır.** Account transaction create, entity, invitation ve participant mutation'ları `X-CSRF-Token` doğrular; verilmiş `Origin` request host ile eşleşmelidir. Anonim `legacy_v1` upload etkilenmez.

@@ -15,6 +15,7 @@ decisions #1).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import sys
@@ -24,7 +25,7 @@ from pathlib import Path
 from sqlite3 import Connection, Row
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Import köprüsü: `document_parser` `code/scripts/` altında yaşar (bkz.
@@ -43,21 +44,33 @@ from document_parser import (  # noqa: E402
     UnsupportedFileTypeError,
 )
 
+from backend.app.api.errors import ApiError  # noqa: E402
 from backend.app.config import Settings  # noqa: E402
 from backend.app.db import get_db, open_background_connection  # noqa: E402
 from backend.app.eventbus import emit  # noqa: E402
+from backend.app.repositories.entities import get_active_membership  # noqa: E402
 from backend.app.repositories.transactions import (  # noqa: E402
     list_transaction_events,
     list_transaction_payments,
     list_transaction_rows,
     load_transaction,
 )
+from backend.app.routers.invitations import get_notification_provider  # noqa: E402
 from backend.app.schemas.extraction import ExtractionJSON  # noqa: E402
 from backend.app.schemas.tracking import (  # noqa: E402
     PolicyConflict,
     PolicyConflictCode,
     TrackingMode,
     TrackingPolicyStatus,
+)
+from backend.app.services import invitations as invitations_service  # noqa: E402
+from backend.app.services import participants as participants_service  # noqa: E402
+from backend.app.services import transaction_state  # noqa: E402
+from backend.app.services.auth import verify_csrf  # noqa: E402
+from backend.app.services.access_control import (  # noqa: E402
+    ActorContext,
+    get_current_actor,
+    require_authenticated_user,
 )
 from backend.app.services.context_builder import ContextBuilder  # noqa: E402
 from backend.app.services.extraction_projection import redacted_extraction_projection  # noqa: E402
@@ -77,6 +90,8 @@ from backend.app.services.tracking_policy import (  # noqa: E402
 from backend.app.services.validator import validate  # noqa: E402
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
+
+_ROLE_COUNTERPART = {"buyer": "seller", "seller": "buyer"}
 
 # dönüştürülecek (document_parser) türler + test/demo kolaylığı için passthrough.
 _CONVERTIBLE_SUFFIXES = {".pdf", ".docx", ".png", ".jpg", ".jpeg"}
@@ -192,16 +207,8 @@ class TrackingPolicyLockRequest(BaseModel):
 # --- POST / GET endpoint'leri -----------------------------------------------
 
 
-@router.post("")
-async def create_transaction(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    conn: Connection = Depends(get_db),
-) -> dict:
-    """Sözleşme dosyasını kaydeder, işlem satırını açar, pipeline'ı arka plana atar."""
-    settings = Settings.from_env()
-
-    suffix = Path(file.filename or "").suffix.lower()
+def _validate_suffix(filename: str | None) -> tuple[str, bool]:
+    suffix = Path(filename or "").suffix.lower()
     if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(
             status_code=400,
@@ -210,15 +217,26 @@ async def create_transaction(
                 f"İzin verilenler: {sorted(_ALLOWED_SUFFIXES)}"
             ),
         )
-    is_passthrough = suffix in _PASSTHROUGH_SUFFIXES
+    return suffix, suffix in _PASSTHROUGH_SUFFIXES
 
+
+async def _write_temp_file(file: UploadFile, suffix: str) -> tuple[bytes, Path]:
     contents = await file.read()
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
         tmp.write(contents)
     finally:
         tmp.close()
-    temp_path = Path(tmp.name)
+    return contents, Path(tmp.name)
+
+
+async def _create_legacy_transaction(
+    background_tasks: BackgroundTasks, file: UploadFile, conn: Connection
+) -> dict:
+    """Anonim capability-link akışı — değişmedi (lifecycle_version='legacy_v1')."""
+    settings = Settings.from_env()
+    suffix, is_passthrough = _validate_suffix(file.filename)
+    _contents, temp_path = await _write_temp_file(file, suffix)
 
     transaction_id = uuid4().hex
     buyer_token = secrets.token_urlsafe(32)
@@ -226,11 +244,12 @@ async def create_transaction(
     manager_token = secrets.token_urlsafe(32)
 
     conn.execute(
-            "INSERT INTO transactions "
-            "(id, state, buyer_token, seller_token, manager_token, markdown, masked_markdown, created_at) "
-            "VALUES (?, 'uploaded', ?, ?, ?, NULL, NULL, ?)",
-            (transaction_id, buyer_token, seller_token, manager_token, _utc_now_iso()),
-        )
+        "INSERT INTO transactions "
+        "(id, state, buyer_token, seller_token, manager_token, markdown, masked_markdown, "
+        "created_at, lifecycle_version) "
+        "VALUES (?, 'uploaded', ?, ?, ?, NULL, NULL, ?, 'legacy_v1')",
+        (transaction_id, buyer_token, seller_token, manager_token, _utc_now_iso()),
+    )
     create_draft_policy(conn, transaction_id)
     # Background task kendi connection'ını açar; satırı başlamadan görünür kıl.
     conn.commit()
@@ -245,13 +264,148 @@ async def create_transaction(
     }
 
 
-@router.get("")
-def list_transactions(conn: Connection = Depends(get_db)) -> list[dict]:
-    """Kısa liste — ham içerik yok, taraf adları (varsa) persist edilmiş extraction'dan."""
+async def _create_account_transaction(
+    background_tasks: BackgroundTasks,
+    file: UploadFile,
+    acting_entity_id: str | None,
+    own_role: str | None,
+    counterparty_email: str | None,
+    actor: ActorContext,
+    conn: Connection,
+) -> dict:
+    """Authenticated hesap akışı (Faz 3C) — capability token ÜRETMEZ.
+
+    `attach_creator` + karşı taraf placeholder'ı her zaman kurulur; davet
+    yalnız `counterparty_email` verildiyse gönderilir (§14, `03_identity_...md`).
+    """
+    require_authenticated_user(actor)  # frozen kontrat: user_id yoksa 401
+
+    if acting_entity_id is None or own_role is None:
+        raise ApiError(
+            status_code=422,
+            code="ACCOUNT_CREATE_FIELDS_REQUIRED",
+            message="acting_entity_id ve own_role birlikte verilmelidir.",
+        )
+    if own_role not in _ROLE_COUNTERPART:
+        raise ApiError(
+            status_code=422,
+            code="INVALID_OWN_ROLE",
+            message="own_role yalnızca 'buyer' veya 'seller' olabilir.",
+        )
+    if get_active_membership(conn, user_id=actor.user_id, legal_entity_id=acting_entity_id) is None:
+        raise ApiError(
+            status_code=403,
+            code="ACTING_ENTITY_NOT_AUTHORIZED",
+            message="Bu legal entity adına işlem oluşturma yetkiniz yok.",
+        )
+
     settings = Settings.from_env()
-    if not settings.demo_public_dashboard:
+    suffix, is_passthrough = _validate_suffix(file.filename)
+    contents, temp_path = await _write_temp_file(file, suffix)
+    content_sha256 = hashlib.sha256(contents).hexdigest()
+
+    transaction_id = uuid4().hex
+    conn.execute(
+        "INSERT INTO transactions "
+        "(id, state, buyer_token, seller_token, manager_token, markdown, masked_markdown, "
+        "created_at, created_by_user_id, owner_entity_id, lifecycle_version, content_sha256) "
+        "VALUES (?, 'uploaded', NULL, NULL, NULL, NULL, NULL, ?, ?, ?, 'account_v2', ?)",
+        (transaction_id, _utc_now_iso(), actor.user_id, acting_entity_id, content_sha256),
+    )
+    create_draft_policy(conn, transaction_id)
+
+    participants_service.attach_creator(conn, transaction_id, actor, own_role, acting_entity_id)
+    counterparty_role = _ROLE_COUNTERPART[own_role]
+    participants_service.create_counterparty_placeholder(
+        conn, transaction_id, counterparty_role, None
+    )
+
+    invitation_view: dict | None = None
+    if counterparty_email:
+        created_invitation = invitations_service.create_invitation(
+            conn,
+            transaction_id,
+            counterparty_role,
+            counterparty_email.strip().lower(),
+            actor,
+            get_notification_provider(),
+            invite_link_builder=lambda raw_token: f"/api/invitations/{raw_token}/accept",
+        )
+        invitation_view = {
+            "invitation_id": created_invitation.invitation_id,
+            "participant_role": counterparty_role,
+            "expires_at": created_invitation.expires_at,
+            "invite_link": f"/api/invitations/{created_invitation.raw_token}/accept",
+            "notification_delivered": created_invitation.notification_delivered,
+        }
+
+    conn.commit()
+
+    background_tasks.add_task(run_pipeline, transaction_id, temp_path, is_passthrough, settings)
+
+    return {
+        "id": transaction_id,
+        "lifecycle_version": "account_v2",
+        "own_role": own_role,
+        "acting_entity_id": acting_entity_id,
+        "invitation": invitation_view,
+    }
+
+
+@router.post("")
+async def create_transaction(
+    background_tasks: BackgroundTasks,
+    request: Request,
+    file: UploadFile = File(...),
+    acting_entity_id: str | None = Form(None),
+    own_role: str | None = Form(None),
+    counterparty_email: str | None = Form(None),
+    actor: ActorContext = Depends(get_current_actor),
+    conn: Connection = Depends(get_db),
+) -> dict:
+    """Sözleşme dosyasını kaydeder, işlem satırını açar, pipeline'ı arka plana atar.
+
+    İki mod aynı uçta yaşar (additive-first, v2 §2.2): `acting_entity_id`/
+    `own_role` verilmişse authenticated **account_v2** akışı (capability token
+    yok); verilmemişse mevcut anonim **legacy_v1** akışı DEĞİŞMEDEN çalışır.
+    Legacy anonim create'in reddedilmesi (Wave 3 hard cutover,
+    `LEGACY_CAPABILITY_ACCESS_ENABLED=false`) bu fazın kapsamında DEĞİLDİR.
+    """
+    if acting_entity_id is not None or own_role is not None:
+        # Aynı endpoint'teki anonim legacy_v1 upload korunur; yalnız session
+        # kullanan account_v2 mutation CSRF + Origin doğrulamasından geçer.
+        verify_csrf(conn, request=request)
+        return await _create_account_transaction(
+            background_tasks, file, acting_entity_id, own_role, counterparty_email, actor, conn
+        )
+    return await _create_legacy_transaction(background_tasks, file, conn)
+
+
+@router.get("")
+def list_transactions(
+    actor: ActorContext = Depends(get_current_actor), conn: Connection = Depends(get_db)
+) -> list[dict]:
+    """Kısa liste — ham içerik yok, taraf adları (varsa) persist edilmiş extraction'dan.
+
+    Authenticated user yalnız aktif assignment'ı olduğu (creator/invitee)
+    işlemleri görür. Anonim/legacy_capability istekler yalnız
+    `DEMO_PUBLIC_DASHBOARD=true` iken (legacy demo listesi) tüm işlemleri görür.
+    """
+    settings = Settings.from_env()
+    if actor.user_id is not None:
+        assigned_ids = {
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT transaction_id FROM transaction_assignments "
+                "WHERE user_id = ? AND status = 'active'",
+                (actor.user_id,),
+            )
+        }
+        rows = [row for row in list_transaction_rows(conn) if row["id"] in assigned_ids]
+    elif settings.demo_public_dashboard:
+        rows = list_transaction_rows(conn)
+    else:
         raise HTTPException(status_code=403, detail="Liste erişimi kapalı.")
-    rows = list_transaction_rows(conn)
     result: list[dict] = []
     for row in rows:
         extraction = _load_extraction(conn, row["id"])
@@ -273,12 +427,93 @@ def list_transactions(conn: Connection = Depends(get_db)) -> list[dict]:
     return result
 
 
+def _latest_event_payload(conn: Connection, transaction_id: str, event_type: str) -> dict | None:
+    row = conn.execute(
+        "SELECT payload FROM events WHERE transaction_id = ? AND event_type = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (transaction_id, event_type),
+    ).fetchone()
+    if row is None or row["payload"] is None:
+        return None
+    try:
+        return json.loads(row["payload"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_canonical_state(conn: Connection, row: Row) -> str | None:
+    """v2 §2.8 canonical projeksiyonu — yalnız `legacy_v1` satırlar için.
+
+    `account_v2` transaction'lar kendi state machine'ini kullanır (Plan 03+
+    kapsamı dışı, henüz tanımlı değil); bu durumda `None` döner.
+    """
+    if row["lifecycle_version"] != "legacy_v1":
+        return None
+
+    try:
+        legacy_status = transaction_state.LegacyStatus(row["state"])
+    except ValueError:
+        return None  # ara/bilinmeyen state (örn. 'extracting' sırasında yarış) -> canonical yok
+
+    transaction_id = row["id"]
+    kwargs: dict = {}
+
+    if legacy_status is transaction_state.LegacyStatus.AWAITING_REVIEW:
+        # Program 1 sınırı (§2.16): NEEDS_REVIEW bu fazda hâlâ recoverable değil.
+        kwargs["review_blocking"] = True
+    elif legacy_status is transaction_state.LegacyStatus.AWAITING_APPROVAL:
+        policy = load_tracking_policy(conn, transaction_id)
+        kwargs["ratification_ready"] = (
+            policy is not None and policy.status is TrackingPolicyStatus.locked
+        )
+    elif legacy_status is transaction_state.LegacyStatus.EVIDENCE_PENDING:
+        decision_payload = _latest_event_payload(conn, transaction_id, "payment_decision_created")
+        kwargs["evidence_blocking"] = bool(
+            decision_payload and decision_payload.get("manual_review_required")
+        )
+    elif legacy_status is transaction_state.LegacyStatus.DECIDED:
+        payment_row = conn.execute(
+            "SELECT status FROM mock_payments WHERE transaction_id = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (transaction_id,),
+        ).fetchone()
+        payment_status = payment_row["status"] if payment_row is not None else None
+        kwargs["release_completeness"] = (
+            transaction_state.ReleaseCompleteness.FULLY_RELEASED
+            if payment_status == "released"
+            else transaction_state.ReleaseCompleteness.PARTIALLY_RELEASED
+        )
+        # Milestone/multi-release (Program 4+) bu fazda yok — tekil karar finaldir.
+        kwargs["more_releases_expected"] = False
+
+    try:
+        return transaction_state.project_legacy_state(
+            transaction_state.LegacyProjectionInput(legacy_status=legacy_status, **kwargs)
+        ).value
+    except transaction_state.LegacyProjectionError:
+        return None
+
+
 @router.get("/{transaction_id}")
-def get_transaction(transaction_id: str, conn: Connection = Depends(get_db)) -> dict:
-    """Detay — extraction, validator raporu, event zaman çizelgesi, ödeme durumu."""
+def get_transaction(
+    transaction_id: str,
+    actor: ActorContext = Depends(get_current_actor),
+    conn: Connection = Depends(get_db),
+) -> dict:
+    """Detay — extraction, validator raporu, event zaman çizelgesi, ödeme durumu.
+
+    `account_v2` satırlar authenticated + assignment'lı erişim gerektirir;
+    `legacy_v1` satırlarda erişim davranışı DEĞİŞMEDEN açık kalır.
+    """
     row = load_transaction(conn, transaction_id)
     if row is None:
         raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+
+    if row["lifecycle_version"] == "account_v2":
+        if actor.user_id is None:
+            raise HTTPException(status_code=401, detail="Kimlik doğrulama gerekli.")
+        if not participants_service.has_transaction_access(conn, transaction_id, actor.user_id):
+            raise HTTPException(status_code=403, detail="Bu işlemde erişiminiz yok.")
 
     events = [
         {
@@ -306,6 +541,8 @@ def get_transaction(transaction_id: str, conn: Connection = Depends(get_db)) -> 
         "id": row["id"],
         "state": row["state"],
         "created_at": row["created_at"],
+        "lifecycle_version": row["lifecycle_version"],
+        "canonical_state": _compute_canonical_state(conn, row),
         # Token istemeyen genel detay: `source_quote` DÖNMEZ.
         "extraction": redacted_extraction_projection(_load_extraction(conn, transaction_id)),
         "validator": _load_validator(conn, transaction_id),
@@ -314,9 +551,19 @@ def get_transaction(transaction_id: str, conn: Connection = Depends(get_db)) -> 
     }
 
 
+def _require_legacy_capability_enabled(settings: Settings) -> None:
+    """`LEGACY_CAPABILITY_ACCESS_ENABLED=false` (Wave 3 hazırlığı) -> 403.
+
+    Bu fazda varsayılan `true`; davranış değişmez (v2 §2.2).
+    """
+    if not settings.legacy_capability_access_enabled:
+        raise HTTPException(status_code=403, detail="Legacy capability erişimi kapalı.")
+
+
 @router.get("/{transaction_id}/party-view")
 def get_party_view(transaction_id: str, token: str, conn: Connection = Depends(get_db)) -> dict:
     """Token -> taraf çözümlü özet görünüm; yanlış/eksik token -> 403."""
+    _require_legacy_capability_enabled(Settings.from_env())
     try:
         row = load_transaction(conn, transaction_id)
         if row is None:
@@ -378,6 +625,7 @@ def get_party_view(transaction_id: str, token: str, conn: Connection = Depends(g
 @router.get("/{transaction_id}/manager-view")
 def get_manager_view(transaction_id: str, token: str, conn: Connection = Depends(get_db)) -> dict:
     """Manager capability ile policy hazırlık görünümü; token sızdırmaz."""
+    _require_legacy_capability_enabled(Settings.from_env())
     try:
         row = load_transaction(conn, transaction_id)
         if row is None:

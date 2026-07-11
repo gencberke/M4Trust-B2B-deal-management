@@ -60,6 +60,11 @@ class Settings:
     video_provider: str = "fake"                      # "fake" (demo-güvenli) | "roboflow" (canlı)
     roboflow_api_key: str = ""
     demo_public_dashboard: bool = False                # demo günü açık liste görünümü
+    app_encryption_key: str = ""                       # base64, 32 byte (AES-256-GCM) — legal_entities tax ID
+    app_hmac_key: str = ""                             # base64 — tax identifier lookup HMAC-SHA256
+    session_cookie_secure: bool = False                # prod'da true; local http demo'da false
+    session_ttl_seconds: float = 604800.0              # 7 gün — oturum süresi
+    legacy_capability_access_enabled: bool = True       # Wave 3'e kadar true; legacy token erişimi
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -95,6 +100,13 @@ class Settings:
             video_provider=_env("VIDEO_PROVIDER", "fake"),
             roboflow_api_key=os.environ.get("ROBOFLOW_API_KEY", ""),
             demo_public_dashboard=_env_bool("DEMO_PUBLIC_DASHBOARD", False),
+            app_encryption_key=os.environ.get("APP_ENCRYPTION_KEY", ""),
+            app_hmac_key=os.environ.get("APP_HMAC_KEY", ""),
+            session_cookie_secure=_env_bool("SESSION_COOKIE_SECURE", False),
+            session_ttl_seconds=float(_env("SESSION_TTL_SECONDS", "604800")),
+            legacy_capability_access_enabled=_env_bool(
+                "LEGACY_CAPABILITY_ACCESS_ENABLED", True
+            ),
         )
 
     def __repr__(self) -> str:
@@ -103,6 +115,8 @@ class Settings:
         roboflow_masked = "***" if self.roboflow_api_key else ""
         moka_password_masked = "***" if self.moka_password else ""
         moka_card_token_masked = "***" if self.moka_card_token else ""
+        encryption_key_masked = "***" if self.app_encryption_key else ""
+        hmac_key_masked = "***" if self.app_hmac_key else ""
         return (
             f"Settings(llm_provider={self.llm_provider!r}, llm_base_url={self.llm_base_url!r}, "
             f"llm_model={self.llm_model!r}, llm_api_key={llm_masked!r}, "
@@ -123,5 +137,11 @@ class Settings:
             f"db_path={str(self.db_path)!r}, "
             f"validator_confidence_threshold={self.validator_confidence_threshold!r}, "
             f"video_advisory_confidence_threshold="
-            f"{self.video_advisory_confidence_threshold!r})"
+            f"{self.video_advisory_confidence_threshold!r}, "
+            f"app_encryption_key={encryption_key_masked!r}, "
+            f"app_hmac_key={hmac_key_masked!r}, "
+            f"session_cookie_secure={self.session_cookie_secure!r}, "
+            f"session_ttl_seconds={self.session_ttl_seconds!r}, "
+            f"legacy_capability_access_enabled="
+            f"{self.legacy_capability_access_enabled!r})"
         )
