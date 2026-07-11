@@ -58,6 +58,25 @@ def _can_comment(conn: Connection, transaction_id: str, actor: ActorContext) -> 
     )
 
 
+def _can_escalate_dispute(conn: Connection, transaction_id: str, actor: ActorContext) -> bool:
+    """Review case'i ticari dispute'a yalnız participant approver yükseltebilir."""
+    if actor.user_id is None or actor.acting_entity_id is None:
+        return False
+    assignments = conn.execute(
+        "SELECT participant_id FROM transaction_assignments "
+        "WHERE transaction_id = ? AND user_id = ? AND legal_entity_id = ? "
+        "AND role = 'approver' AND status = 'active'",
+        (transaction_id, actor.user_id, actor.acting_entity_id),
+    ).fetchall()
+    for assignment in assignments:
+        if assignment["participant_id"] is None:
+            continue
+        participant = participants_repo.get_participant_by_id(conn, assignment["participant_id"])
+        if participant is not None and participant["role"] in {"buyer", "seller"}:
+            return True
+    return False
+
+
 @router.get("/api/transactions/{transaction_id}/reviews")
 def list_reviews(
     transaction_id: str,
@@ -94,6 +113,10 @@ def submit_review_action(
 
     if body.action.value == "comment":
         authorized = _can_comment(conn, transaction_id, actor)
+    elif body.action.value == "escalate_dispute":
+        # Platform reviewer yalnız review state'ini yönetir; ticari dispute'u
+        # taraf adına açan aktör gerçek participant approver olmalıdır.
+        authorized = _can_escalate_dispute(conn, transaction_id, actor)
     else:
         authorized = _is_platform_reviewer_or_admin(actor)
 

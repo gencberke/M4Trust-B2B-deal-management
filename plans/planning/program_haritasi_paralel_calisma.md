@@ -9,6 +9,7 @@
 > **Wave B kapanışı (2026-07-11):** 4C PR #35, 4D PR #36, 4E PR #37 ve 4F-1/4F-2 PR #38/#39 `program/domain-evolution-v2`'ye merge edildi. `integration/plan-04-close` üzerinde migration `012` registry/alias, ratifications app wiring, gerçek app ratification/funding gate’i ve Plan 04 doc-sync tamamlandı. Plan 04 kapanmıştır.
 
 > **Plan 05 kapanışı (2026-07-11):** `integration/plan-05-close` üzerinde migration `013-014` registry, evidence/dispute app wiring, first-class account evidence settlement adapter'ı, video→review hook'u, review/dispute release guard'ı ve 5C read-only bundle/explicit snapshot semantiği tamamlandı. 015-017 erken 6A persistence kodu Plan 06 app cutover'ını bekler; sıradaki child plan 06'dır.
+> **Plan 05 post-merge remediation (2026-07-12):** Account evidence yalnız `active` işlemde kabul edilir; Plan 05 settlement adapter'ı account state'ini `active` tutar. Video upload hash-first/deterministic storage ve analyzer hata temizliği kullanır. Dispute action yetkileri opener/karşı taraf/platform reviewer matrisine göre kapatıldı; review `escalate_dispute` yeni dispute'u yalnız yetkili insan aksiyonuyla açar. Corrective migration `023_plan05_remediation_constraints` provenance immutability ve yeni review action sözleşmesini ekler. 015-017 registry dışı kalır.
 
 ## 1. Uygulama sırası ve bağımlılık zinciri
 
@@ -91,6 +92,7 @@ v2 §10.4 rezervasyonu, Moka planının supersede'leriyle şu şekilde güncelle
 020_document_storage_references       Berke  (09)
 021_auth_verification_reset_tokens    Yusuf  (09)
 022_extraction_provenance_extensions  Yusuf  (09)
+023_plan05_remediation_constraints    Berke (05 post-merge corrective migration; 013/010 dosyaları değiştirilmez)
 ```
 
 `payment_attempts` tablosu **yoktur**: Moka planındaki `provider_operations` (attempt_no'lu) aynı işi görür; v2 §5.20 bu kararla supersede edilir.

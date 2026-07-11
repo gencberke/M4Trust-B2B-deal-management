@@ -144,6 +144,17 @@ def _existing_for_identity(
     return None
 
 
+def get_by_file_sha256(
+    conn: Connection, *, transaction_id: str, file_sha256: str
+) -> EvidenceRecord | None:
+    """Hash tabanlı upload replay'i için mevcut immutable kaydı döner."""
+
+    row = evidence_repo.get_by_file_sha256(
+        conn, transaction_id=transaction_id, file_sha256=file_sha256
+    )
+    return None if row is None else _row_to_record(row)
+
+
 def submit_evidence(
     conn: Connection,
     *,

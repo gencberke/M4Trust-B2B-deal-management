@@ -147,7 +147,7 @@ def test_unrelated_user_cannot_comment(conn) -> None:
     assert response.status_code == 403
 
 
-# --- state-changing actions: only platform reviewer/admin ---------------------------
+# --- state-changing actions: platform reviewer/admin, except commercial escalation --
 
 
 def test_commercial_participant_cannot_resolve(conn) -> None:

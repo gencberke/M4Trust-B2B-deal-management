@@ -18,7 +18,7 @@ from backend.app.services.access_control import ActorContext
 from backend.app.services.payment_provider import make_payment_provider
 from backend.app.services.tracking_policy import load_tracking_policy
 
-_FUNDED_STATES = {"active", "evidence_pending"}
+_LEGACY_FUNDED_STATES = {"active", "evidence_pending"}
 
 
 def _load_extraction(conn: Connection, transaction_id: str) -> ExtractionJSON | None:
@@ -150,7 +150,12 @@ def evaluate_settlement(conn: Connection, transaction_id: str, settings: Setting
     transaction = conn.execute(
         "SELECT state, lifecycle_version FROM transactions WHERE id = ?", (transaction_id,)
     ).fetchone()
-    if transaction is None or transaction["state"] not in _FUNDED_STATES:
+    if transaction is None:
+        return None
+    if transaction["lifecycle_version"] == "account_v2":
+        if transaction["state"] != "active":
+            return None
+    elif transaction["state"] not in _LEGACY_FUNDED_STATES:
         return None
     if not _has_both_approvals(conn, transaction_id):
         return None
@@ -189,10 +194,11 @@ def evaluate_settlement(conn: Connection, transaction_id: str, settings: Setting
     )
 
     if decision["action"] not in {"capture", "partial_capture"}:
-        conn.execute(
-            "UPDATE transactions SET state = 'evidence_pending' WHERE id = ?",
-            (transaction_id,),
-        )
+        if transaction["lifecycle_version"] != "account_v2":
+            conn.execute(
+                "UPDATE transactions SET state = 'evidence_pending' WHERE id = ?",
+                (transaction_id,),
+            )
         emit(conn, transaction_id, "payment_decision_created", decision, "system")
         return decision
 
@@ -216,5 +222,6 @@ def evaluate_settlement(conn: Connection, transaction_id: str, settings: Setting
         {"action": result.action, "capture_ratio": result.capture_ratio},
         "system",
     )
-    conn.execute("UPDATE transactions SET state = 'decided' WHERE id = ?", (transaction_id,))
+    if transaction["lifecycle_version"] != "account_v2":
+        conn.execute("UPDATE transactions SET state = 'decided' WHERE id = ?", (transaction_id,))
     return decision

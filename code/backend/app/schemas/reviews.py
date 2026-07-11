@@ -57,6 +57,7 @@ class ReviewActionType(str, Enum):
     resolve_continue = "resolve_continue"
     resolve_reject = "resolve_reject"
     escalate = "escalate"
+    escalate_dispute = "escalate_dispute"
     cancel = "cancel"
 
 

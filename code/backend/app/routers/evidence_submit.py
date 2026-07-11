@@ -21,7 +21,6 @@ import tempfile
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Annotated
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
@@ -121,6 +120,12 @@ def require_evidence_submitter(conn: Connection, transaction_id: str, actor: Act
             status_code=409,
             code="LEGACY_EVIDENCE_SUBMISSION_FORBIDDEN",
             message="Evidence ingestion yalnız account_v2 işlemler için kullanılabilir.",
+        )
+    if transaction["state"] != "active":
+        raise ApiError(
+            status_code=409,
+            code="EVIDENCE_SUBMISSION_STATE_INVALID",
+            message="Teslimat kanıtı yalnız fonlanmış ve aktif işlemlerde sunulabilir.",
         )
 
     assignments = conn.execute(
@@ -246,15 +251,11 @@ async def submit_video_evidence(
     file_sha256 = hashlib.sha256(content).hexdigest()
 
     settings = Settings.from_env()
-    storage = make_document_storage_provider(settings)
-    stored = storage.store(
-        transaction_id=transaction_id,
-        document_id=uuid4().hex,
-        original_filename=file.filename or "delivery_evidence",
-        media_type=file.content_type,
-        content=content,
-        expected_sha256=file_sha256,
+    existing = evidence_records_service.get_by_file_sha256(
+        conn, transaction_id=transaction_id, file_sha256=file_sha256
     )
+    if existing is not None:
+        return _to_public_view(existing)
 
     original_name = file.filename or "delivery_evidence"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{original_name}")
@@ -276,7 +277,22 @@ async def submit_video_evidence(
         safe_payload, settings.video_advisory_confidence_threshold
     )
 
+    # Analyzer başarılı olmadan kalıcı storage'a yazılmaz. Aynı hash'i işleyen
+    # concurrent isteklerden biri analyzer'da düşse bile diğerinin ortak
+    # immutable dosyasını silemez.
+    storage = make_document_storage_provider(settings)
+    stored = None
     try:
+        stored = storage.store(
+            transaction_id=transaction_id,
+            # Aynı content hash aynı immutable storage key'ini kullanır. Exact
+            # replay bu noktaya gelmeden döner; yarışta provider da idempotenttir.
+            document_id=file_sha256,
+            original_filename=file.filename or "delivery_evidence",
+            media_type=file.content_type,
+            content=content,
+            expected_sha256=file_sha256,
+        )
         record = evidence_records_service.submit_evidence(
             conn,
             transaction_id=transaction_id,
@@ -292,6 +308,18 @@ async def submit_video_evidence(
             analyzer_version=_ANALYZER_VERSION,
         )
     except evidence_records_service.EvidenceIdempotencyConflictError as exc:
+        existing = evidence_records_service.get_by_file_sha256(
+            conn, transaction_id=transaction_id, file_sha256=file_sha256
+        )
+        if stored is not None and (existing is None or existing.storage_ref != stored.storage_ref):
+            storage.delete(stored.storage_ref)
         raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
+    except Exception:
+        existing = evidence_records_service.get_by_file_sha256(
+            conn, transaction_id=transaction_id, file_sha256=file_sha256
+        )
+        if stored is not None and (existing is None or existing.storage_ref != stored.storage_ref):
+            storage.delete(stored.storage_ref)
+        raise
 
     return _to_public_view(record)
