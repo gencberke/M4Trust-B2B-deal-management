@@ -18,6 +18,12 @@ audit_events = import_module("backend.app.db.migrations.006_audit_events")
 transaction_lifecycle_v2 = import_module(
     "backend.app.db.migrations.007_transaction_lifecycle_v2"
 )
+documents_extraction_runs = import_module(
+    "backend.app.db.migrations.008_documents_extraction_runs"
+)
+rule_set_versions = import_module(
+    "backend.app.db.migrations.009_rule_set_versions"
+)
 
 __all__ = [
     "baseline_current_schema",
@@ -26,4 +32,6 @@ __all__ = [
     "participants_invitations",
     "audit_events",
     "transaction_lifecycle_v2",
+    "documents_extraction_runs",
+    "rule_set_versions",
 ]
