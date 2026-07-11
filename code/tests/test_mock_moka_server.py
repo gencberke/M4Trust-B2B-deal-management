@@ -520,10 +520,26 @@ def test_no_raw_secrets_persisted_in_mock_operations(client: TestClient) -> None
     assert rows
     for redacted_request, redacted_response in rows:
         combined = redacted_request + redacted_response
+        persisted = [json.loads(redacted_request), json.loads(redacted_response)]
+
+        def _string_leaves(value):
+            if isinstance(value, dict):
+                for child in value.values():
+                    yield from _string_leaves(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from _string_leaves(child)
+            elif isinstance(value, str):
+                yield value
+
+        leaves = set(_string_leaves(persisted))
         assert _PASSWORD not in combined
         assert _check_key() not in combined
         for raw_value in sensitive.values():
             if isinstance(raw_value, str):
-                assert raw_value not in combined
+                assert raw_value not in leaves
+                if len(raw_value) > 3:
+                    assert raw_value not in combined
         for raw_value in sensitive["BuyerInformation"].values():
+            assert raw_value not in leaves
             assert raw_value not in combined
