@@ -76,6 +76,17 @@ def create_approval(
         if row is None:
             raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
 
+        if row["lifecycle_version"] == "account_v2":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "ACCOUNT_RATIFICATION_REQUIRED",
+                    "message": "Account işlemler eski capability-token onayı yerine "
+                    "ratification package akışını kullanmalıdır.",
+                    "conflicts": ["ACCOUNT_RATIFICATION_REQUIRED"],
+                },
+            )
+
         party = resolve_party(row, body.token)
         if party is None:
             raise HTTPException(status_code=403, detail="Geçersiz token.")
