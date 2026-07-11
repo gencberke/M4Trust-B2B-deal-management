@@ -1,6 +1,6 @@
 # 02 — Foundation: Migration Runner, DB Lifecycle, API Contract, CI (Program 0)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.4-2.6, §2.9-2.10, Program 0, Wave 0
+> **Durum:** Uygulandı — 2026-07-11 · Sapmalar: OpenCV'siz CI için frame sampler importu lazy yapıldı; gerçek OpenCV testi profil yokken skip edilir. Integration branch'i Plan 02A sırasında yanlışlıkla master'a erken merge edildi; 2B ve kapanış commit'leri sonraki program→master PR'ıyla tamamlandı. · **Master ref:** v2 §2.4-2.6, §2.9-2.10, Program 0, Wave 0
 > **Bağımlılık:** 00+01 master'da; DEMO SONRASI ilk iş. Bu planla `program/domain-evolution-v2` integration branch'i master'dan açılır.
 > **Branch'ler:** Berke `feat/foundation-db-migrations` · Yusuf `feat/foundation-api-ci-contracts` → program branch'ine PR
 > **Tahmin:** 2-3 gün (paralel)
