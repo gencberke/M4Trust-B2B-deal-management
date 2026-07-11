@@ -1,13 +1,13 @@
 # 05 — First-Class Evidence Records ve İnsan Kontrollü Dispute (Program 3)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.12, §5.16-5.17, Program 3, Wave 4
+> **Durum:** Uygulandı — 2026-07-11 · Sapmalar: 013-014 startup registry/app wiring ve settlement integration bu kapanış branch'inde tamamlandı; 015-017 erken 6A persistence kodu Plan 06 app cutover'ına bırakıldı. · **Master ref:** v2 §2.12, §5.16-5.17, Program 3, Wave 4
 > **Bağımlılık:** 04 tamam (account akışı ratification + `funding_pending`'e kadar çalışıyor; gerçek funding 06'da — harita Revizyon #1). Integration branch: `program/domain-evolution-v2`
 > **Branch'ler:** Yusuf `feat/evidence-authorized-ingestion` → `feat/dispute-review-lifecycle` (ikisi de onun domain'i, sıralı) · Berke `feat/evidence-bundle-semantics` + settlement hook commit'leri + **6A'ya erken başlangıç** (harita Revizyon #5 / §7; v2 Wave-4'ün "iş yüküne göre ters" opsiyonu kullanıldı)
 > **Tahmin:** 4-5 gün (paralel)
 
 ## Amaç
 
-Kanıtı event payload'ı olmaktan çıkarıp first-class kayda dönüştürmek (kim, hangi entity adına, hangi hash'le sundu), dispute'u yalnız yetkili insanın açabildiği bir yaşam döngüsü yapmak ve evidence bundle GET'inin side-effect'ini kaldırmak. **Mevcut karar/tracking semantiği değişmez** — settlement, kanıtları legacy adapter üzerinden aynı `DeliveryEvidence` şekliyle okumaya devam eder.
+Kanıtı event payload'ı olmaktan çıkarıp first-class kayda dönüştürmek (kim, hangi entity adına, hangi hash'le sundu), dispute'u yalnız yetkili insanın açabildiği bir yaşam döngüsü yapmak ve evidence bundle GET'inin side-effect'ini kaldırmak. **Mevcut karar/tracking semantiği değişmez** — settlement, account_v2 kanıtlarını first-class EvidenceService adapter'ı, legacy işlemleri event adapter'ı üzerinden aynı `DeliveryEvidence` şekliyle okur.
 
 ## Fazlar
 
@@ -18,7 +18,7 @@ Dosya sınırı: `services/evidence_records.py`, `repositories/evidence.py`, `ro
 1. **013_evidence_records:** v2 §5.16 (+ `UNIQUE(transaction_id, evidence_type, external_reference)` ve dosya için `UNIQUE(transaction_id, file_sha256)` idempotency kısıtları; `milestone_id` nullable — 06'da dolar).
 2. **EvidenceService** — donmuş imzalar (v2 §8.6): `submit_evidence / verify_evidence / collect_transaction_delivery_evidence / collect_milestone_evidence`.
 3. **Yeni account uçları** (§14): `POST /evidence/e-irsaliye` · `POST /evidence/video` — session + transaction assignment yetkisi (`require_evidence_submitter`: seller-side assignment veya manager; buyer 403). Payload/file SHA-256 hesaplanır; video dosyası DocumentStorageProvider'a yazılır (`storage_ref`); analyzer provider/version kaydedilir. Business event artık yalnız `evidence_id` + güvenli özet taşır (raw payload event'e kopyalanmaz — v2 §4.7 yönünde; account akışı için).
-4. **Legacy adapter (kritik uyum, v2 Faz 3B):** `collect_transaction_delivery_evidence(conn, transaction_id) -> DeliveryEvidence` — account işlemlerde `evidence_records`'tan, legacy işlemlerde bugünkü event-tabanlı yoldan okur. `settlement.py::evaluate_settlement` çağrısının bu fonksiyona geçirilmesi **Berke'nin ayrı entegrasyon commit'idir** (settlement.py onun dosyası; tek satırlık kaynak değişimi, `decide()` imzası aynı). Legacy delivery uçları (H0 token'lı halleriyle) `LEGACY_CAPABILITY_ACCESS_ENABLED` arkasında çalışmaya devam eder.
+4. **Lifecycle adapter (kritik uyum, v2 Faz 3B):** `collect_transaction_delivery_evidence(conn, transaction_id) -> DeliveryEvidence` — account işlemlerde `evidence_records`'tan, legacy işlemlerde bugünkü event-tabanlı yoldan okur. `settlement.py::evaluate_settlement` çağrısının bu fonksiyona geçirilmesi **Berke'nin kapanış entegrasyon commit'idir**; `decide()` imzası aynı kalır. Legacy delivery uçları (H0 token'lı halleriyle) `LEGACY_CAPABILITY_ACCESS_ENABLED` arkasında çalışmaya devam eder.
 5. Duplicate policy: aynı `external_reference`/`file_sha256` → idempotent cevap (mevcut kayıt döner), event tekrarlanmaz.
 6. **Test notu:** Account işlemler 06'ya kadar `active` olamaz (funding orada başlar). Account evidence API testleri bu fazda state'i fixture ile `active`e set ederek yetki/persistence/idempotency'yi doğrular; funding'li gerçek uçtan uca akış 06 gate'indedir. Legacy delivery uçları default-açık `LEGACY_CAPABILITY_ACCESS_ENABLED` ile çalışmaya devam eder (flag 06'da kapanır).
 

@@ -57,7 +57,10 @@ def _create_entity(conn, entity_id: str, created_by_user_id: str) -> None:
 def conn(tmp_path: Path):
     connection = connect(Settings(db_path=tmp_path / "5a_api.db"))
     init_db(connection)
-    _evidence_migration.apply(connection)
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_records'"
+    ).fetchone() is None:
+        _evidence_migration.apply(connection)
 
     _create_user(connection, "u-manager", "manager@example.com")
     _create_user(connection, "u-seller-approver", "seller-approver@example.com")

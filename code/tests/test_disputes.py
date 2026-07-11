@@ -64,8 +64,14 @@ def _create_transaction(conn, tx_id: str, owner_entity_id: str) -> None:
 def conn(tmp_path: Path):
     connection = connect(Settings(db_path=tmp_path / "5b.db"))
     init_db(connection)
-    _evidence_migration.apply(connection)
-    _disputes_migration.apply(connection)
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_records'"
+    ).fetchone() is None:
+        _evidence_migration.apply(connection)
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='disputes'"
+    ).fetchone() is None:
+        _disputes_migration.apply(connection)
 
     _create_user(connection, "u-buyer", "buyer@example.com")
     _create_entity(connection, "entity-buyer", "u-buyer")
@@ -91,8 +97,10 @@ def _open(conn, *, milestone_id=None, reason_code="QUALITY_ISSUE", actor=None):
 def test_migration_is_additive_and_rerun_safe(tmp_path: Path) -> None:
     connection = connect(Settings(db_path=tmp_path / "smoke.db"))
     init_db(connection)
-    _evidence_migration.apply(connection)
-    _disputes_migration.apply(connection)
+    init_db(connection)
+    assert connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='disputes'"
+    ).fetchone() is not None
     row = connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='disputes'"
     ).fetchone()

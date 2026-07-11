@@ -54,7 +54,10 @@ def _create_entity(conn, entity_id: str, created_by_user_id: str) -> None:
 def conn(tmp_path: Path):
     connection = connect(Settings(db_path=tmp_path / "5a.db"))
     init_db(connection)
-    _evidence_migration.apply(connection)
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_records'"
+    ).fetchone() is None:
+        _evidence_migration.apply(connection)
     _create_user(connection, "u-buyer", "buyer@example.com")
     _create_entity(connection, "entity-buyer", "u-buyer")
     connection.execute(
@@ -90,7 +93,10 @@ def _submit_e_irsaliye(conn, *, external_reference="ext-1", delivered_quantity=1
 def test_migration_is_additive_and_rerun_safe(tmp_path: Path) -> None:
     connection = connect(Settings(db_path=tmp_path / "smoke.db"))
     init_db(connection)
-    _evidence_migration.apply(connection)
+    init_db(connection)
+    assert connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_records'"
+    ).fetchone() is not None
     row = connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='evidence_records'"
     ).fetchone()
@@ -199,7 +205,6 @@ def test_account_adapter_reads_evidence_records(conn) -> None:
 def test_legacy_adapter_reads_existing_event_path(tmp_path: Path) -> None:
     connection = connect(Settings(db_path=tmp_path / "legacy.db"))
     init_db(connection)
-    _evidence_migration.apply(connection)
     connection.execute(
         "INSERT INTO transactions (id, state, buyer_token, seller_token, manager_token, "
         "markdown, masked_markdown, created_at) VALUES ('tx-legacy', 'active', 'b', 's', 'm', "
