@@ -20,6 +20,7 @@ Action -> status state machine (Wave A güvenlik sınırı dahil):
 | comment           | case aktif olmalı                  | (değişmez)         |
 | request_evidence  | case aktif olmalı                  | evidence_requested |
 | escalate          | case aktif olmalı                  | escalated          |
+| escalate_dispute  | platform reviewer/admin + case aktif | escalated + yeni dispute |
 | resolve_continue  | `severity=warning` OTOMATİK; `severity=blocking` yalnız aşağıdaki ön-koşullar sağlanırsa | resolved |
 | resolve_reject    | case aktif olmalı                  | resolved           |
 | cancel            | case aktif olmalı                  | cancelled          |
@@ -84,6 +85,7 @@ _ACTION_TRANSITIONS: dict[str, tuple[str | None, bool]] = {
     "comment": (None, False),
     "request_evidence": (ReviewStatus.evidence_requested.value, False),
     "escalate": (ReviewStatus.escalated.value, False),
+    "escalate_dispute": (ReviewStatus.escalated.value, False),
     "resolve_continue": (ReviewStatus.resolved.value, True),
     "resolve_reject": (ReviewStatus.resolved.value, True),
     "cancel": (ReviewStatus.cancelled.value, True),
@@ -385,10 +387,33 @@ def record_action(
     if action not in _ACTION_TRANSITIONS:
         raise ValueError(f"Bilinmeyen review action: {action}")
 
+    if action == "escalate_dispute" and actor_context.platform_role not in {"reviewer", "admin"}:
+        raise ReviewActionForbiddenError(
+            "escalate_dispute yalnız platform reviewer/admin tarafından yapılabilir."
+        )
+
     _reject_if_sensitive_comment((payload or {}).get("comment"))
     _reject_if_invalid_resolution_code((payload or {}).get("resolution_code"))
 
     new_status, is_resolution = _ACTION_TRANSITIONS[action]
+    safe_payload = dict(payload) if payload else None
+
+    if action == "escalate_dispute":
+        if case_row["status"] not in _ACTIVE_STATUS_VALUES:
+            raise ReviewCaseClosedError(
+                f"Case '{case_row['status']}' durumunda; yeni state-changing action yazılamaz."
+            )
+        from backend.app.services import disputes as disputes_service
+
+        dispute = disputes_service.open_dispute(
+            conn,
+            transaction_id=case_row["transaction_id"],
+            milestone_id=None,
+            reason_code="REVIEW_ESCALATED",
+            description="Review case yetkili insan aksiyonuyla ticari dispute'a yükseltildi.",
+            actor_context=actor_context,
+        )
+        safe_payload = {**(safe_payload or {}), "dispute_id": dispute.id}
 
     if action == "resolve_continue" and case_row["severity"] == ReviewSeverity.blocking.value:
         case = _row_to_case(case_row)
@@ -434,7 +459,7 @@ def record_action(
         actor_user_id=actor_context.user_id,
         acting_entity_id=actor_context.acting_entity_id,
         action=action,
-        payload_json=json.dumps(payload) if payload else None,
+        payload_json=json.dumps(safe_payload) if safe_payload else None,
     )
 
     audit.record(

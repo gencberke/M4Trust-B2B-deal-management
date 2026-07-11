@@ -93,6 +93,7 @@ def test_empty_db_applies_complete_baseline(tmp_path: Path) -> None:
         "012",
         "013",
         "014",
+        "023",
     ]
     assert "manager_token" in {
         row[1] for row in conn.execute("PRAGMA table_info(transactions)")
@@ -129,6 +130,7 @@ def test_recognized_legacy_is_stamped_without_reapplying(tmp_path: Path) -> None
         "012",
         "013",
         "014",
+        "023",
     ]
     kept_row = conn.execute(
         "SELECT state, lifecycle_version FROM transactions WHERE id='kept'"

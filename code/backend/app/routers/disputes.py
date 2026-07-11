@@ -36,6 +36,7 @@ from backend.app.services.auth import require_csrf_protection
 router = APIRouter(tags=["disputes"])
 
 _PARTICIPANT_ROLES = ("buyer", "seller")
+_PLATFORM_REVIEW_ROLES = {"reviewer", "admin"}
 
 
 class DisputeOpenRequest(BaseModel):
@@ -162,6 +163,30 @@ def require_dispute_participant_approver(conn: Connection, transaction_id: str, 
     )
 
 
+def require_dispute_action_authorization(
+    conn: Connection, dispute, actor: ActorContext, action: str
+) -> None:
+    """Action'a göre participant/reviewer yetkisini seçer.
+
+    Resolve, karşı taraf approver'ının tek başına release guard'ı kaldırmasını
+    önlemek için opener veya platform reviewer/admin ile sınırlıdır.
+    """
+    if action == "resolve":
+        is_opener = (
+            dispute.opened_by_user_id == actor.user_id
+            and dispute.opened_by_entity_id == actor.acting_entity_id
+        )
+        if is_opener or actor.platform_role in _PLATFORM_REVIEW_ROLES:
+            _require_account_transaction(conn, dispute.transaction_id)
+            return
+        raise ApiError(
+            status_code=403,
+            code="DISPUTE_RESOLVE_FORBIDDEN",
+            message="Dispute resolve yalnız opener veya platform reviewer/admin içindir.",
+        )
+    require_dispute_participant_approver(conn, dispute.transaction_id, actor)
+
+
 @router.post("/api/transactions/{transaction_id}/disputes")
 def open_dispute(
     transaction_id: str,
@@ -213,7 +238,7 @@ def submit_dispute_action(
     except disputes_service.DisputeNotFoundError as exc:
         raise ApiError(status_code=404, code="DISPUTE_NOT_FOUND", message=str(exc)) from exc
 
-    require_dispute_participant_approver(conn, dispute.transaction_id, actor)
+    require_dispute_action_authorization(conn, dispute, actor, body.action)
 
     payload: dict[str, str] = {}
     if body.comment is not None:

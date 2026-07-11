@@ -21,7 +21,6 @@ import tempfile
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Annotated
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
@@ -121,6 +120,12 @@ def require_evidence_submitter(conn: Connection, transaction_id: str, actor: Act
             status_code=409,
             code="LEGACY_EVIDENCE_SUBMISSION_FORBIDDEN",
             message="Evidence ingestion yalnız account_v2 işlemler için kullanılabilir.",
+        )
+    if transaction["state"] != "active":
+        raise ApiError(
+            status_code=409,
+            code="EVIDENCE_SUBMISSION_STATE_INVALID",
+            message="Teslimat kanıtı yalnız fonlanmış ve aktif işlemlerde sunulabilir.",
         )
 
     assignments = conn.execute(
@@ -246,10 +251,18 @@ async def submit_video_evidence(
     file_sha256 = hashlib.sha256(content).hexdigest()
 
     settings = Settings.from_env()
+    existing = evidence_records_service.get_by_file_sha256(
+        conn, transaction_id=transaction_id, file_sha256=file_sha256
+    )
+    if existing is not None:
+        return _to_public_view(existing)
+
     storage = make_document_storage_provider(settings)
     stored = storage.store(
         transaction_id=transaction_id,
-        document_id=uuid4().hex,
+        # Aynı content hash aynı immutable storage key'ini kullanır. Exact
+        # replay bu noktaya gelmeden döner; yarışta provider da idempotenttir.
+        document_id=file_sha256,
         original_filename=file.filename or "delivery_evidence",
         media_type=file.content_type,
         content=content,
@@ -265,6 +278,7 @@ async def submit_video_evidence(
         try:
             analysis = make_video_analyzer(settings).analyze(temp_path)
         except Exception as exc:  # noqa: BLE001 -- analyzer exception metni kalıcı alana yazılmaz
+            storage.delete(stored.storage_ref)
             raise ApiError(
                 status_code=422, code="EVIDENCE_ANALYSIS_FAILED", message="Video analiz edilemedi."
             ) from exc
@@ -292,6 +306,18 @@ async def submit_video_evidence(
             analyzer_version=_ANALYZER_VERSION,
         )
     except evidence_records_service.EvidenceIdempotencyConflictError as exc:
+        existing = evidence_records_service.get_by_file_sha256(
+            conn, transaction_id=transaction_id, file_sha256=file_sha256
+        )
+        if existing is None or existing.storage_ref != stored.storage_ref:
+            storage.delete(stored.storage_ref)
         raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
+    except Exception:
+        existing = evidence_records_service.get_by_file_sha256(
+            conn, transaction_id=transaction_id, file_sha256=file_sha256
+        )
+        if existing is None or existing.storage_ref != stored.storage_ref:
+            storage.delete(stored.storage_ref)
+        raise
 
     return _to_public_view(record)

@@ -43,6 +43,7 @@ from backend.app.services import privacy
 from backend.app.services.access_control import ActorContext
 
 _ACTIVE_STATUSES = frozenset({"open", "awaiting_response", "evidence_requested", "under_review"})
+_PLATFORM_REVIEW_ROLES = frozenset({"reviewer", "admin"})
 
 # action -> (yeni status | None, terminal-resolution mu)
 _ACTION_TRANSITIONS: dict[str, tuple[str | None, bool]] = {
@@ -265,8 +266,18 @@ def record_dispute_action(
     if dispute_row is None:
         raise DisputeNotFoundError(dispute_id)
 
-    if action == "cancel" and dispute_row["opened_by_user_id"] != actor_context.user_id:
-        raise DisputeAuthorizationError("cancel yalnız dispute'u açan kullanıcı tarafından yapılabilir.")
+    if action in {"cancel", "resolve"}:
+        is_opener = (
+            dispute_row["opened_by_user_id"] == actor_context.user_id
+            and dispute_row["opened_by_entity_id"] == actor_context.acting_entity_id
+        )
+        is_platform_reviewer = actor_context.platform_role in _PLATFORM_REVIEW_ROLES
+        if action == "cancel" and not is_opener:
+            raise DisputeAuthorizationError("cancel yalnız dispute'u açan kullanıcı tarafından yapılabilir.")
+        if action == "resolve" and not (is_opener or is_platform_reviewer):
+            raise DisputeAuthorizationError(
+                "resolve yalnız dispute'u açan taraf veya platform reviewer/admin tarafından yapılabilir."
+            )
 
     if evidence_id is not None:
         evidence_row = evidence_repo.get_by_id(conn, evidence_id)

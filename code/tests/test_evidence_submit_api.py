@@ -54,8 +54,9 @@ def _create_entity(conn, entity_id: str, created_by_user_id: str) -> None:
 
 
 @pytest.fixture()
-def conn(tmp_path: Path):
+def conn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     connection = connect(Settings(db_path=tmp_path / "5a_api.db"))
+    monkeypatch.setenv("DOCUMENT_STORAGE_DIR", str(tmp_path / "documents"))
     init_db(connection)
     if connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_records'"
@@ -72,7 +73,7 @@ def conn(tmp_path: Path):
     connection.execute(
         "INSERT INTO transactions (id, state, buyer_token, seller_token, manager_token, "
         "markdown, masked_markdown, created_at, lifecycle_version, owner_entity_id) "
-        "VALUES (?, 'awaiting_ratification', NULL, NULL, NULL, NULL, NULL, 'now', "
+        "VALUES (?, 'active', NULL, NULL, NULL, NULL, NULL, 'now', "
         "'account_v2', ?)",
         (_TX_ID, _BUYER_ENTITY),
     )
@@ -166,6 +167,18 @@ def test_seller_assignment_is_accepted(conn) -> None:
     assert response.json()["verification_status"] == "verified"
 
 
+def test_evidence_before_funding_is_rejected(conn) -> None:
+    conn.execute(
+        "UPDATE transactions SET state = 'awaiting_ratification' WHERE id = ?", (_TX_ID,)
+    )
+    conn.commit()
+
+    response = _post_e_irsaliye(conn, _actor("u-seller-approver", _SELLER_ENTITY))
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "EVIDENCE_SUBMISSION_STATE_INVALID"
+
+
 def test_manager_is_accepted(conn) -> None:
     response = _post_e_irsaliye(conn, _actor("u-manager", _BUYER_ENTITY))
     assert response.status_code == 200, response.text
@@ -199,6 +212,63 @@ def test_video_evidence_upload_happy_path(conn) -> None:
     assert body["storage_ref"] is not None
     assert len(body["file_sha256"]) == 64
     assert body["verification_status"] in {"verified", "review_required"}
+
+
+def test_video_exact_replay_does_not_create_file_or_rerun_analyzer(
+    conn, tmp_path: Path, monkeypatch
+) -> None:
+    from backend.app.routers import evidence_submit
+
+    calls = 0
+    original_factory = evidence_submit.make_video_analyzer
+
+    class CountingAnalyzer:
+        def analyze(self, path):
+            nonlocal calls
+            calls += 1
+            return original_factory(Settings.from_env()).analyze(path)
+
+    monkeypatch.setattr(
+        evidence_submit, "make_video_analyzer", lambda _settings: CountingAnalyzer()
+    )
+    app = _build_app(conn, _actor("u-manager", _BUYER_ENTITY))
+    client = TestClient(app)
+    first = client.post(
+        f"/api/transactions/{_TX_ID}/evidence/video",
+        files={"file": ("delivery.mp4", b"same-video", "video/mp4")},
+    )
+    assert first.status_code == 200, first.text
+    file_count_after_first = len(list((tmp_path / "documents").rglob("*")))
+
+    second = client.post(
+        f"/api/transactions/{_TX_ID}/evidence/video",
+        files={"file": ("renamed.mp4", b"same-video", "video/mp4")},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == first.json()["id"]
+    assert calls == 1
+    assert len(list((tmp_path / "documents").rglob("*"))) == file_count_after_first
+
+
+def test_video_analyzer_failure_cleans_up_storage(
+    conn, tmp_path: Path, monkeypatch
+) -> None:
+    from backend.app.routers import evidence_submit
+
+    class BrokenAnalyzer:
+        def analyze(self, _path):
+            raise RuntimeError("simulated analyzer failure")
+
+    monkeypatch.setattr(
+        evidence_submit, "make_video_analyzer", lambda _settings: BrokenAnalyzer()
+    )
+    app = _build_app(conn, _actor("u-manager", _BUYER_ENTITY))
+    response = TestClient(app).post(
+        f"/api/transactions/{_TX_ID}/evidence/video",
+        files={"file": ("broken.mp4", b"broken-video", "video/mp4")},
+    )
+    assert response.status_code == 422
+    assert not [path for path in (tmp_path / "documents").rglob("*") if path.is_file()]
 
 
 # --- static checks -----------------------------------------------------------------

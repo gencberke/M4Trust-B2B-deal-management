@@ -242,6 +242,18 @@ def test_cancel_by_opener_succeeds(conn) -> None:
     assert response.json()["action"] == "cancel"
 
 
+def test_resolve_by_counterparty_approver_is_rejected(conn) -> None:
+    opened = _post_open(conn, _actor("u-buyer-approver", _BUYER_ENTITY))
+    dispute_id = opened.json()["id"]
+    app = _build_app(conn, _actor("u-seller-approver", _SELLER_ENTITY))
+    response = TestClient(app).post(
+        f"/api/disputes/{dispute_id}/actions",
+        json={"action": "resolve", "resolution_code": "QUALITY_REVIEWED"},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "DISPUTE_RESOLVE_FORBIDDEN"
+
+
 def test_sensitive_comment_is_rejected(conn) -> None:
     opened = _post_open(conn, _actor("u-buyer-approver", _BUYER_ENTITY))
     dispute_id = opened.json()["id"]
