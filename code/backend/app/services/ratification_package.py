@@ -428,6 +428,22 @@ def open_package(
         packages_repo.update_opened(
             conn, package_id=package_id, opened_at=_utc_now_iso()
         )
+        audit.record(
+            conn,
+            _actor_for_audit(actor_context),
+            action="ratification_package.opened",
+            target=f"ratification_package:{package_id}",
+            metadata_allowlist=frozenset({"package_version"}),
+            metadata={"package_version": package.version},
+            transaction_id=package.transaction_id,
+        )
+
+    if package.status in (RatificationPackageStatus.draft, RatificationPackageStatus.open):
+        # Backfill: `open_package` daha önce (remediation'dan önce) draft->open
+        # yaptıysa ama account state hiç taşınmadıysa, ya da her nedenle state
+        # hâlâ awaiting_ratification'a gelmemişse, tekrar open çağrısı bunu
+        # düzeltir -- yalnız ilk (draft->open) çağrıda değil, HER open
+        # çağrısında denenir (idempotent: zaten hedefteyse no-op).
         try:
             transition_account_state(
                 conn,
@@ -440,17 +456,9 @@ def open_package(
         except AccountLifecycleError as exc:
             raise PackageConflictError(
                 "ACCOUNT_STATE_TRANSITION_FAILED",
-                f"Package open edildi ama account state awaiting_ratification'a geçemedi: {exc}",
+                f"Package open ama account state awaiting_ratification'a geçemedi: {exc}",
             ) from exc
-        audit.record(
-            conn,
-            _actor_for_audit(actor_context),
-            action="ratification_package.opened",
-            target=f"ratification_package:{package_id}",
-            metadata_allowlist=frozenset({"package_version"}),
-            metadata={"package_version": package.version},
-            transaction_id=package.transaction_id,
-        )
+
     return _row_to_package(packages_repo.get_by_id(conn, package_id))
 
 

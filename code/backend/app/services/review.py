@@ -109,17 +109,41 @@ class ReviewCommentRejectedError(Exception):
     olduğu için önce burada durdurulmalı, sonradan temizlenemez)."""
 
 
-def _reject_if_sensitive(field_name: str, value: str | None) -> None:
+_RESOLUTION_CODE_FORMAT_RE = re.compile(r"^[A-Z0-9_]+$")
+
+
+def _reject_if_sensitive_comment(value: str | None) -> None:
     if not value:
         return
     report = privacy.analyze(value)
     if report.detected_types or report.mapping:
         raise ReviewCommentRejectedError(
-            f"{field_name} alanı PII veya kart verisi benzeri bir değer içeriyor."
+            "comment alanı PII veya kart verisi benzeri bir değer içeriyor."
         )
     if _TOKEN_LIKE_RE.search(value):
         raise ReviewCommentRejectedError(
-            f"{field_name} alanı token/secret benzeri opak bir değer içeriyor."
+            "comment alanı token/secret benzeri opak bir değer içeriyor."
+        )
+
+
+def _reject_if_invalid_resolution_code(value: str | None) -> None:
+    """`resolution_code` serbest metin değildir -- yalnız `RATIFICATION_COMPLETE`
+    gibi sabit kod formatı beklenir. Comment'teki genel 24+ karakter token
+    deseni burada KULLANILMAZ: meşru uzun kodlar (ör.
+    `VALIDATOR_REVISION_REVALIDATED`, 31 karakter) yanlışlıkla opak bir
+    secret/token sayılırdı. Bunun yerine dar `^[A-Z0-9_]+$` format kontrolü
+    kullanılır; PII/kart taraması yine de yapılır (savunma amaçlı)."""
+    if not value:
+        return
+    report = privacy.analyze(value)
+    if report.detected_types or report.mapping:
+        raise ReviewCommentRejectedError(
+            "resolution_code alanı PII veya kart verisi benzeri bir değer içeriyor."
+        )
+    if not _RESOLUTION_CODE_FORMAT_RE.fullmatch(value):
+        raise ReviewCommentRejectedError(
+            "resolution_code yalnız büyük harf/rakam/alt çizgi içerebilir "
+            "(ör. RATIFICATION_COMPLETE)."
         )
 
 
@@ -361,8 +385,8 @@ def record_action(
     if action not in _ACTION_TRANSITIONS:
         raise ValueError(f"Bilinmeyen review action: {action}")
 
-    _reject_if_sensitive("comment", (payload or {}).get("comment"))
-    _reject_if_sensitive("resolution_code", (payload or {}).get("resolution_code"))
+    _reject_if_sensitive_comment((payload or {}).get("comment"))
+    _reject_if_invalid_resolution_code((payload or {}).get("resolution_code"))
 
     new_status, is_resolution = _ACTION_TRANSITIONS[action]
 

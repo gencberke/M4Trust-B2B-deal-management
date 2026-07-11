@@ -24,6 +24,8 @@ from pydantic import BaseModel
 
 from backend.app.api.errors import ApiError
 from backend.app.db import get_db
+from backend.app.repositories import participants as participants_repo
+from backend.app.repositories.transactions import load_transaction
 from backend.app.schemas.payments import FundingScheduleSpec
 from backend.app.schemas.ratification import RatificationOutcome, RatificationPackagePublicView
 from backend.app.services import participants as participants_service
@@ -62,6 +64,33 @@ def _require_access(conn: Connection, transaction_id: str, actor: ActorContext) 
             status_code=403,
             code="TRANSACTION_ACCESS_DENIED",
             message="Bu işlemde erişiminiz yok.",
+        )
+
+
+def _require_creator_manager(conn: Connection, transaction_id: str, actor: ActorContext) -> None:
+    """Package build/amend yalnız creator-side manager'a açıktır (routers/rule_sets.py
+    ile aynı yetki deseni). `_require_access` (herhangi bir manager/approver/viewer)
+    burada YETERSİZ -- viewer/karşı-taraf approver `funding_schedule_spec`'i
+    değiştirip mevcut package'ı sürekli supersede ederek akışı kilitleyebilirdi."""
+    transaction = load_transaction(conn, transaction_id)
+    if transaction is None:
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="İşlem bulunamadı.")
+    owner_entity_id = transaction["owner_entity_id"]
+    assignment = (
+        participants_repo.get_active_assignment(conn, transaction_id, actor.user_id, role="manager")
+        if actor.user_id is not None
+        else None
+    )
+    if (
+        owner_entity_id is None
+        or actor.acting_entity_id != owner_entity_id
+        or assignment is None
+        or assignment["legal_entity_id"] != owner_entity_id
+    ):
+        raise ApiError(
+            status_code=403,
+            code="RATIFICATION_PACKAGE_AMENDMENT_FORBIDDEN",
+            message="Yalnız creator-side manager package build/amend işlemi yapabilir.",
         )
 
 
@@ -113,7 +142,7 @@ def build_and_open_ratification_package(
     _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: Connection = Depends(get_db),
 ) -> RatificationPackagePublicView:
-    _require_access(conn, transaction_id, actor)
+    _require_creator_manager(conn, transaction_id, actor)
     try:
         package = build_current_package(
             conn,
