@@ -517,3 +517,16 @@ def test_resolution_code_with_sensitive_content_is_rejected(conn) -> None:
             payload={"resolution_code": "leaked-aB3dEfGhIjKlMnOpQrStUvWxYz"},
         )
     assert "Traceback" not in case.description
+
+
+def test_long_legit_upper_snake_case_resolution_code_is_not_rejected(conn) -> None:
+    """2. review turu 'küçük not': eskiden comment'teki 24+ karakter opak-token
+    deseni resolution_code'a da uygulanıyordu; meşru uzun kodlar (31 karakter)
+    yanlışlıkla token sayılırdı. Artık yalnız dar [A-Z0-9_]+ format kontrolü var."""
+    tx_id = create_test_transaction(conn)
+    case = _open(conn, tx_id, severity="warning")
+    action = svc.record_action(
+        conn, case_id=case.id, actor_context=actor(), action="resolve_reject",
+        payload={"resolution_code": "VALIDATOR_REVISION_REVALIDATED"},
+    )
+    assert action.payload["resolution_code"] == "VALIDATOR_REVISION_REVALIDATED"
