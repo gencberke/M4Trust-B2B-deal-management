@@ -32,7 +32,11 @@ Sistem sözleşmeden fiziksel teslimatı yalnızca **önerir**; takip modunu (`o
 code/
 ├── scripts/          # offline hazırlık + demo_moka_contract.py gerçek HTTP demo sürücüsü
 ├── backend/app/
-│   ├── main.py · config.py · db.py · eventbus.py
+│   ├── main.py · config.py · eventbus.py
+│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · 001 baseline
+│   ├── repositories/ # transaction load/list/detail persistence seam'i
+│   ├── api/          # yeni uçlar için standart hata zarfı
+│   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
 │   ├── schemas/      # extraction.py (ikili sözleşme) · tracking.py (takip politikası) · events.py · api.py
 │   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence
 │   └── services/
@@ -41,6 +45,9 @@ code/
 │       ├── context_builder.py # ContextBuilder: çoklu-query/çoklu-koleksiyon RAG orkestrasyonu → ContextPack
 │       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
+│       ├── access_control.py  # ActorContext + donmuş auth/membership dependency imzaları
+│       ├── audit.py           # audit event kontratı (persistence migration 006 ile gelir)
+│       ├── transaction_state.py # legacy_v1 → canonical state saf projeksiyonu
 │       ├── extraction_projection.py # public API'ler için redacted extraction görünümü (tax_id yok, source_quote maskeli)
 │       ├── validator.py       # deterministik kural kapısı
 │       ├── tracking_policy.py # TrackingPolicy persistence + deterministik fiziksel teslimat önerisi
@@ -63,7 +70,7 @@ Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo
 
 | Katman | Karar |
 |---|---|
-| Backend | Python 3.12 · FastAPI + uvicorn · SQLite (stdlib `sqlite3`, WAL, tek worker) · upload için `python-multipart` · Moka HTTP için sync `httpx` + Decimal JSON için `simplejson` · test için `httpx`/`TestClient` (arka plan işleri: `BackgroundTasks`, queue altyapısı yok) |
+| Backend | Python 3.12 · FastAPI + uvicorn · SQLite (stdlib `sqlite3`, WAL, tek worker) · upload için `python-multipart` · Moka HTTP için sync `httpx` + Decimal JSON için `simplejson` · test için `httpx`/`TestClient` (arka plan işleri: `BackgroundTasks`, queue altyapısı yok). Bağımlılıklar `requirements-core/ci/rag/video.txt` profillerine ayrılır; CI ağır RAG/video profilini kurmaz. |
 | Frontend | React · Vite · Tailwind |
 | Doküman | PyMuPDF/PyMuPDF4LLM (dijital PDF) · python-docx/mammoth (DOCX) · Tesseract (OCR) |
 | RAG | BAAI/bge-m3 + ChromaDB — koleksiyonlar `legal_articles` · `contract_examples` · `security_controls` (koşullu), `code/data/processed/embeddings/chroma/`. Orkestrasyon: `context_builder.py` |
@@ -213,7 +220,7 @@ Tablolar: `transactions` (state, buyer_token, seller_token, **manager_token**, m
 
 `tracking_policies` (transaction başına en fazla bir satır, `transaction_id` PK): `recommendation` (`yes|no|uncertain`, sistem önerisi) · `recommendation_reason_codes` (JSON, güvenli kod listesi — sözleşme metni taşımaz) · `manager_physical_delivery_confirmed` (`null` iken kilitlenemez) · `tracking_mode` (`off|document_only|document_and_video`) · `video_role` (sabit `advisory`) · `status` (`draft|locked`) · `configured_at` · `locked_at`.
 
-**Migration:** `init_db()` additive ve idempotenttir — `tracking_policies` `CREATE TABLE IF NOT EXISTS` ile, `manager_token` ise `PRAGMA table_info(transactions)` kontrolünden sonra nullable `ALTER TABLE ADD COLUMN` ile eklenir. Eski runtime satırlarına token **backfill edilmez** ve hiçbir kullanıcı verisi sessizce silinmez; demo DB'si tazelenecekse `code/data/runtime/m4trust.db` elle silinir (yalnızca geliştirme notu).
+**Migration:** `init_db()` versiyonlu migration runner'a delegedir. `001_baseline_current_schema`, yukarıdaki sekiz runtime tablosunun ve nullable `manager_token` kolonunun tam baseline'ıdır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
 
 ```
 uploaded → extracting → awaiting_review | awaiting_approval | rejected
