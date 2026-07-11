@@ -50,3 +50,34 @@ def test_extract_frames_raises_for_unreadable_file(tmp_path):
     bad_path.write_text("this is not a real video")
     with pytest.raises(VideoAnalyzerError):
         extract_frames(bad_path)
+
+
+def test_extract_frames_count_scales_with_sample_fps(tmp_path):
+    """3 saniyelik (90 kare, 30fps) sentetik videoda örnekleme oranı arttıkça
+    çıkan kare sayısı da orantılı artmalı (frame_interval = native_fps/sample_fps)."""
+    video_path = make_video(tmp_path, num_frames=90, fps=30)
+
+    sparse = extract_frames(video_path, sample_fps=1.0)
+    dense = extract_frames(video_path, sample_fps=3.0)
+
+    assert len(dense) > len(sparse)
+    # ~3 kare (1 fps) vs ~9 kare (3 fps) -- codec/timestamp yuvarlamasına tolerans bırakılır.
+    assert 2 <= len(sparse) <= 4
+    assert 7 <= len(dense) <= 11
+
+
+def test_extract_frames_returns_readable_jpegs_in_capture_order(tmp_path):
+    """Döndürülen kare dosyaları hem gerçek okunabilir JPEG olmalı hem de
+    videodaki sırayla (artan piksel değeriyle) gelmeli -- analyzer'ın kare
+    bazlı agregasyonu dosya adı sırasına güvenir."""
+    video_path = make_video(tmp_path, num_frames=30, fps=30)
+
+    frames = extract_frames(video_path, sample_fps=1.0)
+
+    assert frames == sorted(frames)
+    pixel_values = []
+    for frame_path in frames:
+        image = cv2.imread(str(frame_path))
+        assert image is not None
+        pixel_values.append(int(image[0, 0, 0]))
+    assert pixel_values == sorted(pixel_values)
