@@ -15,6 +15,7 @@ from pathlib import Path
 _CODE_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_CHROMA_DIR = _CODE_ROOT / "data" / "processed" / "embeddings" / "chroma"
 _DEFAULT_DB_PATH = _CODE_ROOT / "data" / "runtime" / "m4trust.db"
+_DEFAULT_DOCUMENT_STORAGE_DIR = _CODE_ROOT / "data" / "runtime" / "documents"
 
 
 def _env(name: str, default: str) -> str:
@@ -65,11 +66,13 @@ class Settings:
     session_cookie_secure: bool = False                # prod'da true; local http demo'da false
     session_ttl_seconds: float = 604800.0              # 7 gün — oturum süresi
     legacy_capability_access_enabled: bool = True       # Wave 3'e kadar true; legacy token erişimi
+    document_storage_dir: Path = _DEFAULT_DOCUMENT_STORAGE_DIR  # LocalDocumentStorageProvider kökü (§2.11)
 
     @classmethod
     def from_env(cls) -> "Settings":
         chroma = os.environ.get("CHROMA_DIR")
         db_path = os.environ.get("DB_PATH")
+        document_storage_dir = os.environ.get("DOCUMENT_STORAGE_DIR")
         return cls(
             llm_provider=_env("LLM_PROVIDER", "fake"),
             llm_base_url=_env("LLM_BASE_URL", "https://api.openai.com/v1"),
@@ -107,6 +110,11 @@ class Settings:
             legacy_capability_access_enabled=_env_bool(
                 "LEGACY_CAPABILITY_ACCESS_ENABLED", True
             ),
+            document_storage_dir=(
+                Path(document_storage_dir).resolve()
+                if document_storage_dir
+                else _DEFAULT_DOCUMENT_STORAGE_DIR
+            ),
         )
 
     def __repr__(self) -> str:
@@ -143,5 +151,6 @@ class Settings:
             f"session_cookie_secure={self.session_cookie_secure!r}, "
             f"session_ttl_seconds={self.session_ttl_seconds!r}, "
             f"legacy_capability_access_enabled="
-            f"{self.legacy_capability_access_enabled!r})"
+            f"{self.legacy_capability_access_enabled!r}, "
+            f"document_storage_dir={str(self.document_storage_dir)!r})"
         )
