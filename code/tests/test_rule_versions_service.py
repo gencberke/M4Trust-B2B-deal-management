@@ -201,3 +201,22 @@ def test_service_functions_do_not_commit_or_connect(conn: sqlite3.Connection) ->
     )
     conn.rollback()
     assert rule_sets_repo.get_latest_non_superseded(conn, "t1") is None
+
+
+def test_account_approval_and_evidence_readers_use_current_rule_version(
+    conn: sqlite3.Connection,
+) -> None:
+    version = rule_versions.create_initial_from_extraction(
+        conn, transaction_id="t1", extraction_run_id="er1", rules_payload=_PAYLOAD
+    )
+    rule_versions.validate_version(conn, version_id=version.id, confidence_threshold=0.7)
+
+    from backend.app.routers.approvals import _load_extraction_for_payment
+    from backend.app.services.evidence import build_bundle
+
+    payment_extraction = _load_extraction_for_payment(conn, "t1")
+    bundle = build_bundle(conn, "t1")
+
+    assert payment_extraction["contract_id"] == "c1"
+    assert bundle["extraction"]["contract_id"] == "c1"
+    assert bundle["validator_report"] == {"status": "PASS", "findings": []}

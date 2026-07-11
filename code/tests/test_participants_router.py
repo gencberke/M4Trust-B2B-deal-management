@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.app.services import rule_versions
 from backend.app.services.access_control import ActorContext
 from backend.app.services import participants as participants_svc
 from participants_fixtures import (
@@ -28,6 +31,59 @@ def actor(user_id="u1") -> ActorContext:
 
 
 ANONYMOUS = ActorContext(actor_type="anonymous")
+
+
+def _seed_account_rule(conn, transaction_id: str) -> str:
+    conn.execute(
+        "UPDATE transactions SET lifecycle_version = 'account_v2' WHERE id = ?",
+        (transaction_id,),
+    )
+    document_id = f"doc-{transaction_id}"
+    run_id = f"run-{transaction_id}"
+    conn.execute(
+        "INSERT INTO contract_documents (id, transaction_id, version, original_filename, "
+        "storage_ref, content_sha256, status, created_at) "
+        "VALUES (?, ?, 1, 'contract.md', ?, 'hash', 'active', 'now')",
+        (document_id, transaction_id, f"{transaction_id}/{document_id}"),
+    )
+    conn.execute(
+        "INSERT INTO extraction_runs (id, transaction_id, document_id, provider, model, "
+        "prompt_version, schema_version, extraction_json, status, created_at) "
+        "VALUES (?, ?, ?, 'fake', 'fake-v1', 'v1', 'v1', ?, 'ok', 'now')",
+        (run_id, transaction_id, document_id, json.dumps({})),
+    )
+    payload = {
+        "contract_id": "c1",
+        "parties": {
+            "buyer": {"name": "Extracted Buyer A.Ş.", "tax_id": "1234567890"},
+            "seller": {"name": "Extracted Seller Ltd.", "tax_id": None},
+        },
+        "commercial_terms": {
+            "currency": "TRY",
+            "total_amount": 100.0,
+            "goods": [],
+            "delivery_deadline": None,
+        },
+        "payment_rules": [
+            {
+                "milestone": "m1",
+                "trigger": "approval",
+                "percentage": 100.0,
+                "required_evidence": ["contract"],
+                "source_quote": "q",
+                "confidence": 0.9,
+            }
+        ],
+        "risk_flags": [],
+        "needs_manual_review": False,
+    }
+    version = rule_versions.create_initial_from_extraction(
+        conn,
+        transaction_id=transaction_id,
+        extraction_run_id=run_id,
+        rules_payload=payload,
+    )
+    return version.id
 
 
 def test_list_participants_requires_auth(conn) -> None:
@@ -115,6 +171,32 @@ def test_confirm_profile_end_to_end(conn) -> None:
     assert body["status"] == "confirmed"
     assert body["confirmed_at"] is not None
     assert body["confirmed_snapshot"]["name"] == "Buyer Co."
+
+
+def test_confirm_profile_opens_party_mismatch_review_against_current_rule(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    rule_version_id = _seed_account_rule(conn, tx_id)
+    participant = participants_svc.attach_creator(
+        conn, tx_id, actor("u1"), "buyer", "entity-1"
+    )
+    app = build_isolated_app(conn, actor("u1"))
+    client = TestClient(app)
+
+    client.put(
+        f"/api/transactions/{tx_id}/participants/me/profile",
+        json={"snapshot": {"name": "Confirmed Different Buyer", "tax_id": "1234567890"}},
+    )
+    response = client.post(f"/api/transactions/{tx_id}/participants/me/confirm")
+
+    assert response.status_code == 200
+    case = conn.execute(
+        "SELECT * FROM review_cases WHERE transaction_id = ? AND source_type = 'party_mismatch'",
+        (tx_id,),
+    ).fetchone()
+    assert case["source_id"] == participant.id
+    assert case["reason_code"] == "PARTY_NAME_MISMATCH"
+    assert rule_version_id in case["description"]
+    assert "Confirmed Different Buyer" not in case["description"]
 
 
 def test_confirm_twice_returns_409_no_silent_overwrite(conn) -> None:

@@ -73,7 +73,7 @@ def test_migration_is_idempotent_across_repeated_runs(tmp_path: Path) -> None:
     init_db(conn)
     init_db(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010"]
     conn.close()
 
 

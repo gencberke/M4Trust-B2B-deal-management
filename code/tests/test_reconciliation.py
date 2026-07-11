@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from importlib import import_module
-
 import pytest
 
 from backend.app.schemas.participants import PartyProfileSnapshot
@@ -17,13 +15,9 @@ from backend.app.services.reconciliation import (
 from backend.app.services.review import has_blocking_case, list_cases
 from participants_fixtures import create_test_transaction, make_participants_db
 
-_review_migration = import_module("backend.app.db.migrations.010_review_cases")
-
-
 @pytest.fixture()
 def conn():
     connection = make_participants_db()
-    _review_migration.apply(connection)
     try:
         yield connection
     finally:

@@ -29,6 +29,7 @@ _MIGRATION_MODULES = (
     "backend.app.db.migrations.007_transaction_lifecycle_v2",
     "backend.app.db.migrations.008_documents_extraction_runs",
     "backend.app.db.migrations.009_rule_set_versions",
+    "backend.app.db.migrations.010_review_cases",
 )
 
 _LEGACY_COLUMNS = {

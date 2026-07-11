@@ -24,6 +24,14 @@ _participants_migration = import_module(
     "backend.app.db.migrations.005_participants_invitations"
 )
 _audit_migration = import_module("backend.app.db.migrations.006_audit_events")
+_lifecycle_migration = import_module(
+    "backend.app.db.migrations.007_transaction_lifecycle_v2"
+)
+_documents_migration = import_module(
+    "backend.app.db.migrations.008_documents_extraction_runs"
+)
+_rule_sets_migration = import_module("backend.app.db.migrations.009_rule_set_versions")
+_review_migration = import_module("backend.app.db.migrations.010_review_cases")
 
 
 def make_participants_db() -> sqlite3.Connection:
@@ -40,6 +48,10 @@ def make_participants_db() -> sqlite3.Connection:
     _baseline.apply(conn)
     _participants_migration.apply(conn)
     _audit_migration.apply(conn)
+    _lifecycle_migration.apply(conn)
+    _documents_migration.apply(conn)
+    _rule_sets_migration.apply(conn)
+    _review_migration.apply(conn)
 
     conn.execute(
         """CREATE TABLE users (

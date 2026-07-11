@@ -49,7 +49,9 @@ from backend.app.eventbus import emit  # noqa: E402
 from backend.app.repositories import documents as documents_repo  # noqa: E402
 from backend.app.repositories import extraction_runs as extraction_runs_repo  # noqa: E402
 from backend.app.schemas.extraction import ExtractionJSON  # noqa: E402
+from backend.app.services import review as review_service  # noqa: E402
 from backend.app.services import rule_versions  # noqa: E402
+from backend.app.services.access_control import ActorContext  # noqa: E402
 from backend.app.services.context_builder import ContextBuilder, ContextPack  # noqa: E402
 from backend.app.services.document_storage import make_document_storage_provider  # noqa: E402
 from backend.app.services.extraction import make_extraction_service  # noqa: E402
@@ -312,6 +314,18 @@ def _persist_account(
             conn,
             version_id=rule_version.id,
             confidence_threshold=settings.validator_confidence_threshold,
+        )
+        review_service.open_validator_case(
+            conn,
+            transaction_id=transaction_id,
+            source_id=validated.id,
+            validator_status=validated.validator_status or "",
+            finding_codes=[
+                finding["code"]
+                for finding in (validated.validator_report or [])
+                if isinstance(finding, dict) and isinstance(finding.get("code"), str)
+            ],
+            actor_context=ActorContext(actor_type="anonymous"),
         )
         _apply_success_side_effects(
             conn, transaction_id, extraction, validated.validator_status, validated.validator_report

@@ -4,7 +4,8 @@
 zarfı Plan 02 integration contract'ı olarak burada kaydedilir. Plan 03
 (Faz 3A/3B/3C) router kayıtları — `auth`/`entities`/`participants`/
 `invitations` — bu entegrasyon checkpoint'inde eklendi (program_haritasi §3,
-Revizyon #3: router kayıtları Berke'nin entegrasyon commit'idir).
+Revizyon #3: router kayıtları Berke'nin entegrasyon commit'idir). Plan 04
+Wave A kapanışında `reviews` router'ı da aynı app-factory wiring'ine eklendi.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from backend.app.routers import (
     evidence,
     invitations,
     participants,
+    reviews,
     transactions,
 )
 
@@ -52,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(entities.router)
     app.include_router(participants.router)
     app.include_router(invitations.router)
+    app.include_router(reviews.router)
 
     return app
 
