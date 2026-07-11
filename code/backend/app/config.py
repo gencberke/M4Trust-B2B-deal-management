@@ -64,6 +64,7 @@ class Settings:
     app_hmac_key: str = ""                             # base64 — tax identifier lookup HMAC-SHA256
     session_cookie_secure: bool = False                # prod'da true; local http demo'da false
     session_ttl_seconds: float = 604800.0              # 7 gün — oturum süresi
+    legacy_capability_access_enabled: bool = True       # Wave 3'e kadar true; legacy token erişimi
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -103,6 +104,9 @@ class Settings:
             app_hmac_key=os.environ.get("APP_HMAC_KEY", ""),
             session_cookie_secure=_env_bool("SESSION_COOKIE_SECURE", False),
             session_ttl_seconds=float(_env("SESSION_TTL_SECONDS", "604800")),
+            legacy_capability_access_enabled=_env_bool(
+                "LEGACY_CAPABILITY_ACCESS_ENABLED", True
+            ),
         )
 
     def __repr__(self) -> str:
@@ -137,5 +141,7 @@ class Settings:
             f"app_encryption_key={encryption_key_masked!r}, "
             f"app_hmac_key={hmac_key_masked!r}, "
             f"session_cookie_secure={self.session_cookie_secure!r}, "
-            f"session_ttl_seconds={self.session_ttl_seconds!r})"
+            f"session_ttl_seconds={self.session_ttl_seconds!r}, "
+            f"legacy_capability_access_enabled="
+            f"{self.legacy_capability_access_enabled!r})"
         )
