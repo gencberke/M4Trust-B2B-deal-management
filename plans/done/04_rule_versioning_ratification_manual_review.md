@@ -1,7 +1,7 @@
 # 04 — Document Provenance, Rule Versioning, Reconciliation, Ratification, Manual Review (Program 2)
 
 > **Durum:** Uygulandı — 2026-07-11 · Sapmalar: Account legacy capability default-false cutover ve gerçek provider funding, ekip kararına uygun olarak Plan 06'ya bırakıldı. **Master ref:** v2 §2.11, §2.15, §2.16, §5.8-5.15, Program 2, Wave 2-3 · Moka §9 (funding plan package'ta)
-> **Wave A durumu:** Uygulandı — 2026-07-11 · 4A/4B + kapanış entegrasyonu tamamlandı; migration 010 registry, reviews app wiring, validator/reconciliation hook'ları ve merkezi reader seam gate'i yeşil. **Wave B bekliyor; plan bütünü henüz done değildir.**
+> **Wave A durumu:** Uygulandı — 2026-07-11 · 4A/4B + kapanış entegrasyonu tamamlandı; migration 010 registry, reviews app wiring, validator/reconciliation hook'ları ve merkezi reader seam gate'i yeşil. (Bu satır Wave A kapanışında yazıldı; Wave B'nin durumu aşağıdaki Faz 4C-4F-2 satırlarında ve **Plan 04 kapanış durumu** satırında ayrıca izlenir — bu satırın kendisi Wave B'nin bitip bitmediğini göstermez.)
 > **Faz 4C durumu:** Uygulandı — 2026-07-11 · Yusuf’un saf funding-plan compiler’ı integration branch’e merge edildi.
 > **Faz 4D durumu:** Uygulandı — 2026-07-11 · Canonical ratification package, migration 011, account lifecycle helper ve provider’sız FundingCoordinator v1 tamamlandı.
 > **Faz 4E durumu:** Uygulandı — 2026-07-11 · Yusuf’un account ratification API, migration 012 dosyası ve approvals legacy cutover PR’ı integration branch’e merge edildi; kapanışta 012 registry/app wiring tamamlandı.

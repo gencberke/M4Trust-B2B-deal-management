@@ -40,6 +40,7 @@ from backend.app.services.ratification_package import (
     build_current_package,
     get_current,
     open_package,
+    supersede_if_inputs_changed,
 )
 
 router = APIRouter(tags=["ratifications"])
@@ -78,6 +79,17 @@ def _to_public_view(package) -> RatificationPackagePublicView:
     )
 
 
+def _raise_package_api_error(exc: Exception) -> None:
+    """Package domain hatalarını standart `ApiError` zarfına çevirir (tek yerde)."""
+    if isinstance(exc, (PackageNotReadyError, PackageConflictError)):
+        raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
+    if isinstance(exc, PackageIntegrityError):
+        raise ApiError(status_code=409, code="PACKAGE_INTEGRITY_FAILED", message=str(exc)) from exc
+    if isinstance(exc, PackageNotFoundError):
+        raise ApiError(status_code=404, code="PACKAGE_NOT_FOUND", message=str(exc)) from exc
+    raise exc
+
+
 def _client_ip_hash(request: Request) -> str | None:
     client = request.client
     if client is None or not client.host:
@@ -110,16 +122,32 @@ def build_and_open_ratification_package(
             capabilities=MOKA_STANDARD_PROFILE,
             actor_context=actor,
         )
-        package = open_package(conn, package_id=package.id, actor_context=actor)
-    except PackageNotReadyError as exc:
-        raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
     except PackageConflictError as exc:
-        raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
-    except PackageIntegrityError as exc:
-        raise ApiError(status_code=409, code="PACKAGE_INTEGRITY_FAILED", message=str(exc)) from exc
-    except PackageNotFoundError as exc:
-        raise ApiError(status_code=404, code="PACKAGE_NOT_FOUND", message=str(exc)) from exc
-    conn.commit()
+        if exc.reason_code != "PACKAGE_INPUTS_CHANGED":
+            _raise_package_api_error(exc)
+        # Girdiler (rule revision/policy/participant) değişti -- donmuş amendment
+        # seam'i üzerinden yeni version'ı superseded edip güncel package'ı üretir.
+        # Aksi halde ilk (yanlış) package'ı oluşturan herhangi bir transaction-access
+        # sahibi akışı kalıcı olarak kilitleyebilirdi (düzeltilmiş schedule'a giden
+        # API yolu yoktu).
+        try:
+            package = supersede_if_inputs_changed(
+                conn,
+                transaction_id=transaction_id,
+                funding_schedule_spec=body.funding_schedule_spec,
+                capabilities=MOKA_STANDARD_PROFILE,
+                actor_context=actor,
+            )
+        except (PackageNotReadyError, PackageConflictError, PackageIntegrityError, PackageNotFoundError) as inner_exc:
+            _raise_package_api_error(inner_exc)
+    except (PackageNotReadyError, PackageIntegrityError, PackageNotFoundError) as exc:
+        _raise_package_api_error(exc)
+
+    try:
+        package = open_package(conn, package_id=package.id, actor_context=actor)
+    except (PackageConflictError, PackageIntegrityError, PackageNotFoundError) as exc:
+        _raise_package_api_error(exc)
+
     return _to_public_view(package)
 
 
@@ -163,5 +191,4 @@ def submit_ratification(
         raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
     except FundingCoordinatorError as exc:
         raise ApiError(status_code=409, code="FUNDING_COORDINATOR_CONFLICT", message=str(exc)) from exc
-    conn.commit()
     return outcome

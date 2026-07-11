@@ -99,6 +99,54 @@ def test_same_ref_different_content_is_rejected(tmp_path: Path) -> None:
     assert provider.read_bytes(stored_ref) == b"version one"
 
 
+def test_concurrent_different_content_writes_never_silently_overwrite(tmp_path: Path) -> None:
+    """Major 5: iki thread aynı storage_ref'e AYNI ANDA farklı içerik yazarsa,
+    ikisi de `final_path.exists()`'i `False` görüp ikisi de "kazanabildiği"
+    eski (TOCTOU) tasarımın aksine -- tam olarak biri kazanır (kendi içeriği
+    kalıcı olur), diğeri `DocumentStorageConflictError` alır; sessiz bir
+    üçüncü/karışık sonuç asla oluşmaz."""
+    import threading
+
+    provider = _provider(tmp_path)
+    barrier = threading.Barrier(2)
+    results: dict[str, object] = {}
+
+    def _write(label: str, content: bytes) -> None:
+        barrier.wait()
+        try:
+            results[label] = provider.store(
+                transaction_id="tx-race",
+                document_id="doc-race",
+                original_filename="a.pdf",
+                media_type=None,
+                content=content,
+                expected_sha256=_sha256(content),
+            )
+        except DocumentStorageConflictError as exc:
+            results[label] = exc
+
+    content_a = b"race content A"
+    content_b = b"race content B"
+    thread_a = threading.Thread(target=_write, args=("a", content_a))
+    thread_b = threading.Thread(target=_write, args=("b", content_b))
+    thread_a.start()
+    thread_b.start()
+    thread_a.join()
+    thread_b.join()
+
+    outcomes = [results["a"], results["b"]]
+    successes = [o for o in outcomes if not isinstance(o, Exception)]
+    conflicts = [o for o in outcomes if isinstance(o, DocumentStorageConflictError)]
+    # Tam olarak biri kazanır, diğeri conflict alır -- ikisi de "başarılı" ya da
+    # ikisi de "conflict" olamaz (TOCTOU regresyonu olurdu).
+    assert len(successes) == 1
+    assert len(conflicts) == 1
+
+    persisted = provider.read_bytes("tx-race/doc-race")
+    winning_content = content_a if not isinstance(results["a"], Exception) else content_b
+    assert persisted == winning_content
+
+
 @pytest.mark.parametrize("bad_id", ["../escape", "a/b", "..", "", "a\\b"])
 def test_traversal_ids_are_rejected(tmp_path: Path, bad_id: str) -> None:
     provider = _provider(tmp_path)
