@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.db import connect
 from backend.app.services.extraction import ExtractionResult
+from extraction_fixtures import contractual_video_contract, patch_extraction
 from tests._identity_support import identity_keys  # noqa: F401
 
 _SAMPLE_MARKDOWN = (
@@ -193,6 +194,33 @@ def test_successful_account_pipeline_creates_ratifiable_initial_rule_set_version
 
     expected_hash = compute_rules_hash(canonical_rules_json(json.loads(row["rules_json"])))
     assert row["rules_hash"] == expected_hash
+
+
+def test_account_validator_needs_review_opens_blocking_review_case(
+    client: TestClient, identity_keys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = contractual_video_contract()
+    payload["payment_rules"][0]["confidence"] = 0.1
+    patch_extraction(monkeypatch, payload)
+
+    created = _account_transaction(client, identity_keys)
+    conn = connect()
+    rule_row = conn.execute(
+        "SELECT id, validator_status FROM rule_set_versions WHERE transaction_id = ?",
+        (created["id"],),
+    ).fetchone()
+    case_row = conn.execute(
+        "SELECT * FROM review_cases WHERE transaction_id = ?",
+        (created["id"],),
+    ).fetchone()
+    conn.close()
+
+    assert rule_row["validator_status"] == "NEEDS_REVIEW"
+    assert case_row["source_type"] == "validator"
+    assert case_row["source_id"] == rule_row["id"]
+    assert case_row["reason_code"] == "VALIDATOR_NEEDS_REVIEW"
+    assert case_row["severity"] == "blocking"
+    assert "LOW_CONFIDENCE" in case_row["description"]
 
 
 def test_account_success_does_not_write_extracted_rules(client: TestClient, identity_keys) -> None:

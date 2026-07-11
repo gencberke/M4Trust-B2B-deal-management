@@ -1,9 +1,9 @@
 """`rule_set_versions` satır/sorgu erişimi + merkezi current-rule okuma kapısı.
 
 `get_current()` (v2 §11 "Merkezi current-rule seam") bu dosyanın tek genel
-amaçlı okuma ucudur: `routers/transactions.py`, `routers/delivery.py` ve
-`services/settlement.py` artık kendi "latest-by-rowid" `extracted_rules`
-sorgularını burada birleştirir. Davranış lifecycle'a göre dallanır —
+amaçlı okuma ucudur: transactions/approvals/delivery/evidence/settlement
+okuyucuları kendi "latest-by-rowid" `extracted_rules` sorgularını burada
+birleştirir. Davranış lifecycle'a göre dallanır —
 `account_v2` yalnız `rule_set_versions`'tan okur (satır yoksa `None`; legacy
 tabloya yanlışlıkla düşülmez), `legacy_v1` (ve tanınmayan/eski satırlar)
 mevcut `extracted_rules` "latest-by-rowid" davranışını korur.

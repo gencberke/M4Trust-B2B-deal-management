@@ -9,7 +9,6 @@ deterministik akış yapar).
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from sqlite3 import Connection
 
@@ -19,6 +18,7 @@ from pydantic import BaseModel
 from backend.app.config import Settings
 from backend.app.db import get_db
 from backend.app.eventbus import emit
+from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.repositories.transactions import load_transaction
 from backend.app.routers.transactions import resolve_party
 from backend.app.services.payment_provider import make_payment_provider
@@ -51,14 +51,10 @@ def _approved_parties(conn: Connection, transaction_id: str) -> set[str]:
 
 
 def _load_extraction_for_payment(conn: Connection, transaction_id: str) -> dict | None:
-    row = conn.execute(
-        "SELECT extraction_json FROM extracted_rules WHERE transaction_id = ? "
-        "ORDER BY created_at DESC, rowid DESC LIMIT 1",
-        (transaction_id,),
-    ).fetchone()
-    if row is None or row["extraction_json"] is None:
+    current = rule_sets_repo.get_current(conn, transaction_id)
+    if current is None or current.extraction is None:
         return None
-    return json.loads(row["extraction_json"])
+    return current.extraction.model_dump(mode="json")
 
 
 def _policy_not_locked_detail() -> dict:

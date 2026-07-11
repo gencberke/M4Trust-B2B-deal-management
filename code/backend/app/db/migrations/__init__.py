@@ -24,6 +24,7 @@ documents_extraction_runs = import_module(
 rule_set_versions = import_module(
     "backend.app.db.migrations.009_rule_set_versions"
 )
+review_cases = import_module("backend.app.db.migrations.010_review_cases")
 
 __all__ = [
     "baseline_current_schema",
@@ -34,4 +35,5 @@ __all__ = [
     "transaction_lifecycle_v2",
     "documents_extraction_runs",
     "rule_set_versions",
+    "review_cases",
 ]

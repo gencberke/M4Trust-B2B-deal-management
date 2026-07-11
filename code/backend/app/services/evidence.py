@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timezone
 from sqlite3 import Connection
 
+from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.services.extraction_projection import redacted_extraction_projection
 from backend.app.services.tracking_policy import load_tracking_policy
 
@@ -34,27 +35,20 @@ def build_bundle(conn: Connection, transaction_id: str) -> dict:
         else None
     )
 
-    extraction_row = conn.execute(
-        "SELECT extraction_json, validator_status, validator_report FROM extracted_rules "
-        "WHERE transaction_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
-        (transaction_id,),
-    ).fetchone()
+    current_rules = rule_sets_repo.get_current(conn, transaction_id)
     extraction = None
     validator_report = None
-    if extraction_row is not None:
-        if extraction_row["extraction_json"]:
+    if current_rules is not None:
+        if current_rules.extraction is not None:
             # Bundle yalnızca capability token'ıyla indirilebilir (routers/evidence.py)
             # ve kanıt paketinin amacı kuralın sözleşmedeki dayanağını göstermektir.
             extraction = redacted_extraction_projection(
-                json.loads(extraction_row["extraction_json"]), include_source_quote=True
+                current_rules.extraction.model_dump(mode="json"), include_source_quote=True
             )
-        findings = extraction_row["validator_report"]
-        if findings:
-            try:
-                findings = json.loads(findings)
-            except (json.JSONDecodeError, TypeError):
-                pass  # düz metin gerekçe (pipeline hata/needs_review yolu) — olduğu gibi bırak
-        validator_report = {"status": extraction_row["validator_status"], "findings": findings}
+        validator_report = {
+            "status": current_rules.validator_status,
+            "findings": current_rules.validator_report,
+        }
 
     approvals = [
         {"party": r["party"], "created_at": r["created_at"]}

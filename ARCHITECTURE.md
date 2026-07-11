@@ -33,19 +33,24 @@ code/
 ├── scripts/          # offline hazırlık + demo_moka_contract.py gerçek HTTP demo sürücüsü
 ├── backend/app/
 │   ├── main.py · config.py · eventbus.py
-│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-007
-│   ├── repositories/ # transactions.py · users.py · entities.py · participants.py · invitations.py
+│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-010
+│   ├── repositories/ # transactions · identity/participants · documents/extraction_runs · rule_sets · reviews
 │   ├── api/          # yeni uçlar için standart hata zarfı
 │   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
-│   ├── schemas/      # extraction.py (ikili sözleşme) · tracking.py · identity.py · participants.py
+│   ├── schemas/      # extraction.py (ikili sözleşme) · tracking/identity/participants · rule_sets/reviews
 │   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence ·
-│   │                 # auth · entities · participants · invitations (Plan 03)
+│   │                 # auth · entities · participants · invitations (Plan 03) · reviews (Plan 04 Wave A)
 │   └── services/
 │       ├── documents/         # DocumentExtractor: pdf_digital · docx · ocr · normalizer
 │       ├── rag.py             # Chroma retrieval (BGE-M3 lazy singleton, düşük seviye)
 │       ├── context_builder.py # ContextBuilder: çoklu-query/çoklu-koleksiyon RAG orkestrasyonu → ContextPack
 │       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
+│       ├── document_storage.py# DocumentStorageProvider + local immutable storage adapter'ı
+│       ├── transaction_pipeline.py # account/legacy extraction pipeline orkestrasyonu
+│       ├── rule_versions.py   # frozen RuleVersionService: immutable version + validator sonucu
+│       ├── review.py          # frozen ReviewService: case/action lifecycle
+│       ├── reconciliation.py  # extracted/declared/confirmed party diff + blocking review case
 │       ├── auth.py            # Argon2id parola · session/CSRF token (yalnız hash) · Origin doğrulaması
 │       ├── identity.py        # legal entity + membership: AES-256-GCM tax ID + HMAC lookup
 │       ├── access_control.py  # ActorContext (anonymous · legacy_capability · user/session) + auth/membership guard'ları
@@ -71,6 +76,8 @@ code/
 > **Uygulama notu (2026-07-09):** `DocumentExtractor` şu an `services/documents/` altında değil — mevcut kod `code/scripts/document_parser/` içinde (Clean Architecture, testli); backend pipeline onu bir `sys.path` köprüsüyle import eder (bkz. `routers/transactions.py`). Yukarıdaki `services/documents/` hedef yapısı korunur; relokasyon ayrı bir iştir. Backend omurgası (`main`/`db`/`eventbus`/`routers`/`validator`/`decision`/`payment_provider`/`video`/`evidence`) kuruldu — [plans/done/backend_iskeleti_ve_islem_akisi.md](plans/done/backend_iskeleti_ve_islem_akisi.md).
 
 > **Uygulama notu (2026-07-11, Plan 03):** Identity/session/legal-entity/membership + participant/invitation/audit + transaction ownership cutover kuruldu — [plans/done/03_identity_legal_entity_party_onboarding.md](plans/done/03_identity_legal_entity_party_onboarding.md). İki paralel `lifecycle_version` sistemi bir arada yaşıyor: **`legacy_v1`** (anonim capability-link, tüm mevcut davranış değişmedi) ve **`account_v2`** (authenticated session + legal entity + participant/invitation, capability token üretmez). `POST /api/transactions` iki modu da aynı uçta additive olarak sunar (§4.1). `main.py`'ye `auth`/`entities`/`participants`/`invitations` router'ları bu entegrasyon checkpoint'inde eklendi.
+
+> **Uygulama notu (2026-07-11, Plan 04 Wave A):** Document provenance (`contract_documents`), immutable extraction runs, immutable/validator-bound rule-set versions ve manual review/reconciliation çekirdeği kuruldu. Migration runner `008 → 009 → 010` sırasını uygular; reviews router gerçek app'e bağlıdır. Account pipeline'da validator `NEEDS_REVIEW` sonucu blocking `validator` case açar; participant confirm current rule-set ile party reconciliation çalıştırır. Merkezi `repositories/rule_sets.py::get_current` reader'ı transactions/delivery/settlement yanında approvals/evidence tarafından da kullanılır. `ExtractionJSON` şeması değişmedi; legacy `extracted_rules` fallback'i korunur.
 
 Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi). Authenticated account akışının frontend'i Plan 03 kapsamı dışıdır (Program 6/Faz 08).
 
@@ -203,6 +210,8 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 | `POST /api/transactions/{id}/invitations/{invitation_id}/revoke` | CSRF zorunlu; yalnız manager/creator |
 | `GET /api/transactions/{id}/participants` | Transaction access sahibi (assignment) |
 | `PUT .../participants/me/profile` · `POST .../participants/me/confirm` | CSRF zorunlu; declared → confirmed snapshot; confirmed sonrası kilitlenir |
+| `GET /api/transactions/{id}/reviews` | Transaction assignment sahibi veya platform reviewer/admin için review case + action listesi; GET side-effect üretmez |
+| `POST /api/reviews/{review_case_id}/actions` | CSRF zorunlu; comment transaction manager/approver veya platform reviewer/admin, state-changing action yalnız platform reviewer/admin; blocking case `resolve_continue` ile bypass edilemez |
 
 **Session/CSRF:** cookie `HttpOnly` + `SameSite=Lax` (+ prod'da `Secure`, `SESSION_COOKIE_SECURE`); mutating uçlarda `X-CSRF-Token` header zorunlu (sabit-zamanlı karşılaştırma) + verilmişse `Origin` host eşleşmesi. Session/CSRF raw token'ları DB'de yalnız SHA-256 hash. `X-Acting-Entity-ID` header'ı yalnız gerçek aktif membership doğrulanırsa `ActorContext.acting_entity_id`'yi doldurur.
 
@@ -211,6 +220,8 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 `schemas/extraction.py` (Pydantic) tek doğruluk kaynağıdır; fake ve gerçek extraction aynı şemayı döndürür. Değişiklik ekip mutabakatı gerektirir.
 
 > Şema **sözleşmenin ne söylediğini** temsil eder; platformun operasyonel takip tercihi buraya yazılmaz (o `schemas/tracking.py`de yaşar). `trigger.delivery_video` ve `required_evidence.video` yalnızca sözleşme videoyu açıkça şart koştuğunda kullanılır. Alan adları ve enum üyeleri `tests/test_extraction_schema.py`deki yapısal snapshot testiyle kilitlidir.
+
+`extraction_runs.extraction_json` adapter'ın restore öncesi typed payload'ını immutable saklar; `rule_set_versions.rules_json` ise restore edilmiş ve aynı `ExtractionJSON` şemasıyla doğrulanmış kanonik payload'dır. Bu ayrım şemayı genişletmez.
 
 ```json
 {
@@ -286,7 +297,7 @@ Tablolar (baseline): `transactions` (state, buyer_token, seller_token, **manager
 | evidence_pending | active / blocked_evidence (son `payment_decision_created.manual_review_required`) |
 | decided | settled / partially_settled (`mock_payments.status`) |
 
-**Migration:** `init_db()` versiyonlu migration runner'a delegedir. Sıra: `001_baseline_current_schema` (sekiz legacy runtime tablosu) → `003_identity_sessions` → `004_legal_entities_memberships` → `005_participants_invitations` → `006_audit_events` → `007_transaction_lifecycle_v2` (`transactions`'a additive kolonlar, mevcut satırlar `legacy_v1` backfill). `002` kasıtlı olarak rezerve/kullanılmamıştır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir, sonraki migration'lar normal döngüyle eklenir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
+**Migration:** `init_db()` versiyonlu migration runner'a delegedir. Sıra: `001_baseline_current_schema` (sekiz legacy runtime tablosu) → `003_identity_sessions` → `004_legal_entities_memberships` → `005_participants_invitations` → `006_audit_events` → `007_transaction_lifecycle_v2` → `008_documents_extraction_runs` → `009_rule_set_versions` → `010_review_cases`. `007`, `transactions`'a additive kolonlar ekler ve mevcut satırları `legacy_v1` backfill eder. `008`, `contract_documents` + immutable `extraction_runs`; `009`, immutable-content `rule_set_versions`; `010`, `review_cases` + append-only `review_actions` tablolarını ekler. `002` kasıtlı olarak rezerve/kullanılmamıştır. Boş DB tüm pending migration'ları atomik uygular; `schema_migrations` bulunmayan mevcut DB ancak tablo+kolon fingerprint'i tam eşleşirse `001` olarak stamp edilir, sonraki migration'lar normal döngüyle eklenir. Kısmi/bilinmeyen legacy şema `UnknownLegacySchemaError` ile **hiç mutate edilmeden** reddedilir. Migration SQL'i ile applied marker aynı transaction'dadır; kesinti rollback olur ve rerun güvenlidir. Her request bağlantısı başarıda commit, hatada açık rollback ve her durumda close uygular; background task kendi bağlantısını açar. Bağlantılar `timeout=5.0`, `busy_timeout=5000`, WAL, foreign key ve `sqlite3.Row` ayarlarını korur.
 
 ```
 uploaded → extracting → awaiting_review | awaiting_approval | rejected

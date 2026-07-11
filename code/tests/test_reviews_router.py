@@ -222,6 +222,16 @@ def test_dependency_override_cleanup(dependency_override_cleanup) -> None:
     assert real_app.dependency_overrides.get(get_current_actor) is not None
 
 
+def test_real_app_registers_review_routes() -> None:
+    from backend.app.main import app as real_app
+
+    client = TestClient(real_app)
+    assert client.get("/api/transactions/tx/reviews").status_code == 401
+    assert client.post(
+        "/api/reviews/case/actions", json={"action": "comment", "comment": "x"}
+    ).status_code == 401
+
+
 # --- real session + CSRF/Origin -------------------------------------------------------
 
 
