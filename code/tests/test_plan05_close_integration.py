@@ -14,7 +14,7 @@ from backend.app.services import evidence_records as evidence_service
 from backend.app.services import review as review_service
 from backend.app.services import settlement
 from backend.app.services.access_control import ActorContext
-from reviews_fixtures import create_real_session, create_real_user
+from reviews_fixtures import build_reviews_app, create_real_session, create_real_user
 from test_ratifications import _setup_open_package, make_db
 
 
@@ -261,11 +261,23 @@ def test_review_escalate_dispute_opens_new_dispute(tmp_path: Path) -> None:
     transaction_id = "tx-plan05-escalation"
     conn = make_db(tmp_path / "plan05-escalation.db")
     _prepare_account_transaction(conn, transaction_id)
+    seller = conn.execute(
+        "SELECT id FROM transaction_participants WHERE transaction_id = ? AND role = 'seller'",
+        (transaction_id,),
+    ).fetchone()
+    participants_repo.create_assignment(
+        conn,
+        transaction_id=transaction_id,
+        participant_id=seller["id"],
+        user_id="u-seller",
+        legal_entity_id="entity-seller",
+        role="approver",
+    )
+    conn.commit()
     reviewer = ActorContext(
         actor_type="user",
         user_id="u-seller",
         acting_entity_id="entity-seller",
-        platform_role="reviewer",
         auth_method="session",
         request_id="req-plan05-close",
     )
@@ -295,6 +307,54 @@ def test_review_escalate_dispute_opens_new_dispute(tmp_path: Path) -> None:
     assert dispute.transaction_id == transaction_id
     assert dispute.status == "open"
     assert review_service.list_cases(conn, transaction_id)[0].status.value == "escalated"
+    conn.close()
+
+
+def test_review_endpoint_escalation_uses_participant_approver_authorization(
+    tmp_path: Path,
+) -> None:
+    transaction_id = "tx-plan05-review-router"
+    conn = make_db(tmp_path / "plan05-review-router.db")
+    _prepare_account_transaction(conn, transaction_id)
+    _add_real_memberships_and_approvers(conn, transaction_id)
+    case = review_service.open_case(
+        conn,
+        transaction_id=transaction_id,
+        phase="settlement",
+        source_type="video",
+        source_id="video-source",
+        reason_code="VIDEO_ADVISORY_ANOMALY",
+        title="Video anomaly",
+        description="Video advisory incelemesi gerekiyor.",
+        severity="blocking",
+        actor_context=ActorContext(actor_type="anonymous", auth_method="none"),
+    )
+    conn.commit()
+
+    platform_reviewer = ActorContext(
+        actor_type="user",
+        user_id="u-platform-reviewer",
+        platform_role="reviewer",
+        auth_method="session",
+        request_id="req-plan05-review-router",
+    )
+    reviewer_response = TestClient(build_reviews_app(conn, platform_reviewer)).post(
+        f"/api/reviews/{case.id}/actions", json={"action": "escalate_dispute"}
+    )
+    assert reviewer_response.status_code == 403
+
+    participant_approver = ActorContext(
+        actor_type="user",
+        user_id="u-seller",
+        acting_entity_id="entity-seller",
+        auth_method="session",
+        request_id="req-plan05-review-router",
+    )
+    approver_response = TestClient(build_reviews_app(conn, participant_approver)).post(
+        f"/api/reviews/{case.id}/actions", json={"action": "escalate_dispute"}
+    )
+    assert approver_response.status_code == 200, approver_response.text
+    assert approver_response.json()["action"] == "escalate_dispute"
     conn.close()
 
 

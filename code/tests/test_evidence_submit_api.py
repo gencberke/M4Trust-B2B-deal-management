@@ -271,6 +271,74 @@ def test_video_analyzer_failure_cleans_up_storage(
     assert not [path for path in (tmp_path / "documents").rglob("*") if path.is_file()]
 
 
+def test_concurrent_same_video_failure_cannot_delete_successful_upload(
+    conn, tmp_path: Path, monkeypatch
+) -> None:
+    """Aynı hash'in analyzer yarışı başarılı kaydın dosyasını silemez."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event, Lock
+
+    from backend.app.routers import evidence_submit
+
+    success_recorded = Event()
+    call_lock = Lock()
+    call_count = 0
+    original_factory = evidence_submit.make_video_analyzer
+    original_submit = evidence_submit.evidence_records_service.submit_evidence
+
+    class OneSuccessOneFailureAnalyzer:
+        def analyze(self, path):
+            nonlocal call_count
+            with call_lock:
+                call_count += 1
+                call_number = call_count
+            if call_number == 1:
+                return original_factory(Settings.from_env()).analyze(path)
+            if not success_recorded.wait(timeout=5):
+                raise RuntimeError("successful evidence was not recorded")
+            raise RuntimeError("simulated concurrent analyzer failure")
+
+    def submit_and_signal(*args, **kwargs):
+        record = original_submit(*args, **kwargs)
+        if kwargs.get("evidence_type") == "video":
+            success_recorded.set()
+        return record
+
+    monkeypatch.setattr(
+        evidence_submit, "make_video_analyzer", lambda _settings: OneSuccessOneFailureAnalyzer()
+    )
+    monkeypatch.setattr(
+        evidence_submit.evidence_records_service, "submit_evidence", submit_and_signal
+    )
+
+    conn2 = connect(Settings(db_path=tmp_path / "5a_api.db"))
+    actor = _actor("u-manager", _BUYER_ENTITY)
+    app_a = _build_app(conn, actor)
+    app_b = _build_app(conn2, actor)
+    try:
+        with TestClient(app_a) as client_a, TestClient(app_b) as client_b:
+            def post(client):
+                return client.post(
+                    f"/api/transactions/{_TX_ID}/evidence/video",
+                    files={"file": ("same-a.mp4", b"concurrent-video", "video/mp4")},
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                responses = list(pool.map(post, (client_a, client_b)))
+
+        assert sorted(response.status_code for response in responses) == [200, 422]
+        success = next(response for response in responses if response.status_code == 200)
+        storage_path = tmp_path / "documents" / success.json()["storage_ref"]
+        assert storage_path.is_file()
+        assert storage_path.read_bytes() == b"concurrent-video"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM evidence_records WHERE transaction_id = ? AND evidence_type = 'video'",
+            (_TX_ID,),
+        ).fetchone()[0] == 1
+    finally:
+        conn2.close()
+
+
 # --- static checks -----------------------------------------------------------------
 
 

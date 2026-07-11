@@ -73,7 +73,8 @@ def _owner_actor(user_id: str = "u-owner") -> ActorContext:
 
 
 def _reviewer_actor(user_id: str = "u-reviewer") -> ActorContext:
-    """reviews uçları: state-changing action'lar yalnız platform reviewer/admin."""
+    """reviews uçları: normal state-changing action'lar platform reviewer/admin;
+    commercial `escalate_dispute` participant approver içindir."""
     return ActorContext(
         actor_type="user",
         user_id=user_id,
@@ -171,7 +172,7 @@ def test_rule_revision_revalidate_resolve_continue_returns_to_preparation(tmp_pa
     assert revised["id"] != old_version_id
 
     # 3) Eski version artık current değil -> resolve_continue şimdi izinli
-    # (yalnız platform reviewer/admin yapabilir).
+    # (yalnız platform reviewer/admin yapabilir; escalation ayrı matrise sahiptir).
     resolved = reviewer_client.post(f"/api/reviews/{case_id}/actions", json={"action": "resolve_continue"})
     assert resolved.status_code == 200, resolved.text
     assert resolved.json()["action"] == "resolve_continue"

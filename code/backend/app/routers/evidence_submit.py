@@ -257,18 +257,6 @@ async def submit_video_evidence(
     if existing is not None:
         return _to_public_view(existing)
 
-    storage = make_document_storage_provider(settings)
-    stored = storage.store(
-        transaction_id=transaction_id,
-        # Aynı content hash aynı immutable storage key'ini kullanır. Exact
-        # replay bu noktaya gelmeden döner; yarışta provider da idempotenttir.
-        document_id=file_sha256,
-        original_filename=file.filename or "delivery_evidence",
-        media_type=file.content_type,
-        content=content,
-        expected_sha256=file_sha256,
-    )
-
     original_name = file.filename or "delivery_evidence"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{original_name}")
     try:
@@ -278,7 +266,6 @@ async def submit_video_evidence(
         try:
             analysis = make_video_analyzer(settings).analyze(temp_path)
         except Exception as exc:  # noqa: BLE001 -- analyzer exception metni kalıcı alana yazılmaz
-            storage.delete(stored.storage_ref)
             raise ApiError(
                 status_code=422, code="EVIDENCE_ANALYSIS_FAILED", message="Video analiz edilemedi."
             ) from exc
@@ -290,7 +277,22 @@ async def submit_video_evidence(
         safe_payload, settings.video_advisory_confidence_threshold
     )
 
+    # Analyzer başarılı olmadan kalıcı storage'a yazılmaz. Aynı hash'i işleyen
+    # concurrent isteklerden biri analyzer'da düşse bile diğerinin ortak
+    # immutable dosyasını silemez.
+    storage = make_document_storage_provider(settings)
+    stored = None
     try:
+        stored = storage.store(
+            transaction_id=transaction_id,
+            # Aynı content hash aynı immutable storage key'ini kullanır. Exact
+            # replay bu noktaya gelmeden döner; yarışta provider da idempotenttir.
+            document_id=file_sha256,
+            original_filename=file.filename or "delivery_evidence",
+            media_type=file.content_type,
+            content=content,
+            expected_sha256=file_sha256,
+        )
         record = evidence_records_service.submit_evidence(
             conn,
             transaction_id=transaction_id,
@@ -309,14 +311,14 @@ async def submit_video_evidence(
         existing = evidence_records_service.get_by_file_sha256(
             conn, transaction_id=transaction_id, file_sha256=file_sha256
         )
-        if existing is None or existing.storage_ref != stored.storage_ref:
+        if stored is not None and (existing is None or existing.storage_ref != stored.storage_ref):
             storage.delete(stored.storage_ref)
         raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
     except Exception:
         existing = evidence_records_service.get_by_file_sha256(
             conn, transaction_id=transaction_id, file_sha256=file_sha256
         )
-        if existing is None or existing.storage_ref != stored.storage_ref:
+        if stored is not None and (existing is None or existing.storage_ref != stored.storage_ref):
             storage.delete(stored.storage_ref)
         raise
 
