@@ -1,6 +1,7 @@
-import cv2
-import numpy as np
 import pytest
+
+cv2 = pytest.importorskip("cv2", reason="Opsiyonel video profili kurulu değil")
+np = pytest.importorskip("numpy", reason="Opsiyonel video profili kurulu değil")
 
 from backend.app.services.video.exceptions import VideoAnalyzerError
 from backend.app.services.video.frame_sampler import extract_frames
