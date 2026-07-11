@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from backend.app.services import review as svc
 from backend.app.services.access_control import ActorContext
 from participants_fixtures import create_test_transaction
-from reviews_fixtures import make_reviews_db
+from reviews_fixtures import make_reviews_db, make_reviews_db_with_rule_sets
 
 
 @pytest.fixture()
@@ -191,13 +193,25 @@ def test_closed_case_still_allows_comment(conn) -> None:
 # --- Wave A güvenlik sınırı: resolve_continue -------------------------------------
 
 
-def test_resolve_continue_on_blocking_case_is_forbidden(conn) -> None:
+def test_resolve_continue_on_blocking_case_without_revision_is_rejected() -> None:
+    """Faz 4F-2: revision+revalidation yapılmadan blocking case hâlâ reddedilir --
+    yalnız hata tipi değişti (kayıtsız-şartsız yasak yerine ön-koşul kontrolü)."""
+    conn = make_reviews_db_with_rule_sets()
     tx_id = create_test_transaction(conn)
     case = _open(conn, tx_id, severity="blocking")
-    with pytest.raises(svc.ReviewActionForbiddenError):
+    with pytest.raises(svc.ReviewResolutionPreconditionError):
         svc.record_action(conn, case_id=case.id, actor_context=actor(platform_role="reviewer"), action="resolve_continue")
     reloaded = svc.list_cases(conn, tx_id)[0]
     assert reloaded.status.value == "open"
+    conn.close()
+
+
+def test_resolve_continue_on_blocking_case_outside_pre_ratification_is_forbidden(conn) -> None:
+    """settlement/payment fazındaki blocking case'ler için resolution semantiği henüz yok."""
+    tx_id = create_test_transaction(conn)
+    case = _open(conn, tx_id, severity="blocking", phase="settlement")
+    with pytest.raises(svc.ReviewActionForbiddenError):
+        svc.record_action(conn, case_id=case.id, actor_context=actor(platform_role="reviewer"), action="resolve_continue")
 
 
 def test_resolve_continue_on_warning_case_succeeds(conn) -> None:
@@ -206,6 +220,157 @@ def test_resolve_continue_on_warning_case_succeeds(conn) -> None:
     svc.record_action(conn, case_id=case.id, actor_context=actor(platform_role="reviewer"), action="resolve_continue")
     reloaded = svc.list_cases(conn, tx_id)[0]
     assert reloaded.status.value == "resolved"
+
+
+# --- Faz 4F-2: blocking resolve_continue ön koşulları -------------------------------
+
+_PAYLOAD_4F2 = {
+    "contract_id": "c-4f2",
+    "parties": {
+        "buyer": {"name": "Buyer A.Ş.", "tax_id": "1111111111"},
+        "seller": {"name": "Seller Ltd.", "tax_id": "2222222222"},
+    },
+    "commercial_terms": {
+        "currency": "TRY",
+        "total_amount": 100.0,
+        "goods": [{"name": "Pompa", "quantity": 1.0, "unit": "adet"}],
+        "delivery_deadline": None,
+    },
+    "payment_rules": [
+        {
+            "milestone": "Kabul",
+            "trigger": "approval",
+            "percentage": 100.0,
+            "required_evidence": ["contract"],
+            "source_quote": "Onay sonrası ödeme yapılır.",
+            "confidence": 0.9,
+        }
+    ],
+    "risk_flags": [],
+    "needs_manual_review": False,
+}
+
+
+def _account_tx_with_rule_set(conn, *, confidence_threshold: float):
+    """account_v2 transaction + tek rule_set_version; `confidence_threshold` 0.9'dan
+    büyükse validator NEEDS_REVIEW döner (confidence 0.9 < threshold), küçük/eşitse PASS."""
+    from backend.app.services.rule_versions import create_initial_from_extraction, validate_version
+
+    tx_id = create_test_transaction(conn)
+    conn.execute("UPDATE transactions SET lifecycle_version = 'account_v2' WHERE id = ?", (tx_id,))
+    document_id = f"doc-{tx_id}"
+    run_id = f"run-{tx_id}"
+    conn.execute(
+        "INSERT INTO contract_documents (id, transaction_id, version, original_filename, "
+        "storage_ref, content_sha256, status, created_at) VALUES (?, ?, 1, 'c.md', ?, "
+        "'hash', 'active', 'now')",
+        (document_id, tx_id, f"{tx_id}/{document_id}"),
+    )
+    conn.execute(
+        "INSERT INTO extraction_runs (id, transaction_id, document_id, provider, model, "
+        "prompt_version, schema_version, extraction_json, status, created_at) "
+        "VALUES (?, ?, ?, 'fake', 'fake-v1', 'v1', 'v1', ?, 'ok', 'now')",
+        (run_id, tx_id, document_id, json.dumps(_PAYLOAD_4F2)),
+    )
+    version = create_initial_from_extraction(
+        conn, transaction_id=tx_id, extraction_run_id=run_id, rules_payload=_PAYLOAD_4F2
+    )
+    validate_version(conn, version_id=version.id, confidence_threshold=confidence_threshold)
+    return tx_id, version.id
+
+
+def test_resolve_continue_on_validator_case_before_revision_still_rejected() -> None:
+    conn = make_reviews_db_with_rule_sets()
+    tx_id, version_id = _account_tx_with_rule_set(conn, confidence_threshold=2.0)  # -> NEEDS_REVIEW
+    case = svc.open_validator_case(
+        conn,
+        transaction_id=tx_id,
+        source_id=version_id,
+        validator_status="NEEDS_REVIEW",
+        finding_codes=["LOW_CONFIDENCE"],
+        actor_context=actor(),
+    )
+    with pytest.raises(svc.ReviewResolutionPreconditionError):
+        svc.record_action(conn, case_id=case.id, actor_context=actor(platform_role="reviewer"), action="resolve_continue")
+    conn.close()
+
+
+def test_resolve_continue_on_validator_case_after_revalidation_returns_to_preparation() -> None:
+    from backend.app.services.rule_versions import create_revision, validate_version
+
+    conn = make_reviews_db_with_rule_sets()
+    tx_id, old_version_id = _account_tx_with_rule_set(conn, confidence_threshold=2.0)
+    case = svc.open_validator_case(
+        conn,
+        transaction_id=tx_id,
+        source_id=old_version_id,
+        validator_status="NEEDS_REVIEW",
+        finding_codes=["LOW_CONFIDENCE"],
+        actor_context=actor(),
+    )
+    conn.execute("UPDATE transactions SET state = 'awaiting_review' WHERE id = ?", (tx_id,))
+
+    revised = create_revision(
+        conn,
+        transaction_id=tx_id,
+        parent_version_id=old_version_id,
+        rules_payload=_PAYLOAD_4F2,
+        actor_context=actor(),
+    )
+    validate_version(conn, version_id=revised.id, confidence_threshold=0.5)  # confidence 0.9 -> PASS
+
+    action = svc.record_action(
+        conn, case_id=case.id, actor_context=actor(platform_role="reviewer"), action="resolve_continue"
+    )
+    assert action.action.value == "resolve_continue"
+    reloaded_case = svc.list_cases(conn, tx_id)[0]
+    assert reloaded_case.status.value == "resolved"
+    tx_row = conn.execute("SELECT state FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+    assert tx_row["state"] == "preparation"
+    conn.close()
+
+
+def test_resolve_continue_on_party_mismatch_case_after_fix_succeeds() -> None:
+    conn = make_reviews_db_with_rule_sets()
+    tx_id, version_id = _account_tx_with_rule_set(conn, confidence_threshold=0.5)  # PASS
+    participant_id = "participant-buyer"
+    conn.execute(
+        "INSERT INTO transaction_participants (id, transaction_id, role, legal_entity_id, "
+        "status, confirmed_snapshot_json, confirmed_at, created_at, updated_at) VALUES "
+        "(?, ?, 'buyer', 'entity-buyer', 'confirmed', ?, 'now', 'now', 'now')",
+        (participant_id, tx_id, json.dumps({"name": "Yanlis Isim A.Ş."})),
+    )
+    case = svc.open_case(
+        conn,
+        transaction_id=tx_id,
+        phase="pre_ratification",
+        source_type="party_mismatch",
+        source_id=participant_id,
+        reason_code="PARTY_NAME_MISMATCH",
+        title="buyer tarafı name uyuşmazlığı",
+        description="d",
+        severity="blocking",
+        actor_context=actor(),
+    )
+    # Henüz düzeltilmedi -> ön koşul sağlanmaz.
+    with pytest.raises(svc.ReviewResolutionPreconditionError):
+        svc.record_action(conn, case_id=case.id, actor_context=actor(platform_role="reviewer"), action="resolve_continue")
+
+    # Confirmed snapshot extracted (Buyer A.Ş.) ile eşleşecek şekilde düzeltildi.
+    conn.execute(
+        "UPDATE transaction_participants SET confirmed_snapshot_json = ? WHERE id = ?",
+        (json.dumps({"name": "Buyer A.Ş."}), participant_id),
+    )
+    conn.execute("UPDATE transactions SET state = 'awaiting_approval' WHERE id = ?", (tx_id,))
+    action = svc.record_action(
+        conn, case_id=case.id, actor_context=actor(platform_role="reviewer"), action="resolve_continue"
+    )
+    assert action.action.value == "resolve_continue"
+    reloaded_case = svc.list_cases(conn, tx_id)[0]
+    assert reloaded_case.status.value == "resolved"
+    tx_row = conn.execute("SELECT state FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+    assert tx_row["state"] == "preparation"
+    conn.close()
 
 
 # --- concurrency / conditional resolve --------------------------------------------

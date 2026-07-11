@@ -189,7 +189,12 @@ def test_unknown_case_returns_404(conn) -> None:
     assert response.status_code == 404
 
 
-def test_blocking_resolve_continue_returns_409(conn) -> None:
+def test_blocking_resolve_continue_returns_409() -> None:
+    """Faz 4F-2: revision+revalidation olmadan blocking resolve_continue hâlâ 409 --
+    `rule_sets_repo`'nun ihtiyaç duyduğu tablolar için ayrı, tam fixture kullanılır."""
+    from reviews_fixtures import make_reviews_db_with_rule_sets
+
+    conn = make_reviews_db_with_rule_sets()
     tx_id = create_test_transaction(conn)
     case = _open_case(conn, tx_id, severity="blocking")
     app = build_reviews_app(conn, actor_context=actor("reviewer-1", "reviewer"))
@@ -197,6 +202,8 @@ def test_blocking_resolve_continue_returns_409(conn) -> None:
         f"/api/reviews/{case.id}/actions", json={"action": "resolve_continue"}
     )
     assert response.status_code == 409
+    assert response.json()["code"] == "REVIEW_RESOLUTION_PRECONDITION_FAILED"
+    conn.close()
 
 
 def test_action_body_rejects_unknown_fields(conn) -> None:
