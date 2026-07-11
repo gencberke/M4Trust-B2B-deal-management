@@ -3,6 +3,7 @@
 §4.3'te tanımlı dokuz event tipi (referans; üretimleri sonraki fazlarda):
 - contract_extracted
 - rules_validated
+- rule_set_revised
 - buyer_approved
 - seller_approved
 - e_irsaliye_received

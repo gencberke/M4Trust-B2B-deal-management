@@ -468,6 +468,39 @@ def supersede_if_inputs_changed(
     return _insert_package(conn, transaction_id=transaction_id, inputs=inputs)
 
 
+def _supersede_current_for_rule_revision(
+    conn: Connection,
+    *,
+    transaction_id: str,
+    actor_context: ActorContext,
+) -> bool:
+    """Rule revision başladığında eski pre-funding package'ı geçersizleştirir.
+
+    `supersede_if_inputs_changed()` readiness için current rule'ın PASS olmasını
+    ister. NEEDS_REVIEW ile sonuçlanan bir revision'da da eski açık package'ın
+    ratify edilip funding'e ilerlemesi mümkün olmamalıdır; bu dar internal seam
+    yalnız mevcut package'ı supersede eder, yeni package üretmez. PASS sonucu
+    için caller sonrasında frozen `supersede_if_inputs_changed()` yolunu kullanır.
+    """
+    transaction = _require_account_transaction(conn, transaction_id)
+    _assert_pre_funding_state(transaction)
+    current = packages_repo.get_current(conn, transaction_id)
+    if current is None:
+        return False
+
+    packages_repo.mark_superseded(conn, current["id"])
+    audit.record(
+        conn,
+        _actor_for_audit(actor_context),
+        action="ratification_package.superseded",
+        target=f"ratification_package:{current['id']}",
+        metadata_allowlist=frozenset({"reason_code"}),
+        metadata={"reason_code": "RULE_REVISION"},
+        transaction_id=transaction_id,
+    )
+    return True
+
+
 def get_current(conn: Connection, transaction_id: str) -> RatificationPackage | None:
     row = packages_repo.get_current(conn, transaction_id)
     return None if row is None else _row_to_package(row)

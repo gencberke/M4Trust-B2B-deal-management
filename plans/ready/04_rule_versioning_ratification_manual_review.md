@@ -4,6 +4,8 @@
 > **Wave A durumu:** Uygulandı — 2026-07-11 · 4A/4B + kapanış entegrasyonu tamamlandı; migration 010 registry, reviews app wiring, validator/reconciliation hook'ları ve merkezi reader seam gate'i yeşil. **Wave B bekliyor; plan bütünü henüz done değildir.**
 > **Faz 4C durumu:** Uygulandı — 2026-07-11 · Yusuf’un saf funding-plan compiler’ı integration branch’e merge edildi.
 > **Faz 4D durumu:** Uygulandı — 2026-07-11 · Canonical ratification package, migration 011, account lifecycle helper ve provider’sız FundingCoordinator v1 tamamlandı; 4E/4F bekliyor. **Plan bütünü henüz done değildir.**
+> **Faz 4E durumu:** Uygulandı — 2026-07-11 · Yusuf’un account ratification API, migration 012 dosyası ve approvals legacy cutover PR’ı integration branch’e merge edildi; 012 registry/app wiring’i Plan 04 kapanışına bırakıldı.
+> **Faz 4F-1 durumu:** Uygulandı — 2026-07-11 · Creator-side manager rule revision/revalidation API’si, stale-parent CAS, otomatik validation/review hook’u, package supersede ve app wiring tamamlandı. 4F-2 ve Plan 04 kapanışı bekliyor.
 > **Bağımlılık:** 03 tamam. Integration branch: `program/domain-evolution-v2`
 > **Branch'ler:** iki wave, aşağıda faz bazında
 > **Tahmin:** 6-8 gün (paralel, iki wave)
