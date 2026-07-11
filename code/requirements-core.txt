@@ -11,3 +11,5 @@ uvicorn[standard]
 python-multipart
 httpx
 simplejson>=3.19,<4
+argon2-cffi>=23,<26
+cryptography>=42,<50
