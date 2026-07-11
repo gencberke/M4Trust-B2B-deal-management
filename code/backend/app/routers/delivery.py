@@ -19,13 +19,14 @@ import tempfile
 from pathlib import Path
 from sqlite3 import Connection
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 
 from backend.app.config import Settings
-from backend.app.db import connect
+from backend.app.db import get_db
 from backend.app.eventbus import emit
-from backend.app.routers.transactions import load_transaction, resolve_manager, resolve_party
+from backend.app.repositories.transactions import load_transaction
+from backend.app.routers.transactions import resolve_manager, resolve_party
 from backend.app.schemas.extraction import ExtractionJSON, RequiredEvidence
 from backend.app.services.settlement import evaluate_settlement
 from backend.app.services.tracking_policy import (
@@ -141,11 +142,13 @@ def _authorize_delivery_submission(
 
 @router.post("/{transaction_id}/events/e-irsaliye")
 def receive_e_irsaliye(
-    transaction_id: str, body: EIrsaliyeEvent, token: str | None = None
+    transaction_id: str,
+    body: EIrsaliyeEvent,
+    token: str | None = None,
+    conn: Connection = Depends(get_db),
 ) -> dict:
     """E-irsaliye simülasyon event'i — birincil nicel kanıt; ardından settlement."""
     settings = Settings.from_env()
-    conn = connect(settings)
     try:
         _authorize_delivery_submission(conn, transaction_id, token)
         _guard_evidence_channel(conn, transaction_id, channel="e_irsaliye")
@@ -157,12 +160,15 @@ def receive_e_irsaliye(
 
         return {"state": state, "decision": decision}
     finally:
-        conn.close()
+        pass
 
 
 @router.post("/{transaction_id}/delivery-video")
 async def upload_delivery_video(
-    transaction_id: str, file: UploadFile = File(...), token: str | None = None
+    transaction_id: str,
+    file: UploadFile = File(...),
+    token: str | None = None,
+    conn: Connection = Depends(get_db),
 ) -> dict:
     """Teslimat videosu upload'ı — analiz ikincil (advisory) sinyaldir, miktar üretmez.
 
@@ -170,7 +176,6 @@ async def upload_delivery_video(
     güncel kararı yansıtır.
     """
     settings = Settings.from_env()
-    conn = connect(settings)
     try:
         _authorize_delivery_submission(conn, transaction_id, token)
         _guard_evidence_channel(conn, transaction_id, channel="video")
@@ -198,4 +203,4 @@ async def upload_delivery_video(
 
         return {"state": state, "analysis": analysis, "decision": decision}
     finally:
-        conn.close()
+        pass

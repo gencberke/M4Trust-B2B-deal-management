@@ -1,29 +1,4 @@
-chromadb==1.5.9
-FlagEmbedding==1.4.0
-pydantic>=2,<3
-
-# LLM adapter (ExtractionService — canlı OpenAI-uyumlu sağlayıcı, lazy import)
-openai>=1.40
-
-# runtime document parser (scripts/document_parser)
-pymupdf==1.28.0
-python-docx==1.2.0
-pytesseract==0.3.13
-pillow==12.3.0
-
-# video/görsel teslimat kanıtı analizi (Roboflow hosted inference, düz REST)
-requests==2.34.2
-python-dotenv==1.2.2
-opencv-python-headless==5.0.0.93
-
-# tests
-pytest==9.1.1
-httpx
-
-# backend API (§1)
-fastapi
-uvicorn[standard]
-python-multipart
-
-# Moka PaymentDealer HTTP client — Decimal JSON number serialization
-simplejson>=3.19,<4
+-r requirements-core.txt
+-r requirements-ci.txt
+-r requirements-rag.txt
+-r requirements-video.txt
