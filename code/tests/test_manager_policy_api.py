@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -10,18 +11,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture(autouse=True)
-def _isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "m4trust_manager_policy.db"))
-    monkeypatch.setenv("LLM_PROVIDER", "fake")
-
-
-@pytest.fixture()
-def client() -> TestClient:
-    from backend.app.main import app
-
-    with TestClient(app) as test_client:
-        yield test_client
 
 
 def _upload(client: TestClient, tmp_path: Path) -> dict:
@@ -66,7 +55,7 @@ def _replace_with_video_only_contract(created: dict, tmp_path: Path) -> None:
         "risk_flags": [],
         "needs_manual_review": False,
     }
-    with sqlite3.connect(tmp_path / "m4trust_manager_policy.db") as conn:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         conn.execute(
             "UPDATE extracted_rules SET extraction_json = ? WHERE transaction_id = ?",
             (json.dumps(payload, ensure_ascii=False), created["id"]),
@@ -100,7 +89,7 @@ def _replace_with_video_and_document_contract(created: dict, tmp_path: Path) -> 
         "risk_flags": [],
         "needs_manual_review": False,
     }
-    with sqlite3.connect(tmp_path / "m4trust_manager_policy.db") as conn:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         conn.execute(
             "UPDATE extracted_rules SET extraction_json = ? WHERE transaction_id = ?",
             (json.dumps(payload, ensure_ascii=False), created["id"]),
@@ -131,7 +120,7 @@ def test_approval_requires_a_locked_policy_before_recording_approval(
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "POLICY_NOT_LOCKED"
-    with sqlite3.connect(tmp_path / "m4trust_manager_policy.db") as conn:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         approval_count = conn.execute(
             "SELECT COUNT(*) FROM approvals WHERE transaction_id = ?", (created["id"],)
         ).fetchone()[0]
@@ -231,7 +220,7 @@ def test_policy_lock_is_idempotent_without_duplicate_event(client: TestClient, t
     assert first_lock.json()["locked"] is True
     assert second_lock.json()["locked"] is False
     assert first_lock.json()["tracking_policy"]["locked_at"] == second_lock.json()["tracking_policy"]["locked_at"]
-    with sqlite3.connect(tmp_path / "m4trust_manager_policy.db") as conn:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         event_count = conn.execute(
             "SELECT COUNT(*) FROM events WHERE transaction_id = ? AND event_type = 'tracking_policy_locked'",
             (created["id"],),
@@ -336,7 +325,7 @@ def test_source_quote_is_masked_before_leaving_the_backend(
         assert "[[PII_IBAN_1]]" in body
 
     # Ham alıntı karar/kanıt akışının girdisi olarak DB'de değişmeden durur.
-    with sqlite3.connect(tmp_path / "m4trust_manager_policy.db") as conn:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         stored = conn.execute(
             "SELECT extraction_json FROM extracted_rules WHERE transaction_id = ?",
             (created["id"],),

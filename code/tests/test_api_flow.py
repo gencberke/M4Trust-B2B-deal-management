@@ -33,22 +33,6 @@ _SAMPLE_MARKDOWN = (
 )
 
 
-@pytest.fixture(autouse=True)
-def _isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Her test kendi sqlite dosyasını kullanır — gerçek runtime DB'ye dokunulmaz."""
-    db_path = tmp_path / "m4trust_test.db"
-    monkeypatch.setenv("DB_PATH", str(db_path))
-    monkeypatch.setenv("LLM_PROVIDER", "fake")
-
-
-@pytest.fixture()
-def client():
-    from backend.app.main import app
-
-    with TestClient(app) as c:
-        yield c
-
-
 def _upload_sample(client: TestClient, tmp_path: Path) -> dict:
     md_path = tmp_path / "sozlesme.md"
     md_path.write_text(_SAMPLE_MARKDOWN, encoding="utf-8")

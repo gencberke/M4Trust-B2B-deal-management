@@ -1,8 +1,64 @@
+"""Ortak test-altyapısı — bu dosyanın tek sahibi Yusuf'tur (program_haritasi §3).
+
+Domain-özel fixture'lar (ör. mock Moka'nın `MOCK_MOKA_*` env izolasyonu)
+burada değil, kendi test modüllerinde kalır — bu dosya global fixture
+çöplüğüne dönüşmez.
+"""
+
+from __future__ import annotations
+
 import sys
 from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
 
 _CODE_ROOT = Path(__file__).resolve().parent.parent
 
 # İki kaynak kökü: offline parser `scripts/`, uygulama paketi `code/` (backend.app...).
 sys.path.insert(0, str(_CODE_ROOT / "scripts"))
 sys.path.insert(0, str(_CODE_ROOT))
+
+
+@pytest.fixture(autouse=True)
+def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Her test kendi sqlite dosyasını kullanır — gerçek runtime DB'ye dokunulmaz.
+
+    Ana `backend.app.*` testlerinin ortak (daha önce her dosyada ayrı ayrı
+    kopyalanan) `DB_PATH`/`LLM_PROVIDER` izolasyonu. Mock Moka server kendi
+    ayrı `MOCK_MOKA_*` env alanını kullanır ve bu fixture'dan etkilenmez
+    (`test_mock_moka_server.py`, `test_moka_e2e_contract.py` kendi izolasyon
+    fixture'larını korur).
+    """
+    db_path = tmp_path / "m4trust_test.db"
+    monkeypatch.setenv("DB_PATH", str(db_path))
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+
+
+@pytest.fixture()
+def client() -> TestClient:
+    """`backend.app.main.app` için lifespan-aware `TestClient`.
+
+    Context-manager formu şart — `startup` (ve dolayısıyla `init_db`) bu
+    FastAPI sürümünde yalnız `with TestClient(app) as c:` ile tetiklenir.
+    """
+    from backend.app.main import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture()
+def dependency_override_cleanup():
+    """`app.dependency_overrides`'ı test sonunda temizler.
+
+    Plan 03+'ta `app.dependency_overrides[get_current_actor] = stub_actor`
+    kalıbını kullanacak testler için: override'ı unutmak sonraki testlere
+    sızar (StubActor kalıntısı gerçek isteklerde de etkili kalır). Bu fixture
+    çağrıldığı testte, test bitince (başarılı/başarısız fark etmeksizin)
+    override sözlüğünü sıfırlar.
+    """
+    from backend.app.main import app
+
+    yield app.dependency_overrides
+    app.dependency_overrides.clear()

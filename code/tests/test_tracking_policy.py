@@ -9,18 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture(autouse=True)
-def _isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "m4trust_tracking_policy.db"))
-    monkeypatch.setenv("LLM_PROVIDER", "fake")
-
-
-@pytest.fixture()
-def client():
-    from backend.app.main import app
-
-    with TestClient(app) as test_client:
-        yield test_client
 
 
 def test_new_transaction_keeps_manager_token_out_of_events_and_creates_draft_policy(
@@ -39,9 +27,10 @@ def test_new_transaction_keeps_manager_token_out_of_events_and_creates_draft_pol
     assert created["manager_link"].startswith(f"/t/{created['id']}/manager?token=")
 
     manager_token = created["manager_link"].split("token=", 1)[1]
+    import os
     import sqlite3
 
-    with sqlite3.connect(tmp_path / "m4trust_tracking_policy.db") as conn:
+    with sqlite3.connect(os.environ["DB_PATH"]) as conn:
         policy = conn.execute(
             "SELECT tracking_mode, video_role, status FROM tracking_policies "
             "WHERE transaction_id = ?",
