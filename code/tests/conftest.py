@@ -49,6 +49,35 @@ def client() -> TestClient:
 
 
 @pytest.fixture()
+def stub_actor_factory():
+    """`ActorContext` üreten fabrika — `app.dependency_overrides[get_current_actor] = ...`
+    kalıbıyla kullanılır (Plan 03+ tüm auth-korumalı router testlerinin ortak
+    ihtiyacı; domain-özel actor senaryoları yine kendi test modüllerinde
+    kalır, burada yalnız üretim mekanizması paylaşılır).
+
+    Kullanım::
+
+        app.dependency_overrides[get_current_actor] = stub_actor_factory(user_id="u1")
+    """
+    from backend.app.services.access_control import ActorContext
+
+    def _factory(**overrides):
+        defaults = {
+            "actor_type": "legacy_capability",
+            "auth_method": "legacy_capability",
+        }
+        defaults.update(overrides)
+        actor = ActorContext(**defaults)
+
+        def _dependency() -> ActorContext:
+            return actor
+
+        return _dependency
+
+    return _factory
+
+
+@pytest.fixture()
 def dependency_override_cleanup():
     """`app.dependency_overrides`'ı test sonunda temizler.
 
