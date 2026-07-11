@@ -14,7 +14,6 @@ manuel inceleme olur.
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 from sqlite3 import Connection
@@ -25,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 from backend.app.config import Settings
 from backend.app.db import get_db
 from backend.app.eventbus import emit
+from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.repositories.transactions import load_transaction
 from backend.app.routers.transactions import resolve_manager, resolve_party
 from backend.app.schemas.extraction import ExtractionJSON, RequiredEvidence
@@ -61,18 +61,9 @@ def _conflict(code: str, message: str, conflicts: list[str]) -> HTTPException:
 
 
 def _load_extraction(conn: Connection, transaction_id: str) -> ExtractionJSON | None:
-    """Persist edilmiş (restore edilmiş) son extraction'ı doğrulanmış olarak yükler."""
-    row = conn.execute(
-        "SELECT extraction_json FROM extracted_rules WHERE transaction_id = ? "
-        "ORDER BY created_at DESC, rowid DESC LIMIT 1",
-        (transaction_id,),
-    ).fetchone()
-    if row is None or row["extraction_json"] is None:
-        return None
-    try:
-        return ExtractionJSON.model_validate(json.loads(row["extraction_json"]))
-    except (TypeError, ValueError):
-        return None
+    """Merkezi current-rule okuma kapısı üzerinden (§11) — account/legacy ayrımını bilmez."""
+    current = rule_sets_repo.get_current(conn, transaction_id)
+    return None if current is None else current.extraction
 
 
 def _contractual_requirements(conn: Connection, transaction_id: str) -> set[RequiredEvidence]:

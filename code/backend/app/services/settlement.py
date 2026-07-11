@@ -7,6 +7,7 @@ from sqlite3 import Connection, Row
 
 from backend.app.config import Settings
 from backend.app.eventbus import emit
+from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.schemas.extraction import ExtractionJSON
 from backend.app.services.decision import DeliveryEvidence, DecisionResult, decide
 from backend.app.services.effective_requirements import resolve_effective_requirements
@@ -17,17 +18,9 @@ _FUNDED_STATES = {"active", "evidence_pending"}
 
 
 def _load_extraction(conn: Connection, transaction_id: str) -> ExtractionJSON | None:
-    row = conn.execute(
-        "SELECT extraction_json FROM extracted_rules WHERE transaction_id = ? "
-        "ORDER BY created_at DESC, rowid DESC LIMIT 1",
-        (transaction_id,),
-    ).fetchone()
-    if row is None or row["extraction_json"] is None:
-        return None
-    try:
-        return ExtractionJSON.model_validate(json.loads(row["extraction_json"]))
-    except (TypeError, ValueError):
-        return None
+    """Merkezi current-rule okuma kapısı üzerinden (§11) — account/legacy ayrımını bilmez."""
+    current = rule_sets_repo.get_current(conn, transaction_id)
+    return None if current is None else current.extraction
 
 
 def _has_both_approvals(conn: Connection, transaction_id: str) -> bool:

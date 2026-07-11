@@ -94,10 +94,12 @@ class StubExtractionService:
 def patch_extraction(monkeypatch, payload: dict[str, Any]) -> None:
     """Pipeline'ın modül-yerel `make_extraction_service` adını stub'a bağlar.
 
+    Pipeline mantığı Plan 04 / Faz 4A'da `services/transaction_pipeline.py`'ye
+    taşındı (bkz. `plans/done/04a_...md`); stub artık orada patch'lenir.
     `TestClient` içinde background task senkron koştuğu için upload'tan ÖNCE
     çağrılmalıdır.
     """
     monkeypatch.setattr(
-        "backend.app.routers.transactions.make_extraction_service",
+        "backend.app.services.transaction_pipeline.make_extraction_service",
         lambda settings: StubExtractionService(payload),
     )

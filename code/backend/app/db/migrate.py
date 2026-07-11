@@ -27,6 +27,8 @@ _MIGRATION_MODULES = (
     "backend.app.db.migrations.005_participants_invitations",
     "backend.app.db.migrations.006_audit_events",
     "backend.app.db.migrations.007_transaction_lifecycle_v2",
+    "backend.app.db.migrations.008_documents_extraction_runs",
+    "backend.app.db.migrations.009_rule_set_versions",
 )
 
 _LEGACY_COLUMNS = {
