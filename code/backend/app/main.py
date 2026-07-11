@@ -1,7 +1,10 @@
 """FastAPI app factory — ortak middleware/handler'lar + tüm router'lar.
 
 `startup` hook'unda migration runner çalışır; Request-ID ve yeni API hata
-zarfı Plan 02 integration contract'ı olarak burada kaydedilir.
+zarfı Plan 02 integration contract'ı olarak burada kaydedilir. Plan 03
+(Faz 3A/3B/3C) router kayıtları — `auth`/`entities`/`participants`/
+`invitations` — bu entegrasyon checkpoint'inde eklendi (program_haritasi §3,
+Revizyon #3: router kayıtları Berke'nin entegrasyon commit'idir).
 """
 
 from __future__ import annotations
@@ -11,7 +14,16 @@ from fastapi import FastAPI
 from backend.app.api.errors import ApiError, api_error_handler, unhandled_exception_handler
 from backend.app.db import connect, init_db
 from backend.app.middleware.request_id import RequestIDMiddleware
-from backend.app.routers import approvals, delivery, evidence, transactions
+from backend.app.routers import (
+    approvals,
+    auth,
+    delivery,
+    entities,
+    evidence,
+    invitations,
+    participants,
+    transactions,
+)
 
 
 def create_app() -> FastAPI:
@@ -36,6 +48,10 @@ def create_app() -> FastAPI:
     app.include_router(approvals.router)
     app.include_router(delivery.router)
     app.include_router(evidence.router)
+    app.include_router(auth.router)
+    app.include_router(entities.router)
+    app.include_router(participants.router)
+    app.include_router(invitations.router)
 
     return app
 
