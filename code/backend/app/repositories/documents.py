@@ -49,6 +49,15 @@ def get_by_id(conn: Connection, document_id: str) -> Row | None:
     ).fetchone()
 
 
+def get_current_active(conn: Connection, transaction_id: str) -> Row | None:
+    """Transaction'ın en yeni active document provenance satırını döndürür."""
+    return conn.execute(
+        "SELECT * FROM contract_documents WHERE transaction_id = ? AND status = 'active' "
+        "ORDER BY version DESC LIMIT 1",
+        (transaction_id,),
+    ).fetchone()
+
+
 def set_normalized_markdown_sha256(
     conn: Connection, *, document_id: str, normalized_markdown_sha256: str
 ) -> None:

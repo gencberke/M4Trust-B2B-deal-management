@@ -122,3 +122,7 @@ def submit_review_action(
         raise ApiError(status_code=409, code="REVIEW_CASE_CLOSED", message=str(exc)) from exc
     except review_service.ReviewActionForbiddenError as exc:
         raise ApiError(status_code=409, code="REVIEW_ACTION_NOT_ALLOWED", message=str(exc)) from exc
+    except review_service.ReviewResolutionPreconditionError as exc:
+        raise ApiError(
+            status_code=409, code="REVIEW_RESOLUTION_PRECONDITION_FAILED", message=str(exc)
+        ) from exc

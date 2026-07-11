@@ -14,7 +14,31 @@ _identity_migration = import_module("backend.app.db.migrations.003_identity_sess
 _entities_migration = import_module("backend.app.db.migrations.004_legal_entities_memberships")
 _participants_migration = import_module("backend.app.db.migrations.005_participants_invitations")
 _audit_migration = import_module("backend.app.db.migrations.006_audit_events")
+_lifecycle_migration = import_module("backend.app.db.migrations.007_transaction_lifecycle_v2")
+_documents_migration = import_module("backend.app.db.migrations.008_documents_extraction_runs")
+_rule_sets_migration = import_module("backend.app.db.migrations.009_rule_set_versions")
 _review_migration = import_module("backend.app.db.migrations.010_review_cases")
+_packages_migration = import_module("backend.app.db.migrations.011_ratification_packages")
+
+
+def make_reviews_db_with_rule_sets() -> sqlite3.Connection:
+    """`make_reviews_db()` + 007/008/009 -- Faz 4F-2 resolve-continue ön koşulları
+    `repositories/rule_sets.py::get_current` üzerinden `transactions.lifecycle_version`
+    ve `rule_set_versions` okur; bu tablolar olmadan o kod yolu SQL hatasıyla patlar.
+    """
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    _baseline.apply(conn)
+    _participants_migration.apply(conn)
+    _audit_migration.apply(conn)
+    _lifecycle_migration.apply(conn)
+    _documents_migration.apply(conn)
+    _rule_sets_migration.apply(conn)
+    _review_migration.apply(conn)
+    _packages_migration.apply(conn)
+    conn.commit()
+    return conn
 
 
 def make_reviews_db() -> sqlite3.Connection:
