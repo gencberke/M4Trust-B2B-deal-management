@@ -1,6 +1,7 @@
 # 06 — Milestone Domain, Funding Units ve Settlement Cutover (Program 4 + Moka M2-M3)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.3, §2.7, Program 4 · Moka §3, §9-§13, §17-§19, Wave M2-M3 (v2'nin "Mock Ledger v2" fazı Moka §24 ile SUPERSEDED)
+> **Durum:** Uygulandı — 2026-07-12 · **Sapmalar:** (1) HTTP evidence→settlement wiring 6C'de değil closure'da yapıldı (evidence_submit.py Yusuf hot-file'ı; sanctioned integration). (2) 6A merge edilmiş `015`/`017` migration dosyalarını registry'ye bağlarken düzeltti — tek seferlik güvenli istisna (015-017 hiçbir registry/DB'ye uygulanmamıştı). (3) Kümülatif teslim = verified e-irsaliye **delta toplamı** (Major 4 review kararı). (4) 6B evaluator'a `trigger_type`/`trigger_satisfied` eklendi (frozen arayüz genişletmesi, reviewer talebi). (5) `legacy_compat` fixture göçü pytest marker + env fixture ile yapıldı (Major 5). PR'lar #54/#55/#56/#57 + closure. Full suite 909 yeşil.
+> **Master ref:** v2 §2.3, §2.7, Program 4 · Moka §3, §9-§13, §17-§19, Wave M2-M3 (v2'nin "Mock Ledger v2" fazı Moka §24 ile SUPERSEDED)
 > **Bağımlılık:** 04 (package + funding schedule + FundingCoordinator v1) ve 05 (evidence records) tamam; 01'in gateway/client/mock server'ı hazır. İstisna: **6A'nın migration/persistence işi 05'e bağımlı değildir** — Berke 05 sürerken 6A branch'ini açabilir (harita §7); 6B/6C ise 05'in evidence_records'unu bekler. Integration branch: `program/domain-evolution-v2`
 > **Branch'ler:** faz bazında aşağıda
 > **Tahmin:** 6-8 gün (paralel)

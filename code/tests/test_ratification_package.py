@@ -278,7 +278,10 @@ def test_policy_change_supersedes_current_package(ready_conn) -> None:
     ).fetchone()[0] == "superseded"
 
 
-def test_complete_package_moves_account_to_funding_pending_once(ready_conn) -> None:
+def test_complete_package_funds_units_and_activates_once(ready_conn) -> None:
+    # Plan 06A cutover: çift ratification sonrası paket artık funding_pending'de
+    # durmaz -- funding unit'ler pool'lanır ve transaction active olur, funding
+    # exactly-once (replay yeni provider call/event üretmez).
     conn, tx_id = ready_conn
     package = _build(conn, tx_id)
     package_service.open_package(conn, package_id=package.id, actor_context=_actor())
@@ -286,18 +289,30 @@ def test_complete_package_moves_account_to_funding_pending_once(ready_conn) -> N
 
     first = ensure_pool_funded(conn, tx_id, package.id, _actor())
     second = ensure_pool_funded(conn, tx_id, package.id, _actor())
-    event_count = conn.execute(
+    funding_required_count = conn.execute(
         "SELECT COUNT(*) FROM events WHERE transaction_id = ? AND event_type = 'funding_required'",
         (tx_id,),
     ).fetchone()[0]
-    audit_count = conn.execute(
-        "SELECT COUNT(*) FROM audit_events WHERE transaction_id = ? AND action = 'funding.required'",
+    pool_created_count = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE transaction_id = ? "
+        "AND event_type = 'funding_units_pool_created'",
+        (tx_id,),
+    ).fetchone()[0]
+    unit_count = conn.execute(
+        "SELECT COUNT(*) FROM funding_units WHERE transaction_id = ?", (tx_id,)
+    ).fetchone()[0]
+    provider_payment_count = conn.execute(
+        "SELECT COUNT(*) FROM provider_payments WHERE funding_unit_id IN "
+        "(SELECT id FROM funding_units WHERE transaction_id = ?)",
         (tx_id,),
     ).fetchone()[0]
 
-    assert first.status == second.status == "funding_pending"
+    assert first.status == second.status == "active"
     assert first.event_emitted is True
     assert second.event_emitted is False
-    assert event_count == 1
-    assert audit_count == 1
-    assert conn.execute("SELECT state FROM transactions WHERE id = ?", (tx_id,)).fetchone()[0] == "funding_pending"
+    assert funding_required_count == 1
+    assert pool_created_count == 1
+    assert unit_count >= 1
+    # Funding exactly-once: replay ikinci provider payment üretmez.
+    assert provider_payment_count == unit_count
+    assert conn.execute("SELECT state FROM transactions WHERE id = ?", (tx_id,)).fetchone()[0] == "active"

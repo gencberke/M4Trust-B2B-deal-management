@@ -122,9 +122,15 @@ def _session_headers(session, entity_id: str) -> dict[str, str]:
 def test_video_anomaly_opens_review_and_dispute_blocks_release_until_resolved(
     tmp_path: Path,
 ) -> None:
+    # Plan 06A/6C cutover: account settlement artık funding-unit release yolunu
+    # kullanır (legacy decide + mock_payments değil). Senaryo aynıdır: yüksek
+    # güvenli video anomalisi hold + blocking review üretir; dispute release'i
+    # bloklar; ikisi de çözülünce funding unit approve edilir ve işlem settled olur.
+    from test_settlement_funding_cutover import _seed_funded_account
+
     transaction_id = "tx-plan05-close"
-    conn = make_db(tmp_path / "plan05-close.db")
-    _prepare_account_transaction(conn, transaction_id)
+    conn, _, _ = _seed_funded_account(tmp_path, tx_id=transaction_id)
+    settings = Settings(db_path=tmp_path / "6c.db")
     seller = _actor("u-seller", "entity-seller")
 
     evidence_service.submit_evidence(
@@ -160,20 +166,16 @@ def test_video_anomaly_opens_review_and_dispute_blocks_release_until_resolved(
     )
     conn.commit()
 
-    first = settlement.evaluate_settlement(
-        conn, transaction_id, Settings(db_path=tmp_path / "plan05-close.db")
-    )
+    first = settlement.evaluate_settlement(conn, transaction_id, settings)
     assert first is not None
-    assert first["action"] == "hold"
-    assert "REVIEW_BLOCKING_RELEASE" in {item["code"] for item in first["findings"]}
+    # Video anomalisi -> hold: hiçbir unit approve edilmez, blocking review açılır.
+    assert first["approved_unit_ids"] == []
+    assert first["settled"] is False
     assert conn.execute(
         "SELECT COUNT(*) FROM review_cases WHERE transaction_id = ? "
         "AND source_type = 'video' AND status = 'open'",
         (transaction_id,),
     ).fetchone()[0] == 1
-    assert conn.execute(
-        "SELECT status FROM mock_payments WHERE transaction_id = ?", (transaction_id,)
-    ).fetchone()[0] == "pool"
     assert conn.execute(
         "SELECT state FROM transactions WHERE id = ?", (transaction_id,)
     ).fetchone()[0] == "active"
@@ -195,13 +197,10 @@ def test_video_anomaly_opens_review_and_dispute_blocks_release_until_resolved(
     )
     conn.commit()
 
-    blocked = settlement.evaluate_settlement(
-        conn, transaction_id, Settings(db_path=tmp_path / "plan05-close.db")
-    )
+    blocked = settlement.evaluate_settlement(conn, transaction_id, settings)
     assert blocked is not None
-    assert blocked["action"] == "hold"
-    blocked_codes = {item["code"] for item in blocked["findings"]}
-    assert {"REVIEW_BLOCKING_RELEASE", "DISPUTE_BLOCKING_RELEASE"} <= blocked_codes
+    assert blocked["approved_unit_ids"] == []
+    assert blocked["settled"] is False
 
     disputes_service.record_dispute_action(
         conn,
@@ -243,17 +242,14 @@ def test_video_anomaly_opens_review_and_dispute_blocks_release_until_resolved(
     )
     conn.commit()
 
-    released = settlement.evaluate_settlement(
-        conn, transaction_id, Settings(db_path=tmp_path / "plan05-close.db")
-    )
+    released = settlement.evaluate_settlement(conn, transaction_id, settings)
     assert released is not None
-    assert released["action"] == "capture"
+    # Review + dispute çözüldü, video hizalandı -> funding unit approve, settled.
+    assert len(released["approved_unit_ids"]) == 1
+    assert released["settled"] is True
     assert conn.execute(
         "SELECT state FROM transactions WHERE id = ?", (transaction_id,)
-    ).fetchone()[0] == "active"
-    assert conn.execute(
-        "SELECT status FROM mock_payments WHERE transaction_id = ?", (transaction_id,)
-    ).fetchone()[0] == "released"
+    ).fetchone()[0] == "settled"
     conn.close()
 
 
@@ -406,8 +402,11 @@ def test_real_app_plan05_evidence_and_dispute_guards(
             json={"external_reference": "premature", "delivered_quantity": 10},
             headers=_session_headers(seller_session, "entity-seller"),
         )
+        # Plan 06A cutover'ından sonra çift ratification işlemi gerçekten fonlar ve
+        # `active`'e taşır; dolayısıyla erken evidence artık state guard'ına değil,
+        # henüz enable edilmemiş takip policy guard'ına takılır (hâlâ 409).
         assert premature_evidence.status_code == 409
-        assert premature_evidence.json()["code"] == "EVIDENCE_SUBMISSION_STATE_INVALID"
+        assert premature_evidence.json()["code"] == "TRACKING_NOT_ENABLED"
 
     # Funding cutover Plan 06 kapsamıdır; Plan 05 adapter'ı yalnız active hesabı
     # tüketir ve account transaction'ı legacy `decided` durumuna yazamaz.
@@ -454,8 +453,11 @@ def test_real_app_plan05_evidence_and_dispute_guards(
 
     conn = make_db(db_path)
     try:
+        # Plan 06 closure: evidence submit artık account settlement'ı tetikler;
+        # approval-only milestone (required_evidence=contract) trigger gerçekleşince
+        # release olur ve işlem settled'e geçer (dispute-auth kontrolü bağımsızdır).
         assert conn.execute(
             "SELECT state FROM transactions WHERE id = ?", (transaction_id,)
-        ).fetchone()[0] == "active"
+        ).fetchone()[0] == "settled"
     finally:
         conn.close()

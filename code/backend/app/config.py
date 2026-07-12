@@ -65,7 +65,7 @@ class Settings:
     app_hmac_key: str = ""                             # base64 — tax identifier lookup HMAC-SHA256
     session_cookie_secure: bool = False                # prod'da true; local http demo'da false
     session_ttl_seconds: float = 604800.0              # 7 gün — oturum süresi
-    legacy_capability_access_enabled: bool = True       # Wave 3'e kadar true; legacy token erişimi
+    legacy_capability_access_enabled: bool = False      # Plan 06 closure: default off (env ile açılır)
     document_storage_dir: Path = _DEFAULT_DOCUMENT_STORAGE_DIR  # LocalDocumentStorageProvider kökü (§2.11)
 
     @classmethod
@@ -108,7 +108,7 @@ class Settings:
             session_cookie_secure=_env_bool("SESSION_COOKIE_SECURE", False),
             session_ttl_seconds=float(_env("SESSION_TTL_SECONDS", "604800")),
             legacy_capability_access_enabled=_env_bool(
-                "LEGACY_CAPABILITY_ACCESS_ENABLED", True
+                "LEGACY_CAPABILITY_ACCESS_ENABLED", False
             ),
             document_storage_dir=(
                 Path(document_storage_dir).resolve()

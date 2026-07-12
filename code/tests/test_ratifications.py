@@ -186,7 +186,15 @@ def test_second_ratification_completes_package_and_funds_once(ready) -> None:
     assert outcome.package_status.value == "complete"
     assert outcome.funding_triggered is True
     tx = conn.execute("SELECT state FROM transactions WHERE id = ?", (tx_id,)).fetchone()
-    assert tx["state"] == "funding_pending"
+    # Plan 06A: çift ratification funding unit'leri gerçekten pool'lar -> active.
+    assert tx["state"] == "active"
+    unit_statuses = [
+        row[0]
+        for row in conn.execute(
+            "SELECT status FROM funding_units WHERE transaction_id = ?", (tx_id,)
+        )
+    ]
+    assert unit_statuses and all(status == "pool_created" for status in unit_statuses)
 
 
 def test_resubmit_same_participant_is_idempotent(ready) -> None:

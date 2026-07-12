@@ -8,6 +8,9 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+
+# Plan 06 closure: legacy capability davranışı yalnız bu dar sette (env ile açık).
+pytestmark = pytest.mark.legacy_compat
 from fastapi.testclient import TestClient
 
 

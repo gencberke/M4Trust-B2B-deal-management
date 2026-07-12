@@ -34,6 +34,9 @@ _MIGRATION_MODULES = (
     "backend.app.db.migrations.012_ratifications",
     "backend.app.db.migrations.013_evidence_records",
     "backend.app.db.migrations.014_disputes",
+    "backend.app.db.migrations.015_milestones",
+    "backend.app.db.migrations.016_funding_units_provider_payments",
+    "backend.app.db.migrations.017_release_instructions",
     "backend.app.db.migrations.023_plan05_remediation_constraints",
 )
 

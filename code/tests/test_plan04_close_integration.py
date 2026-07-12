@@ -1,4 +1,9 @@
-"""Plan 04 kapanış entegrasyonu — gerçek app ratification/funding gate'i."""
+"""Plan 04 kapanış entegrasyonu — gerçek app ratification/funding gate'i.
+
+Plan 06A cutover'ından sonra çift ratification artık funding_pending'de durmaz;
+funding unit'ler ağsız fake gateway ile gerçekten pool'lanır ve transaction
+`active`'e geçer (funding exactly-once).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ from reviews_fixtures import create_real_session, create_real_user
 from test_ratifications import _setup_open_package, make_db
 
 
-def test_real_app_ratification_gate_keeps_same_hash_and_stops_at_funding_pending(
+def test_real_app_ratification_gate_keeps_same_hash_and_funds_units(
     tmp_path, monkeypatch
 ) -> None:
     db_path = tmp_path / "plan04-close.db"
@@ -61,13 +66,33 @@ def test_real_app_ratification_gate_keeps_same_hash_and_stops_at_funding_pending
     try:
         assert conn.execute(
             "SELECT state FROM transactions WHERE id = ?", (tx_id,)
-        ).fetchone()[0] == "funding_pending"
+        ).fetchone()[0] == "active"
+        # funding_required ve funding_units_pool_created event'leri exactly-once.
         assert conn.execute(
             "SELECT COUNT(*) FROM events WHERE transaction_id = ? AND event_type = 'funding_required'",
             (tx_id,),
         ).fetchone()[0] == 1
         assert conn.execute(
+            "SELECT COUNT(*) FROM events WHERE transaction_id = ? "
+            "AND event_type = 'funding_units_pool_created'",
+            (tx_id,),
+        ).fetchone()[0] == 1
+        # Account yolu legacy mock_payments'a dokunmaz; gerçek funding funding_units
+        # + provider_payments üzerinden yürür ve tüm unit'ler pool_created olur.
+        assert conn.execute(
             "SELECT COUNT(*) FROM mock_payments WHERE transaction_id = ?", (tx_id,)
         ).fetchone()[0] == 0
+        unit_statuses = [
+            row[0]
+            for row in conn.execute(
+                "SELECT status FROM funding_units WHERE transaction_id = ?", (tx_id,)
+            )
+        ]
+        assert unit_statuses and all(status == "pool_created" for status in unit_statuses)
+        assert conn.execute(
+            "SELECT COUNT(*) FROM provider_payments WHERE funding_unit_id IN "
+            "(SELECT id FROM funding_units WHERE transaction_id = ?)",
+            (tx_id,),
+        ).fetchone()[0] == len(unit_statuses)
     finally:
         conn.close()
