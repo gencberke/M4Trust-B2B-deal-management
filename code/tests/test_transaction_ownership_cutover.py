@@ -431,6 +431,7 @@ def _extract_token(link: str) -> str:
     return link.split("token=", 1)[1]
 
 
+@pytest.mark.legacy_compat
 def test_canonical_state_preparation_before_lock_then_ready_for_ratification_after(
     client: TestClient, tmp_path: Path
 ) -> None:
@@ -458,6 +459,7 @@ def test_canonical_state_preparation_before_lock_then_ready_for_ratification_aft
     assert detail["canonical_state"] == "ready_for_ratification"
 
 
+@pytest.mark.legacy_compat
 def test_canonical_state_settled_after_full_capture(client: TestClient, tmp_path: Path) -> None:
     created = _upload_legacy(client, tmp_path)
     tx_id = created["id"]
@@ -478,7 +480,7 @@ def test_canonical_state_settled_after_full_capture(client: TestClient, tmp_path
     assert detail["canonical_state"] == "settled"
 
 
-# --- LEGACY_CAPABILITY_ACCESS_ENABLED (Wave 3 hazırlığı, varsayılan true) -----
+# --- LEGACY_CAPABILITY_ACCESS_ENABLED (Plan 06X closure, varsayılan false) -----
 
 
 def test_legacy_capability_access_flag_defaults_disabled(
@@ -518,6 +520,9 @@ def test_legacy_capability_access_flag_disabled_rejects_delivery_evidence(
 ) -> None:
     created = _upload_legacy(client, tmp_path)
     manager_token = _extract_token(created["manager_link"])
+    # Policy mutation itself is a legacy manager-capability operation; open
+    # it only for fixture setup before asserting the disabled delivery gate.
+    monkeypatch.setenv("LEGACY_CAPABILITY_ACCESS_ENABLED", "true")
     client.put(
         f"/api/transactions/{created['id']}/tracking-policy",
         json={

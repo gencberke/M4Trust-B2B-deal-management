@@ -22,7 +22,7 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.api.errors import ApiError
@@ -32,6 +32,7 @@ from backend.app.repositories import participants as participants_repo
 from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.repositories.transactions import load_transaction
 from backend.app.services import evidence_records as evidence_records_service
+from backend.app.services.settlement_trigger import reevaluate_account_settlement
 from backend.app.services.access_control import ActorContext, require_authenticated_user
 from backend.app.services.auth import require_csrf_protection
 from backend.app.services.document_storage import make_document_storage_provider
@@ -59,12 +60,7 @@ def _maybe_run_account_settlement(conn: Connection, transaction_id: str) -> None
     tetikler. Release guard, provider çağrısı ve state geçişi settlement'ta tek
     yerdedir; router provider çağırmaz ve commit etmez (get_db sahibi)."""
 
-    row = load_transaction(conn, transaction_id)
-    if row is None or row["lifecycle_version"] != "account_v2":
-        return
-    from backend.app.services.settlement import evaluate_settlement
-
-    evaluate_settlement(conn, transaction_id, Settings.from_env())
+    reevaluate_account_settlement(conn, transaction_id, Settings.from_env())
 
 
 class EIrsaliyeSubmitRequest(BaseModel):
@@ -72,6 +68,7 @@ class EIrsaliyeSubmitRequest(BaseModel):
 
     external_reference: str = Field(min_length=1, max_length=128)
     delivered_quantity: float = Field(ge=0)
+    milestone_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class EvidenceRecordPublicView(BaseModel):
@@ -211,6 +208,8 @@ def submit_e_irsaliye_evidence(
         )
     except evidence_records_service.EvidenceIdempotencyConflictError as exc:
         raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
+    except evidence_records_service.EvidenceMilestoneError as exc:
+        raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
 
     _maybe_run_account_settlement(conn, transaction_id)
     return _to_public_view(record)
@@ -252,6 +251,7 @@ async def submit_video_evidence(
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
     _csrf: Annotated[None, Depends(require_csrf_protection)],
     file: Annotated[UploadFile, File()],
+    milestone_id: Annotated[str | None, Form()] = None,
     conn: Connection = Depends(get_db),
 ) -> EvidenceRecordPublicView:
     require_evidence_submitter(conn, transaction_id, actor)
@@ -269,6 +269,13 @@ async def submit_video_evidence(
         conn, transaction_id=transaction_id, file_sha256=file_sha256
     )
     if existing is not None:
+        if milestone_id is not None and existing.milestone_id != milestone_id:
+            raise ApiError(
+                status_code=409,
+                code="EVIDENCE_IDEMPOTENCY_CONFLICT",
+                message="Aynı video farklı bir milestone'a yeniden bağlanamaz.",
+            )
+        _maybe_run_account_settlement(conn, transaction_id)
         return _to_public_view(existing)
 
     original_name = file.filename or "delivery_evidence"
@@ -310,7 +317,7 @@ async def submit_video_evidence(
         record = evidence_records_service.submit_evidence(
             conn,
             transaction_id=transaction_id,
-            milestone_id=None,
+            milestone_id=milestone_id,
             evidence_type="video",
             source="analyzer",
             actor_context=actor,
@@ -326,6 +333,10 @@ async def submit_video_evidence(
             conn, transaction_id=transaction_id, file_sha256=file_sha256
         )
         if stored is not None and (existing is None or existing.storage_ref != stored.storage_ref):
+            storage.delete(stored.storage_ref)
+        raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
+    except evidence_records_service.EvidenceMilestoneError as exc:
+        if stored is not None:
             storage.delete(stored.storage_ref)
         raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
     except Exception:

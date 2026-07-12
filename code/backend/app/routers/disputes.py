@@ -29,6 +29,7 @@ from backend.app.db import get_db
 from backend.app.repositories import participants as participants_repo
 from backend.app.repositories.transactions import load_transaction
 from backend.app.services import disputes as disputes_service
+from backend.app.services.settlement_trigger import reevaluate_account_settlement
 from backend.app.services import participants as participants_service
 from backend.app.services.access_control import ActorContext, require_authenticated_user
 from backend.app.services.auth import require_csrf_protection
@@ -268,4 +269,6 @@ def submit_dispute_action(
     except ValueError as exc:
         raise ApiError(status_code=400, code="DISPUTE_ACTION_INVALID", message=str(exc)) from exc
 
+    if body.action in {"resolve", "cancel"}:
+        reevaluate_account_settlement(conn, dispute.transaction_id)
     return _to_action_public_view(action)

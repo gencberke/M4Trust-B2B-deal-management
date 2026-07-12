@@ -29,7 +29,7 @@ Her senaryoda yönetici, taraf onaylarından önce **takip politikasını** seç
 
 1. **Hizmet / approval-only:** fiziksel teslimat yok, takip `off` → çift onay → harici teslimat kanıtı beklenmez → `capture`.
 2. **Fiziksel mal / yalnız belge:** takip `document_only` → çift onay → e-irsaliye tam teslim → `capture`. Video alanı hiç görünmez.
-3. **Kısmi teslim:** e-irsaliye sözleşme miktarının altında → `partial_capture` (oran **yalnız e-irsaliyeden**).
+3. **Kısmi teslim:** account_v2'de e-irsaliye delta'larının kümülatifi fixed-tranche eşiklerini geçtikçe ayrı funding unit approve edilir; legacy_v1 demo yolu geriye uyumluluk için `partial_capture` kullanır. Miktar/oran kaynağı **yalnız e-irsaliyedir**.
 4. **Yardımcı video uyumlu:** takip `document_and_video` → video e-irsaliye ile uyumlu → destekleyici bulgu, oran değişmez → `capture`.
 5. **Yardımcı video anomalisi:** yüksek güvenli sayım ayrışması veya eşleşmiş hasar sinyali → `hold` + **manuel inceleme**; ödeme bırakılmaz, otomatik `dispute` **açılmaz**.
 6. **Sözleşmesel video:** sözleşme videoyu açıkça şart koşuyorsa yönetici bunu kapatamaz; video gelene kadar `hold`.

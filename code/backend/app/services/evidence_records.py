@@ -36,6 +36,8 @@ from uuid import uuid4
 
 from backend.app.eventbus import emit
 from backend.app.repositories import evidence as evidence_repo
+from backend.app.repositories import milestones as milestones_repo
+from backend.app.services import ratification_package as ratification_package_service
 from backend.app.repositories.transactions import load_transaction
 from backend.app.services import audit
 from backend.app.services.access_control import ActorContext
@@ -63,6 +65,14 @@ class EvidenceIdempotencyConflictError(EvidenceError):
 
     def __init__(self, message: str) -> None:
         self.code = "EVIDENCE_IDEMPOTENCY_CONFLICT"
+        super().__init__(message)
+
+
+class EvidenceMilestoneError(EvidenceError):
+    """Kanıtın funding milestone kapsamı deterministik çözülemedi."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
         super().__init__(message)
 
 
@@ -155,6 +165,88 @@ def get_by_file_sha256(
     return None if row is None else _row_to_record(row)
 
 
+def _milestone_accepts_evidence(row: sqlite3.Row, evidence_type: str) -> bool:
+    """Persisted milestone'un kanıt kanalını kabul edip etmediğini çözer.
+
+    Video, sözleşmesel video şartı olmasa da aynı fiziksel teslim milestone'una
+    advisory olarak bağlanabilir; approval-only milestone'larına sessizce
+    broadcast edilmez.
+    """
+
+    try:
+        required = set(json.loads(row["required_evidence_json"]))
+    except (TypeError, ValueError):
+        required = set()
+    trigger = row["trigger_type"]
+    if evidence_type == "e_irsaliye":
+        return bool({"e_irsaliye", "e_invoice"} & required) or trigger in {
+            "e_invoice", "manual_review"
+        }
+    if evidence_type == "video":
+        return bool({"video", "e_irsaliye", "e_invoice"} & required) or trigger in {
+            "delivery_video", "e_invoice", "manual_review"
+        }
+    return evidence_type in required
+
+
+def resolve_milestone_id(
+    conn: Connection,
+    *,
+    transaction_id: str,
+    evidence_type: str,
+    milestone_id: str | None,
+) -> str | None:
+    """Kanıtı current package içindeki tek bir milestone'a bağlar.
+
+    Eski/izole fixture'larda milestone tablosu boşsa ``None`` korunur. Aktif
+    funding-unit akışında birden fazla aday arasında tahmin yapılmaz.
+    """
+
+    rows = milestones_repo.list_for_transaction(conn, transaction_id)
+    if not rows:
+        return milestone_id
+
+    current_package = ratification_package_service.get_current(conn, transaction_id)
+    current_package_id = current_package.id if current_package is not None else None
+
+    if milestone_id is not None:
+        row = milestones_repo.get_by_id(conn, milestone_id)
+        if (
+            row is None
+            or row["transaction_id"] != transaction_id
+            or current_package_id is not None
+            and row["ratification_package_id"] != current_package_id
+        ):
+            raise EvidenceMilestoneError(
+                "EVIDENCE_MILESTONE_NOT_APPLICABLE",
+                "Kanıt milestone'u bu işlemin current ratification package'ına ait değil.",
+            )
+        if not _milestone_accepts_evidence(row, evidence_type):
+            raise EvidenceMilestoneError(
+                "EVIDENCE_MILESTONE_MISMATCH",
+                "Kanıt kanalı seçilen milestone'un sözleşmesel/operasyonel kapsamıyla uyuşmuyor.",
+            )
+        return milestone_id
+
+    candidates = [row for row in rows if _milestone_accepts_evidence(row, evidence_type)]
+    # Tek milestone'lu account fixture/akışta fiziksel kanıtın advisory veya
+    # policy kaynaklı bağını deterministik olarak o milestone'a kur. Birden
+    # fazla milestone'da bu gevşetme yapılmaz; caller açık ID vermelidir.
+    if not candidates and len(rows) == 1 and evidence_type in {"e_irsaliye", "video"}:
+        candidates = rows
+    if not candidates:
+        raise EvidenceMilestoneError(
+            "EVIDENCE_MILESTONE_NOT_APPLICABLE",
+            "Bu kanıt kanalı için current package içinde uygun milestone yok.",
+        )
+    if len(candidates) > 1:
+        raise EvidenceMilestoneError(
+            "EVIDENCE_MILESTONE_REQUIRED",
+            "Birden fazla milestone kanıtı kabul ediyor; milestone_id zorunludur.",
+        )
+    return candidates[0]["id"]
+
+
 def submit_evidence(
     conn: Connection,
     *,
@@ -184,6 +276,10 @@ def submit_evidence(
         external_reference=external_reference, file_sha256=file_sha256,
     )
     if existing is not None:
+        if milestone_id is not None and existing["milestone_id"] != milestone_id:
+            raise EvidenceIdempotencyConflictError(
+                "Aynı kimlik başka bir milestone'a bağlı mevcut kanıtı yeniden bağlayamaz."
+            )
         if existing["payload_json"] == canonical_payload_json:
             return _row_to_record(existing)
         raise EvidenceIdempotencyConflictError(
@@ -192,6 +288,13 @@ def submit_evidence(
             "farklı içerikli bir kanıt zaten var."
         )
 
+    resolved_milestone_id = resolve_milestone_id(
+        conn,
+        transaction_id=transaction_id,
+        evidence_type=evidence_type,
+        milestone_id=milestone_id,
+    )
+
     record_id = uuid4().hex
     created_at = _utc_now_iso()
     try:
@@ -199,7 +302,7 @@ def submit_evidence(
             conn,
             id=record_id,
             transaction_id=transaction_id,
-            milestone_id=milestone_id,
+            milestone_id=resolved_milestone_id,
             evidence_type=evidence_type,
             source=source,
             submitted_by_user_id=actor_context.user_id,
@@ -314,12 +417,19 @@ def collect_transaction_delivery_evidence(conn: Connection, transaction_id: str)
         return DeliveryEvidence(e_irsaliye=None, video=None)
 
     if transaction["lifecycle_version"] == "account_v2":
-        e_irsaliye_row = evidence_repo.latest_for_type(
-            conn, transaction_id=transaction_id, evidence_type="e_irsaliye"
-        )
-        video_row = evidence_repo.latest_for_type(
-            conn, transaction_id=transaction_id, evidence_type="video"
-        )
+        e_irsaliye_row = conn.execute(
+            "SELECT * FROM evidence_records WHERE transaction_id = ? "
+            "AND evidence_type = 'e_irsaliye' AND verification_status = 'verified' "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (transaction_id,),
+        ).fetchone()
+        video_row = conn.execute(
+            "SELECT * FROM evidence_records WHERE transaction_id = ? "
+            "AND evidence_type = 'video' "
+            "AND verification_status IN ('verified', 'review_required') "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (transaction_id,),
+        ).fetchone()
         return DeliveryEvidence(
             e_irsaliye=json.loads(e_irsaliye_row["payload_json"]) if e_irsaliye_row is not None else None,
             video=json.loads(video_row["payload_json"]) if video_row is not None else None,

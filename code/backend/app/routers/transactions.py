@@ -676,6 +676,14 @@ def update_tracking_policy(transaction_id: str, body: TrackingPolicyUpdateReques
         row = load_transaction(conn, transaction_id)
         if row is None:
             raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+        if not Settings.from_env().legacy_capability_access_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "LEGACY_CAPABILITY_ACCESS_DISABLED",
+                    "message": "Legacy capability erişimi kapalı.",
+                },
+            )
         if not resolve_manager(row, body.manager_token):
             raise HTTPException(status_code=403, detail="Geçersiz token.")
 
@@ -725,6 +733,14 @@ def lock_tracking_policy(transaction_id: str, body: TrackingPolicyLockRequest, c
         row = load_transaction(conn, transaction_id)
         if row is None:
             raise HTTPException(status_code=404, detail="İşlem bulunamadı.")
+        if not Settings.from_env().legacy_capability_access_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "LEGACY_CAPABILITY_ACCESS_DISABLED",
+                    "message": "Legacy capability erişimi kapalı.",
+                },
+            )
         if not resolve_manager(row, body.manager_token):
             raise HTTPException(status_code=403, detail="Geçersiz token.")
 

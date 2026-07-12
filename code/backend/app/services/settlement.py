@@ -345,24 +345,24 @@ def _unit_quantity_threshold(eligibility_payload: dict, *, contract_quantity: in
 
 
 def _verified_evidence_rows(conn: Connection, transaction_id: str, milestone_id: str):
-    """Milestone-scoped VEYA transaction-level (milestone_id NULL) verified kanıt.
+    """Yalnız bu milestone'a bağlı verified kanıtı döndürür.
 
-    Plan 05 evidence'ı milestone_id=NULL ile gelir; transaction-level teslim
-    kanıtı her milestone'a deterministik fallback olarak uygulanır (WP2 §2).
-    Yalnız ``verified`` kayıtlar required-evidence tamamlamaya sayılır (rejected/
-    review_required hariç)."""
+    Transaction-level NULL kanıtlar 06X sonrasında eligibility'ye broadcast
+    edilmez; evidence service aktif package'ta tek adayı otomatik bağlar,
+    birden fazla adayda ise kanıt submit'ini fail-closed reddeder.
+    """
 
     return conn.execute(
         "SELECT evidence_type, payload_json FROM evidence_records "
         "WHERE transaction_id = ? AND verification_status = 'verified' "
-        "AND (milestone_id = ? OR milestone_id IS NULL) "
+        "AND milestone_id = ? "
         "ORDER BY created_at ASC, id ASC",
         (transaction_id, milestone_id),
     ).fetchall()
 
 
 def _advisory_video_rows(conn: Connection, transaction_id: str, milestone_id: str):
-    """Video advisory sinyali için verified VEYA review_required video kayıtları.
+    """Bu milestone'a bağlı verified veya review_required video kayıtları.
 
     Yüksek güvenli hasar sinyali evidence'ı ``review_required`` yapar (ingestion);
     bu kayıt required-evidence'ı TAMAMLAMAZ ama hold/review sinyalini taşımalıdır,
@@ -372,10 +372,24 @@ def _advisory_video_rows(conn: Connection, transaction_id: str, milestone_id: st
         "SELECT payload_json FROM evidence_records "
         "WHERE transaction_id = ? AND evidence_type = 'video' "
         "AND verification_status IN ('verified', 'review_required') "
-        "AND (milestone_id = ? OR milestone_id IS NULL) "
+        "AND milestone_id = ? "
         "ORDER BY created_at ASC, id ASC",
         (transaction_id, milestone_id),
     ).fetchall()
+
+
+def _latest_video_for_milestone(
+    conn: Connection, transaction_id: str, milestone_id: str
+):
+    """Review source'u için bu milestone'un en yeni reddedilmemiş videosu."""
+
+    return conn.execute(
+        "SELECT * FROM evidence_records WHERE transaction_id = ? "
+        "AND evidence_type = 'video' AND milestone_id = ? "
+        "AND verification_status != 'rejected' "
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
+        (transaction_id, milestone_id),
+    ).fetchone()
 
 
 def _build_video_advisory(
@@ -426,7 +440,7 @@ def _trigger_satisfied(trigger_type: str, verified_types: frozenset[str]) -> boo
     if trigger_type == "approval":
         return True
     if trigger_type == "e_invoice":
-        return "e_invoice" in verified_types
+        return bool({"e_invoice", "e_irsaliye"} & verified_types)
     if trigger_type == "delivery_video":
         return "video" in verified_types
     if trigger_type == "manual_review":
@@ -518,9 +532,7 @@ def _open_account_video_review_if_needed(
         return
     if review_service.has_blocking_case(conn, transaction_id, phase="settlement"):
         return
-    video_row = evidence_repo.latest_for_type(
-        conn, transaction_id=transaction_id, evidence_type="video"
-    )
+    video_row = _latest_video_for_milestone(conn, transaction_id, milestone_id)
     source_id = video_row["id"] if video_row is not None else milestone_id
     review_service.open_case(
         conn,

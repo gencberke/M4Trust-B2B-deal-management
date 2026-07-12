@@ -87,6 +87,18 @@ def create_approval(
                 },
             )
 
+        # Legacy capability surface'in tamamı aynı kill-switch'e tabidir.
+        # Token çözümlemeden önce kontrol edilir; flag kapalıyken geçerli ve
+        # geçersiz token arasında oracle oluşmaz.
+        if not settings.legacy_capability_access_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "LEGACY_CAPABILITY_ACCESS_DISABLED",
+                    "message": "Legacy capability erişimi kapalı.",
+                },
+            )
+
         party = resolve_party(row, body.token)
         if party is None:
             raise HTTPException(status_code=403, detail="Geçersiz token.")
@@ -128,6 +140,14 @@ def create_approval(
         state = row["state"]
 
         if {"buyer", "seller"} <= approved and state in _APPROVABLE_STATES:
+            if settings.payment_provider != "mock":
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "LEGACY_PAYMENT_PROVIDER_UNSUPPORTED",
+                        "message": "Legacy approval yolu yalnız mock provider destekler.",
+                    },
+                )
             extraction = _load_extraction_for_payment(conn, transaction_id)
             if extraction is not None:
                 commercial = extraction.get("commercial_terms") or {}

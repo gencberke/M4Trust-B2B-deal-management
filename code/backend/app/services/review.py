@@ -52,6 +52,8 @@ import re
 import sqlite3
 from typing import Any
 
+from backend.app.config import Settings
+from backend.app.repositories import evidence as evidence_repo
 from backend.app.repositories import participants as participants_repo
 from backend.app.repositories import reviews as reviews_repo
 from backend.app.repositories import rule_sets as rule_sets_repo
@@ -80,6 +82,9 @@ _ACCOUNT_STATES_RETURNABLE_TO_PREPARATION = frozenset(
 _TOKEN_LIKE_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{24,}(?![A-Za-z0-9_-])")
 
 _ACTIVE_STATUS_VALUES = tuple(s.value for s in ACTIVE_REVIEW_STATUSES)
+_SETTLEMENT_VIDEO_RESOLUTION_CODES = frozenset(
+    {"VIDEO_FALSE_POSITIVE", "SUPERSEDED_BY_CLEAN_EVIDENCE"}
+)
 
 
 def _is_participant_approver(
@@ -292,6 +297,110 @@ def _blocking_resolve_continue_allowed(conn: sqlite3.Connection, case: ReviewCas
     return False
 
 
+def _video_payload_has_high_confidence_damage(payload: dict, threshold: float) -> bool:
+    confidence = payload.get("confidence")
+    try:
+        high_confidence = float(confidence) >= threshold
+    except (TypeError, ValueError):
+        return False
+    if not high_confidence:
+        return False
+    for signal in payload.get("damage_signals") or []:
+        if not isinstance(signal, dict) or not signal.get("matched_box"):
+            continue
+        try:
+            if float(signal.get("confidence", 0.0)) >= threshold:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _prepare_settlement_video_resolution(
+    conn: sqlite3.Connection,
+    *,
+    case: ReviewCase,
+    actor_context: ActorContext,
+    action: str,
+    payload: dict[str, Any] | None,
+) -> None:
+    """Settlement video case'ini yalnız güvenli insan kararlarıyla çözer."""
+
+    if case.phase is not ReviewPhase.settlement or case.source_type is not ReviewSourceType.video:
+        return
+    if case.severity is not ReviewSeverity.blocking or action != "resolve_continue":
+        raise ReviewActionForbiddenError(
+            "Settlement video case yalnız güvenli resolve_continue aksiyonuyla çözülebilir."
+        )
+    if actor_context.platform_role not in {"reviewer", "admin"}:
+        raise ReviewActionForbiddenError(
+            "Settlement video case çözümü yalnız platform reviewer/admin içindir."
+        )
+
+    resolution_code = (payload or {}).get("resolution_code")
+    if resolution_code not in _SETTLEMENT_VIDEO_RESOLUTION_CODES:
+        raise ReviewResolutionPreconditionError(
+            "Settlement video çözümü VIDEO_FALSE_POSITIVE veya "
+            "SUPERSEDED_BY_CLEAN_EVIDENCE kodu gerektirir."
+        )
+    source_row = evidence_repo.get_by_id(conn, case.source_id) if case.source_id else None
+    if source_row is None or source_row["evidence_type"] != "video":
+        # 06 closure'dan önce açılmış case'lerde source_id bazen milestone veya
+        # transaction id'siydi; mevcut transaction'ın en yeni reddedilmemiş
+        # video kaydıyla güvenli biçimde geriye uyum sağla.
+        source_row = conn.execute(
+            "SELECT * FROM evidence_records WHERE transaction_id = ? "
+            "AND evidence_type = 'video' AND verification_status != 'rejected' "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (case.transaction_id,),
+        ).fetchone()
+    if source_row is None or source_row["evidence_type"] != "video":
+        raise ReviewResolutionPreconditionError(
+            "Settlement video case source evidence kaydı bulunamadı."
+        )
+
+    if resolution_code == "VIDEO_FALSE_POSITIVE":
+        from backend.app.services import evidence_records as evidence_records_service
+
+        evidence_records_service.verify_evidence(
+            conn,
+            evidence_id=source_row["id"],
+            verification_status="rejected",
+            actor_context=actor_context,
+        )
+        return
+
+    threshold = Settings.from_env().video_advisory_confidence_threshold
+    replacement = conn.execute(
+        "SELECT payload_json FROM evidence_records "
+        "WHERE transaction_id = ? AND evidence_type = 'video' "
+        "AND verification_status = 'verified' AND created_at > ? "
+        "AND (milestone_id = ? OR (milestone_id IS NULL AND ? IS NULL)) "
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
+        (case.transaction_id, source_row["created_at"], source_row["milestone_id"], source_row["milestone_id"]),
+    ).fetchone()
+    if replacement is None:
+        raise ReviewResolutionPreconditionError(
+            "Temiz ve daha yeni verified video evidence bulunmadan case çözülemez."
+        )
+    try:
+        replacement_payload = json.loads(replacement["payload_json"])
+    except (TypeError, ValueError):
+        replacement_payload = {}
+    if _video_payload_has_high_confidence_damage(replacement_payload, threshold):
+        raise ReviewResolutionPreconditionError(
+            "Yeni video hâlâ yüksek güvenli eşleşmiş hasar sinyali taşıyor."
+        )
+    from backend.app.services import evidence_records as evidence_records_service
+
+    evidence_records_service.verify_evidence(
+        conn,
+        evidence_id=source_row["id"],
+        verification_status="rejected",
+        actor_context=actor_context,
+    )
+
+
 def _return_account_transaction_to_preparation(
     conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
 ) -> None:
@@ -422,6 +531,21 @@ def record_action(
     new_status, is_resolution = _ACTION_TRANSITIONS[action]
     safe_payload = dict(payload) if payload else None
 
+    case = _row_to_case(case_row)
+    if (
+        case.phase is ReviewPhase.settlement
+        and case.source_type is ReviewSourceType.video
+        and case.severity is ReviewSeverity.blocking
+        and action in {"resolve_reject", "cancel"}
+    ):
+        _prepare_settlement_video_resolution(
+            conn,
+            case=case,
+            actor_context=actor_context,
+            action=action,
+            payload=payload,
+        )
+
     if action == "escalate_dispute":
         if case_row["status"] not in _ACTIVE_STATUS_VALUES:
             raise ReviewCaseClosedError(
@@ -441,12 +565,23 @@ def record_action(
 
     if action == "resolve_continue" and case_row["severity"] == ReviewSeverity.blocking.value:
         case = _row_to_case(case_row)
-        if case.phase is not ReviewPhase.pre_ratification:
+        if case.phase is ReviewPhase.settlement and case.source_type is ReviewSourceType.video:
+            _prepare_settlement_video_resolution(
+                conn,
+                case=case,
+                actor_context=actor_context,
+                action=action,
+                payload=payload,
+            )
+        elif case.phase is not ReviewPhase.pre_ratification:
             raise ReviewActionForbiddenError(
                 "Blocking case 'resolve_continue' ile bypass edilemez; bu faz için "
                 "resolution semantiği henüz tanımlı değil."
             )
-        if not _blocking_resolve_continue_allowed(conn, case):
+        if (
+            case.phase is ReviewPhase.pre_ratification
+            and not _blocking_resolve_continue_allowed(conn, case)
+        ):
             raise ReviewResolutionPreconditionError(
                 "Blocking case 'resolve_continue' ön koşulları sağlanmıyor: revision + "
                 "revalidation (validator case) veya mismatch'in gerçekten düzelmiş olması "

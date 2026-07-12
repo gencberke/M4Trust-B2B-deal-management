@@ -336,6 +336,24 @@ def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
         return "unknown"
 
     payment = detail.payment
+    identifier = payment.identifier
+    if (
+        not payment.is_pool_payment
+        or identifier.other_trx_code != unit["other_trx_code"]
+        or (
+            payment.amount_minor is not None
+            and int(payment.amount_minor) != int(unit["amount_minor"])
+        )
+        or (
+            payment.currency is not None
+            and str(payment.currency) != str(unit["currency"])
+        )
+    ):
+        # Provider detail'i stored package ile bağlanamıyorsa unit kesinlikle
+        # approved/pool_created sayılamaz. 07 reconciliation bunu daha sonra
+        # ürünleştirir; 06X seam'i yalnız fail-closed unknown bırakır.
+        funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
+        return "unknown"
     if payment.status is ProviderPaymentStatus.POOL:
         provider_payments_repo.upsert_payment(
             conn,
@@ -350,6 +368,17 @@ def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
         )
         funding_units_repo.update_status(conn, unit["id"], "pool_created")
         return "pool_created"
+    provider_payments_repo.upsert_payment(
+        conn,
+        payment_id=uuid4().hex,
+        funding_unit_id=unit["id"],
+        provider_profile=unit["provider_profile"],
+        other_trx_code=unit["other_trx_code"],
+        virtual_pos_order_id=identifier.virtual_pos_order_id,
+        amount_minor=unit["amount_minor"],
+        currency=unit["currency"],
+        internal_status="approved",
+    )
     funding_units_repo.update_status(conn, unit["id"], "approved")
     return "approved"
 

@@ -25,6 +25,7 @@ from backend.app.repositories import reviews as reviews_repo
 from backend.app.schemas.reviews import ReviewAction, ReviewActionRequest, ReviewCaseWithActions
 from backend.app.services import participants as participants_service
 from backend.app.services import review as review_service
+from backend.app.services.settlement_trigger import reevaluate_account_settlement
 from backend.app.services.access_control import ActorContext, require_authenticated_user
 from backend.app.services.auth import require_csrf_protection
 
@@ -134,13 +135,16 @@ def submit_review_action(
         payload["resolution_code"] = body.resolution_code
 
     try:
-        return review_service.record_action(
+        result = review_service.record_action(
             conn,
             case_id=review_case_id,
             actor_context=actor,
             action=body.action.value,
             payload=payload or None,
         )
+        if body.action.value in {"resolve_continue", "resolve_reject", "cancel"}:
+            reevaluate_account_settlement(conn, transaction_id)
+        return result
     except review_service.ReviewCaseClosedError as exc:
         raise ApiError(status_code=409, code="REVIEW_CASE_CLOSED", message=str(exc)) from exc
     except review_service.ReviewActionForbiddenError as exc:
