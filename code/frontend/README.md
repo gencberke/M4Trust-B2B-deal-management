@@ -1,12 +1,12 @@
-# M4Trust Frontend — Faz 8A Foundation + 8B1 Deal Core
+# M4Trust Frontend — Faz 8A + 8B1/8B2
 
-React + Vite + TypeScript + Tailwind + React Router tabanı. Faz 8A: auth/session, merkezi API client, acting-entity seçimi ve legal entity create/profile ekranları. **Faz 8B1 (Plan 08b1):** authenticated `account_v2` işlem çekirdeği — işlem listesi, sözleşme yükleme + oluşturma, işlem detay kabuğu (`overview`/`parties`), extraction retry, davet oluştur/önizle/kabul/iptal ve katılımcı profil/onay akışları. Kural/ratifikasyon (8B2) ve teslimat/ödeme (8C) ekranları sonraki PR'lardadır.
+React + Vite + TypeScript + Tailwind + React Router tabanı. Faz 8A auth/session ve tüzel kişi temelini; Faz 8B1 authenticated `account_v2` işlem çekirdeğini; Faz 8B2 ise kural inceleme/revizyonu, takip politikası, değişmez onay paketi ve çift taraflı ratifikasyonu sağlar. Teslimat/ödeme (8C) ekranları sonraki PR'dadır.
 
-## Faz 8B1 rotaları
+## Faz 8B rotaları
 
 - `/transactions` — yalnız taraf/yönetici olduğunuz işlemlerin listesi.
 - `/transactions/new` — sözleşme yükleme + `account_v2` işlem oluşturma (multipart; başarıda tek seferlik davet bağlantısı).
-- `/transactions/:id` — detay kabuğu; `overview`'e yönlenir. Bölümler: `overview` (durum, redacted extraction özeti, validator, event timeline, takılı extraction retry) ve `parties` (katılımcılar, davet paneli, kendi profil/onay).
+- `/transactions/:id` — detay kabuğu; `overview`'e yönlenir. Bölümler: `overview` (durum, redacted extraction özeti, validator, event timeline, takılı extraction retry), `parties` (katılımcılar, davet paneli, kendi profil/onay), `rules` (taraf karşılaştırma, validator/review kayıtları, değişmez sürüm/diff, revizyon ve revalidation) ve `ratification` (takip politikası, paket hash'i/takvim, taraf onay ilerlemesi ve ratify).
 - `/invitations/:token` — public davet önizlemesi + giriş yapılınca kabul. Davet token'ı yalnız bu rotada taşınır; başka hiçbir yere yazılmaz/loglanmaz.
 
 ## Gereksinimler

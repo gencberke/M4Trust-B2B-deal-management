@@ -15,6 +15,7 @@ const SECTIONS: SectionNavItem[] = [
   { slug: "overview", label: "Genel bakış" },
   { slug: "parties", label: "Taraflar" },
   { slug: "rules", label: "Kurallar" },
+  { slug: "ratification", label: "Onay" },
 ];
 
 export interface TransactionShellContext {

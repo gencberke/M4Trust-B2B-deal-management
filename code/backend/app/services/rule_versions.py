@@ -103,6 +103,20 @@ def _reconstruct_revision_extraction(
     parent = _get_or_raise(conn, parent_version_id)
     parent_extraction = ExtractionJSON.model_validate(json.loads(parent["rules_json"]))
     reconstructed_payload = dict(rules_payload)
+
+    submitted_parties = reconstructed_payload.get("parties")
+    if not isinstance(submitted_parties, dict):
+        raise RuleRevisionPayloadError("parties revision payload must be an object.")
+    merged_parties: dict[str, dict] = {}
+    for role in ("buyer", "seller"):
+        submitted_party = submitted_parties.get(role)
+        if not isinstance(submitted_party, dict):
+            raise RuleRevisionPayloadError(f"parties.{role} must be an object.")
+        party = dict(submitted_party)
+        if party.get("tax_id") is None:
+            party["tax_id"] = getattr(parent_extraction.parties, role).tax_id
+        merged_parties[role] = party
+    reconstructed_payload["parties"] = merged_parties
     submitted_rules = reconstructed_payload.get("payment_rules")
     if not isinstance(submitted_rules, list):
         raise RuleRevisionPayloadError("payment_rules revision payload must be a list.")

@@ -10,12 +10,23 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.app.schemas.extraction import (
-    CommercialTerms,
-    Parties,
-    RequiredEvidence,
-    Trigger,
-)
+from backend.app.schemas.extraction import CommercialTerms, RequiredEvidence, Trigger
+
+
+class RevisionParty(BaseModel):
+    """Redacted party input whose protected tax id is parent-preserved."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    tax_id: str | None = None
+
+
+class RevisionParties(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    buyer: RevisionParty
+    seller: RevisionParty
 
 
 class RevisionPaymentRule(BaseModel):
@@ -37,7 +48,7 @@ class ExtractionRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     contract_id: str
-    parties: Parties
+    parties: RevisionParties
     commercial_terms: CommercialTerms
     payment_rules: list[RevisionPaymentRule]
     risk_flags: list[str]

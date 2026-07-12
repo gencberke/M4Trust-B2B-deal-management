@@ -35,7 +35,7 @@ export interface CanonicalPackagePayload {
     currency: string;
     total_amount_minor: number;
     delivery_deadline: string | null;
-    goods: { name: string; quantity: number; unit: string }[];
+    goods: { name: string; quantity: string; unit: string }[];
   };
   tracking_policy?: { snapshot?: Record<string, unknown> };
   rule_set?: { id: string; version: number; rules_hash: string };

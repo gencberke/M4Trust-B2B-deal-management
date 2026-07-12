@@ -152,6 +152,27 @@ def test_revision_is_immutable_parent_auto_validated_and_redacted(tmp_path: Path
         conn.close()
 
 
+def test_redacted_null_or_omitted_tax_ids_are_preserved_from_parent(tmp_path: Path) -> None:
+    conn, parent_id = _make_db(tmp_path)
+    try:
+        payload = deepcopy(_PAYLOAD)
+        payload["parties"]["buyer"]["tax_id"] = None
+        payload["parties"]["seller"].pop("tax_id")
+
+        response = TestClient(_app(conn, _actor())).post(
+            f"/api/transactions/tx-4f/rule-sets/{parent_id}/revisions", json=payload
+        )
+
+        assert response.status_code == 200, response.text
+        assert "tax_id" not in json.dumps(response.json())
+        stored = rule_sets_repo.get_by_id(conn, response.json()["id"])
+        extraction = json.loads(stored["rules_json"])
+        assert extraction["parties"]["buyer"]["tax_id"] == "1234567890"
+        assert extraction["parties"]["seller"]["tax_id"] == "9876543210"
+    finally:
+        conn.close()
+
+
 def test_needs_review_revision_opens_blocking_case_without_bypassing_old_case(tmp_path: Path) -> None:
     conn, parent_id = _make_db(tmp_path)
     try:
