@@ -74,7 +74,7 @@ code/
 │       ├── payment_provider.py# PaymentProvider: MockMokaProvider + RealMokaProvider(v1)
 │       └── evidence.py        # zaman damgalı JSON bundle (tracking policy snapshot'ı dahil)
 ├── backend/mock_moka/         # ayrı FastAPI process'i: contract-faithful local Moka simulator
-└── frontend/src/     # api/ · pages/ (Dashboard · TransactionDetail · PartyReview · ManagerPolicy) · components/
+└── frontend/src/     # api/ · auth/ · entities/ · pages/ (+ pages/transactions/) · components/ (AppShell · TransactionShell · SectionNav · StatusBadge · Timeline · ConfirmDialog · ResponsiveTable · Feedback) · lib/ (useAsyncData · usePolling · format · statusMaps · eventLabels · inviteLink) · types/ · routes/
 ```
 
 > **Uygulama notu (2026-07-09):** `DocumentExtractor` şu an `services/documents/` altında değil — mevcut kod `code/scripts/document_parser/` içinde (Clean Architecture, testli); backend pipeline onu bir `sys.path` köprüsüyle import eder (bkz. `routers/transactions.py`). Yukarıdaki `services/documents/` hedef yapısı korunur; relokasyon ayrı bir iştir. Backend omurgası (`main`/`db`/`eventbus`/`routers`/`validator`/`decision`/`payment_provider`/`video`/`evidence`) kuruldu — [plans/done/backend_iskeleti_ve_islem_akisi.md](plans/done/backend_iskeleti_ve_islem_akisi.md).
@@ -91,7 +91,9 @@ code/
 
 > **Plan 05 remediation notu (2026-07-12):** Account evidence yalnız `state=active` iken kabul edilir; `funding_pending` ve diğer erken/terminal durumlar 409 ile reddedilir. Plan 05 settlement adapter'ı account işlemlerde hold/capture sonrasında `active` state'ini korur; `settled` geçişi Plan 06 lifecycle'ına aittir. Video replay önce hash ile mevcut kaydı arar, content hash'i deterministic storage key olarak kullanır ve analyzer/DB hatasında orphan dosyayı temizler. Dispute action matrisi `comment`/`attach_evidence` = iki taraf approver'ı, `cancel` = opener, `resolve` = opener veya platform reviewer/admin'dir. Review `escalate_dispute` yalnız buyer/seller participant approver'ın explicit aksiyonuyla yeni dispute açar; platform reviewer/admin review state'ini yönetir. Corrective migration `023_plan05_remediation_constraints`, 013/010 dosyalarını değiştirmeden provenance immutability ve review action constraint'ini yeniler.
 
-Frontend route'ları: `/` (dashboard + upload) · `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi). Authenticated account akışının frontend'i Plan 03 kapsamı dışıdır (Program 6/Faz 08).
+Frontend route'ları (legacy_v1, capability-token demo — değişmedi): `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi).
+
+Frontend route'ları (account_v2, authenticated session — Program 6): **Faz 8A** `/` · `/register` · `/login` · `/logout` · `/me` · `/entities/new` · `/entities/:entityId` · `/session-required` · `/permission-denied` · `/conflict`. **Faz 8B1 (Plan 08b1, 2026-07-12):** `/transactions` (assignment-scoped liste) · `/transactions/new` (upload + account_v2 create) · `/transactions/:transactionId` (detay kabuğu → `overview`'e yönlenir) · `/transactions/:transactionId/overview` (durum, redacted extraction özeti, validator, event timeline, extraction retry) · `/transactions/:transactionId/parties` (katılımcılar, davet paneli, kendi profil/onay) · `/invitations/:token` (public önizleme + auth'lu accept; token yalnız bu rotada). Sonraki bölümler (`rules`/`ratification`/`fulfillment`/`disputes`/`payments`) Faz 8B2/8C kapsamındadır.
 
 ## 2. Tech stack
 

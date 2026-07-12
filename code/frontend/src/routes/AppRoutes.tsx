@@ -11,6 +11,7 @@ import {
   EntityCreatePage,
   EntityProfilePage,
   HomePage,
+  InvitationPage,
   LoginPage,
   LogoutPage,
   MePage,
@@ -21,6 +22,7 @@ import {
   TransactionCreatePage,
   TransactionListPage,
   TransactionOverviewPage,
+  TransactionPartiesPage,
 } from "../pages";
 import { buildApiErrorNavigationState } from "./navigation";
 
@@ -75,7 +77,9 @@ export function AppRoutes() {
           <Route path="transactions/:transactionId" element={<RequireAuth><TransactionShell /></RequireAuth>}>
             <Route index element={<Navigate to="overview" replace />} />
             <Route path="overview" element={<TransactionOverviewPage />} />
+            <Route path="parties" element={<TransactionPartiesPage />} />
           </Route>
+          <Route path="invitations/:token" element={<InvitationPage />} />
           <Route path="session-required" element={<SessionRequiredPage />} />
           <Route path="permission-denied" element={<PermissionDeniedPage />} />
           <Route path="conflict" element={<ConflictPage />} />

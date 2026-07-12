@@ -1,6 +1,13 @@
-# M4Trust Frontend — Faz 8A Foundation
+# M4Trust Frontend — Faz 8A Foundation + 8B1 Deal Core
 
-React + Vite + TypeScript + Tailwind + React Router tabanı. Bu PR yalnız Plan 08 Faz 8A kapsamındadır: auth/session, merkezi API client, acting-entity seçimi ve legal entity create/profile ekranları. Transaction, invitation ve sonraki dikey dilim ekranları kapsam dışıdır.
+React + Vite + TypeScript + Tailwind + React Router tabanı. Faz 8A: auth/session, merkezi API client, acting-entity seçimi ve legal entity create/profile ekranları. **Faz 8B1 (Plan 08b1):** authenticated `account_v2` işlem çekirdeği — işlem listesi, sözleşme yükleme + oluşturma, işlem detay kabuğu (`overview`/`parties`), extraction retry, davet oluştur/önizle/kabul/iptal ve katılımcı profil/onay akışları. Kural/ratifikasyon (8B2) ve teslimat/ödeme (8C) ekranları sonraki PR'lardadır.
+
+## Faz 8B1 rotaları
+
+- `/transactions` — yalnız taraf/yönetici olduğunuz işlemlerin listesi.
+- `/transactions/new` — sözleşme yükleme + `account_v2` işlem oluşturma (multipart; başarıda tek seferlik davet bağlantısı).
+- `/transactions/:id` — detay kabuğu; `overview`'e yönlenir. Bölümler: `overview` (durum, redacted extraction özeti, validator, event timeline, takılı extraction retry) ve `parties` (katılımcılar, davet paneli, kendi profil/onay).
+- `/invitations/:token` — public davet önizlemesi + giriş yapılınca kabul. Davet token'ı yalnız bu rotada taşınır; başka hiçbir yere yazılmaz/loglanmaz.
 
 ## Gereksinimler
 
@@ -78,6 +85,21 @@ npm run preview
 ```
 
 `npm run preview` yalnız production build'i yerelde servis eder; backend proxy'si `npm run dev` yapılandırmasındadır.
+
+## Test stratejisi
+
+Varsayılan test ortamı **node**'dur ve `src/**/*.test.ts` saf yardımcı/api testlerini kapsar (8A deseni; mock `fetch`). 8B1 ile davranışsal (DOM) kapsama için küçük bir katman eklendi: `src/**/*.test.tsx` dosyaları dosya başındaki `// @vitest-environment jsdom` yorumuyla jsdom'a geçer (node testleri değişmez). Yalnız **dev bağımlılığı** eklendi (`jsdom`, `@testing-library/react`, `@testing-library/user-event`); hiçbir yeni runtime bağımlılığı yoktur. Global cache/state framework'ü (react-query/Redux vb.) bilinçli olarak kullanılmaz — okuma başına ≤2 istek, mutation sonrası ilgili `refresh()` yeterlidir.
+
+## Faz 8B1 manuel duman testi (özet)
+
+Ön koşul: `code/.env` içinde `APP_ENCRYPTION_KEY`, `APP_HMAC_KEY`, `SESSION_COOKIE_SECURE=false`; tek worker uvicorn; `python scripts/seed_demo_users.py` ile Berke/Yusuf + ABC A.Ş./XYZ Ltd. seed'i; `VIDEO_PROVIDER=fake`.
+
+1. Berke ile giriş, ABC A.Ş. seç → `/transactions` boş durum.
+2. `/transactions/new`: küçük `.md` sözleşme yükle, rol alıcı, karşı taraf = Yusuf'un e-postası → tek seferlik `/invitations/{token}` bağlantısı.
+3. Detay `overview`: `uploaded/extracting` (4 sn polling) → `awaiting_approval`; extraction özeti + validator + timeline.
+4. `parties`: iki katılımcı; davet paneli (revoke); profil kaydet → `ready`; onayla → `confirmed` (tekrar düzenleme 409 mesajı).
+5. İkinci profil/tarayıcıda davet bağlantısını çıkışlıyken aç → yalnız önizleme; Yusuf ile giriş, XYZ Ltd. seç, kabul → `parties`; adres çubuğundan token kaybolur.
+6. Güvenlik: localStorage yalnız `m4t_acting_entity_id`; preview/accept dışında hiçbir istek token taşımaz; DOM'da `tax_id`/`source_quote` yok.
 
 ## Hata davranışı
 
