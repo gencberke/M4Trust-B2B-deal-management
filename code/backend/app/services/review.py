@@ -402,6 +402,83 @@ def _prepare_settlement_video_resolution(
     )
 
 
+_PAYMENT_UNDO_REQUESTED = "PAYMENT_UNDO_REQUESTED"
+_PAYMENT_REFUND_REQUESTED = "PAYMENT_REFUND_REQUESTED"
+
+
+def _require_payment_operation_success_before_resolve(
+    conn: sqlite3.Connection, *, case: ReviewCase, actor_context: ActorContext
+) -> None:
+    """Faz 7 follow-up (Yusuf) — payment-phase blocking case `resolve_continue`
+    ile kapatılmadan ÖNCE Berke'nin 7A payment operation seam'ini (reconcile/
+    execute_resolution) tetikler; yalnız gerçek başarı/definitif sonuç
+    durumunda case'in kapanmasına izin verir.
+
+    `review.py` PaymentGateway'i DOĞRUDAN çağırmaz -- yalnız
+    `services/payments/reconciliation.py`/`payment_operations.py`'nin
+    (Berke'nin dosyaları, buradan yalnız import/çağrı edilir, değiştirilmez)
+    kamuya açık fonksiyonlarını çağırıp sonucu yorumlar. Provider operation
+    başarısız/unknown ise `ReviewResolutionPreconditionError` (409) fırlatır
+    ve case açık kalır; manager'ın execution bypass'ı yoktur (execution
+    yetkisi zaten `payment_operations._can_execute` içinde -- platform
+    reviewer/admin veya bilateral buyer+seller -- ayrıca denetlenir, burada
+    tekrarlanmaz)."""
+    from backend.app.repositories import payment_resolutions as resolutions_repo
+    from backend.app.services.payments import payment_operations
+    from backend.app.services.payments.reconciliation import reconcile_funding_unit
+
+    if case.reason_code == PAYMENT_RECONCILE_AMBIGUOUS:
+        if case.source_id is None:
+            raise ReviewResolutionPreconditionError(
+                "Reconciliation case'inin bağlı funding unit'i yok; case kapatılamaz."
+            )
+        result = reconcile_funding_unit(
+            conn, funding_unit_id=case.source_id, actor_context=actor_context
+        )
+        if result.outcome == "ambiguous":
+            raise ReviewResolutionPreconditionError(
+                "Provider reconciliation hâlâ ambiguous; case kapatılamaz."
+            )
+        return
+
+    if case.reason_code in {_PAYMENT_UNDO_REQUESTED, _PAYMENT_REFUND_REQUESTED}:
+        if case.source_id is None:
+            raise ReviewResolutionPreconditionError(
+                "Payment resolution case'inin bağlı funding unit'i yok; case kapatılamaz."
+            )
+        operation_type = (
+            "undo_approval" if case.reason_code == _PAYMENT_UNDO_REQUESTED else "refund"
+        )
+        resolution = resolutions_repo.get_by_unit_and_operation(
+            conn, funding_unit_id=case.source_id, operation_type=operation_type
+        )
+        if resolution is None:
+            raise ReviewResolutionPreconditionError(
+                "Bağlı payment resolution kaydı bulunamadı; case kapatılamaz."
+            )
+        try:
+            result = payment_operations.execute_resolution(
+                conn, resolution_id=resolution["id"], actor_context=actor_context
+            )
+        except payment_operations.PaymentOperationError as exc:
+            raise ReviewResolutionPreconditionError(str(exc)) from exc
+        if result.status != "executed":
+            raise ReviewResolutionPreconditionError(
+                f"Payment operation '{result.status}' durumunda; case kapatılamaz "
+                "(başarısız/unknown sonuç ile resolve edilmez)."
+            )
+        return
+
+    # PAYMENT_POOL_CREATION_FAILED / PAYMENT_APPROVE_FAILED / PAYMENT_REFUND_FAILED:
+    # bu reason-code'lar için otomatik bir execution seam'i bu fazda yoktur --
+    # fail-closed reddedilir (bypass yerine kapsam dışı bırakılır).
+    raise ReviewActionForbiddenError(
+        f"'{case.reason_code}' reason-code'lu payment case 'resolve_continue' ile "
+        "otomatik kapatılamaz; reconciliation veya resolution execution seam'i "
+        "kullanılmalı."
+    )
+
+
 def _return_account_transaction_to_preparation(
     conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
 ) -> None:
@@ -573,6 +650,10 @@ def record_action(
                 actor_context=actor_context,
                 action=action,
                 payload=payload,
+            )
+        elif case.phase is ReviewPhase.payment:
+            _require_payment_operation_success_before_resolve(
+                conn, case=case, actor_context=actor_context
             )
         elif case.phase is not ReviewPhase.pre_ratification:
             raise ReviewActionForbiddenError(
