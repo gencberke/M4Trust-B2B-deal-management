@@ -18,6 +18,55 @@ from reviews_fixtures import create_real_session, create_real_user
 from test_settlement_funding_cutover import _actor, _seed_funded_account
 
 
+def _prepare_http_irsaliye_ambiguity(conn, transaction_id: str, package_id: str) -> str:
+    """Gerçek app/router testleri için iki e-irsaliye adayı oluşturur."""
+
+    first = milestones_repo.list_for_transaction(conn, transaction_id)[0]
+    conn.execute(
+        "UPDATE milestones SET required_evidence_json = '[\"e_irsaliye\"]', "
+        "trigger_type = 'e_invoice' WHERE id = ?",
+        (first["id"],),
+    )
+    conn.execute(
+        "INSERT INTO milestones ("
+        "id, transaction_id, ratification_package_id, rule_set_version_id, rule_index, "
+        "title, trigger_type, percentage_basis_points, amount_minor, currency, "
+        "required_evidence_json, release_mode, status, released_amount_minor, created_at, updated_at"
+        ") VALUES (?, ?, ?, ?, 1, 'İkinci teslim', 'e_invoice', 1, 1, 'TRY', ?, "
+        "'all_or_nothing', 'pending', 0, 'now', 'now')",
+        (
+            "milestone-06x-http-2",
+            transaction_id,
+            package_id,
+            first["rule_set_version_id"],
+            json.dumps(["e_irsaliye"]),
+        ),
+    )
+    # _seed_funded_account approval-only policy ile gelir; HTTP e-irsaliye
+    # kanalını gerçek tracking policy üzerinden aç.
+    conn.execute(
+        "UPDATE tracking_policies SET manager_physical_delivery_confirmed = 1, "
+        "tracking_mode = 'document_only', status = 'locked', locked_at = 'now' "
+        "WHERE transaction_id = ?",
+        (transaction_id,),
+    )
+    conn.commit()
+    return first["id"]
+
+
+def _http_evidence_client(conn, *, user_id: str = "u-seller"):
+    from backend.app.main import create_app
+
+    session = create_real_session(conn, user_id=user_id)
+    conn.commit()
+    conn.close()
+
+    client = TestClient(create_app())
+    client.__enter__()
+    client.cookies.set("m4t_session", session.raw_token)
+    return client, session
+
+
 def test_evidence_requires_milestone_when_multiple_candidates_exist(tmp_path) -> None:
     conn, transaction_id, package_id = _seed_funded_account(tmp_path, tx_id="tx-06x-binding")
     first = milestones_repo.list_for_transaction(conn, transaction_id)[0]
@@ -55,6 +104,58 @@ def test_evidence_requires_milestone_when_multiple_candidates_exist(tmp_path) ->
         )
     assert exc_info.value.code == "EVIDENCE_MILESTONE_REQUIRED"
     conn.close()
+
+
+def test_e_irsaliye_http_requires_milestone_when_multiple_candidates_exist(
+    tmp_path, monkeypatch
+) -> None:
+    db_path = tmp_path / "6c.db"
+    monkeypatch.setenv("DB_PATH", str(db_path))
+    conn, transaction_id, package_id = _seed_funded_account(tmp_path, tx_id="tx-06x-http-required")
+    _prepare_http_irsaliye_ambiguity(conn, transaction_id, package_id)
+    client, session = _http_evidence_client(conn)
+    try:
+        response = client.post(
+            f"/api/transactions/{transaction_id}/evidence/e-irsaliye",
+            json={"external_reference": "06x-http-ambiguous", "delivered_quantity": 10},
+            headers={
+                "X-CSRF-Token": session.raw_csrf_token,
+                "X-Acting-Entity-ID": "entity-seller",
+            },
+        )
+    finally:
+        client.__exit__(None, None, None)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "EVIDENCE_MILESTONE_REQUIRED"
+
+
+def test_e_irsaliye_http_binds_explicit_milestone(
+    tmp_path, monkeypatch
+) -> None:
+    db_path = tmp_path / "6c.db"
+    monkeypatch.setenv("DB_PATH", str(db_path))
+    conn, transaction_id, package_id = _seed_funded_account(tmp_path, tx_id="tx-06x-http-bound")
+    first_id = _prepare_http_irsaliye_ambiguity(conn, transaction_id, package_id)
+    client, session = _http_evidence_client(conn)
+    try:
+        response = client.post(
+            f"/api/transactions/{transaction_id}/evidence/e-irsaliye",
+            json={
+                "external_reference": "06x-http-bound",
+                "delivered_quantity": 10,
+                "milestone_id": first_id,
+            },
+            headers={
+                "X-CSRF-Token": session.raw_csrf_token,
+                "X-Acting-Entity-ID": "entity-seller",
+            },
+        )
+    finally:
+        client.__exit__(None, None, None)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["milestone_id"] == first_id
 
 
 def test_settlement_video_false_positive_resolves_through_real_app(

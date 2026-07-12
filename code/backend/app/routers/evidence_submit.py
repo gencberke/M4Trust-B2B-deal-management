@@ -198,7 +198,7 @@ def submit_e_irsaliye_evidence(
         record = evidence_records_service.submit_evidence(
             conn,
             transaction_id=transaction_id,
-            milestone_id=None,
+            milestone_id=body.milestone_id,
             evidence_type="e_irsaliye",
             source="external_api",
             actor_context=actor,

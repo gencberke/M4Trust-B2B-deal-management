@@ -161,7 +161,7 @@ Bu maddeler 07/08/09 planlarında kalır. 06X sırasında bir düzeltme bunlarda
 ## 11. Uygulama doğrulaması
 
 - Hedefli evidence/settlement/review/dispute/provider testleri yeşil.
-- Tam suite: **911 passed, 41 warnings** (localhost mock Moka E2E dahil; sandbox port kısıtı nedeniyle escalated test çalıştırması kullanıldı).
+- Tam suite: **913 passed, 45 warnings** (localhost mock Moka E2E dahil; sandbox port kısıtı nedeniyle escalated test çalıştırması kullanıldı). Kapanış sonrası blocker düzeltmesi olarak e-irsaliye router'ının request `milestone_id` alanını servise aktarması ve iki gerçek HTTP regresyon senaryosu eklendi.
 - `ExtractionJSON` ve frozen Moka contract'ları değiştirilmedi; yeni migration eklenmedi.
 - Plan 06 ve 06X `plans/done/` altına taşındı; ARCHITECTURE, AGENTS, YOL_HARITASI ve program haritası doc-sync edildi.
 
