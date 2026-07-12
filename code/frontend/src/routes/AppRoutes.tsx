@@ -23,6 +23,7 @@ import {
   TransactionListPage,
   TransactionOverviewPage,
   TransactionPartiesPage,
+  TransactionRulesPage,
 } from "../pages";
 import { buildApiErrorNavigationState } from "./navigation";
 
@@ -78,6 +79,7 @@ export function AppRoutes() {
             <Route index element={<Navigate to="overview" replace />} />
             <Route path="overview" element={<TransactionOverviewPage />} />
             <Route path="parties" element={<TransactionPartiesPage />} />
+            <Route path="rules" element={<TransactionRulesPage />} />
           </Route>
           <Route path="invitations/:token" element={<InvitationPage />} />
           <Route path="session-required" element={<SessionRequiredPage />} />

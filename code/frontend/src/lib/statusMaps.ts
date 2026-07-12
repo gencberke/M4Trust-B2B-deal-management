@@ -45,3 +45,52 @@ export const validatorStatusMap: StatusMap = {
   NEEDS_REVIEW: { label: "İnceleme gerekli", tone: "warning" },
   REJECT: { label: "Reddedildi", tone: "danger" },
 };
+
+export const reviewStatusMap: StatusMap = {
+  open: { label: "Açık", tone: "warning" },
+  evidence_requested: { label: "Kanıt istendi", tone: "info" },
+  resolved: { label: "Çözüldü", tone: "success" },
+  escalated: { label: "Yükseltildi", tone: "danger" },
+  cancelled: { label: "İptal", tone: "neutral" },
+};
+
+export const reviewSeverityMap: StatusMap = {
+  warning: { label: "Uyarı", tone: "warning" },
+  blocking: { label: "Engelleyici", tone: "danger" },
+};
+
+export const reviewPhaseMap: StatusMap = {
+  pre_ratification: { label: "Onay öncesi", tone: "info" },
+  settlement: { label: "Ödeme yürütme", tone: "info" },
+  payment: { label: "Ödeme", tone: "info" },
+};
+
+export const reviewSourceMap: StatusMap = {
+  validator: { label: "Doğrulama", tone: "info" },
+  party_mismatch: { label: "Taraf uyuşmazlığı", tone: "warning" },
+  evidence: { label: "Kanıt", tone: "info" },
+  video: { label: "Video", tone: "info" },
+  payment: { label: "Ödeme", tone: "info" },
+  system: { label: "Sistem", tone: "neutral" },
+};
+
+export const packageStatusMap: StatusMap = {
+  draft: { label: "Taslak", tone: "neutral" },
+  open: { label: "Onaya açık", tone: "info" },
+  complete: { label: "Tamamlandı", tone: "success" },
+  superseded: { label: "Yenilendi", tone: "warning" },
+  cancelled: { label: "İptal", tone: "neutral" },
+};
+
+export const policyStatusMap: StatusMap = {
+  draft: { label: "Taslak", tone: "warning" },
+  locked: { label: "Kilitli", tone: "success" },
+};
+
+export const ruleSetStatusMap: StatusMap = {
+  draft: { label: "Taslak", tone: "neutral" },
+  validated: { label: "Doğrulandı", tone: "info" },
+  ratifiable: { label: "Onaya uygun", tone: "success" },
+  superseded: { label: "Yenilendi", tone: "warning" },
+  ratified: { label: "Onaylandı", tone: "success" },
+};
