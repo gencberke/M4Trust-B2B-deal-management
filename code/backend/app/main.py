@@ -26,6 +26,7 @@ from backend.app.routers import (
     entities,
     evidence,
     evidence_submit,
+    extraction_ops,
     invitations,
     participants,
     ratifications,
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(rule_sets.router)
     app.include_router(ratifications.router)
     app.include_router(payment_ops.router)
+    app.include_router(extraction_ops.router)
 
     return app
 

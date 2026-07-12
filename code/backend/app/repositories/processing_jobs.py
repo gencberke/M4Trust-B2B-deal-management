@@ -101,6 +101,32 @@ def start_attempt(
     return get_by_id(conn, job_id)  # type: ignore[return-value]
 
 
+def claim_for_retry(
+    conn: sqlite3.Connection,
+    job_id: str,
+    *,
+    from_statuses: tuple[str, ...],
+    now: str | None = None,
+) -> bool:
+    """Atomik compare-and-set: yalnız `status IN from_statuses` iken `running`e
+    geçer VE `attempt_count`'u artırır (gerçek execution attempt claim'i).
+    `True` dönerse çağıran işi çalıştırmaya yetkilidir; aksi hâlde başka bir
+    çağrı zaten claim etmiştir (Plan 07 extraction recovery, concurrent retry
+    guard — `payment_resolutions.claim_executing` ile aynı desen)."""
+
+    timestamp = now or _now()
+    placeholders = ",".join("?" for _ in from_statuses)
+    cursor = conn.execute(
+        f"""UPDATE processing_jobs SET
+            status = 'running', attempt_count = attempt_count + 1,
+            locked_at = ?, started_at = COALESCE(started_at, ?),
+            finished_at = NULL, last_error_code = NULL, updated_at = ?
+        WHERE id = ? AND status IN ({placeholders})""",
+        (timestamp, timestamp, timestamp, job_id, *from_statuses),
+    )
+    return cursor.rowcount == 1
+
+
 def _mark(
     conn: sqlite3.Connection,
     job_id: str,
