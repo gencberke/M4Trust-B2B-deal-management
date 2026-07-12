@@ -40,6 +40,41 @@ export function Notice({
   return <div className={`rounded-2xl border px-4 py-3 text-sm ${tones[tone]}`}>{children}</div>;
 }
 
+export function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
+      <p className="text-base font-semibold text-white">{title}</p>
+      {description ? <p className="mt-2 text-sm text-slate-400">{description}</p> : null}
+      {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
+    </div>
+  );
+}
+
+export function KeyValueGrid({
+  items,
+}: {
+  items: { label: string; value: ReactNode }[];
+}) {
+  return (
+    <dl className="grid gap-3 sm:grid-cols-2">
+      {items.map((item) => (
+        <div key={item.label} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+          <dt className="text-xs uppercase tracking-wide text-slate-500">{item.label}</dt>
+          <dd className="mt-2 break-words text-sm text-white">{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function LoadingPanel({ label = "Yükleniyor…" }: { label?: string }) {
   return (
     <div className="flex min-h-48 items-center justify-center rounded-3xl border border-white/10 bg-white/5 text-sm text-slate-300">
