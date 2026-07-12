@@ -19,7 +19,7 @@ const ACCEPT_SUFFIXES = ".pdf,.docx,.png,.jpg,.jpeg,.md,.txt";
 
 export function TransactionCreatePage() {
   const navigate = useNavigate();
-  const { selectedEntity } = useEntities();
+  const { selectedEntity, loading: entitiesLoading } = useEntities();
   const [file, setFile] = useState<File | null>(null);
   const [ownRole, setOwnRole] = useState<ParticipantRole>("buyer");
   const [counterpartyEmail, setCounterpartyEmail] = useState("");
@@ -124,10 +124,13 @@ export function TransactionCreatePage() {
         description="Sözleşmeyi yükleyin, rolünüzü seçin; karşı tarafı davet e-postasıyla çağırabilirsiniz."
       />
       <form className="max-w-2xl space-y-5" onSubmit={onSubmit}>
-        {entityMissing ? (
+        {entitiesLoading ? (
+          <Notice tone="info">Şirket bilgileri yükleniyor. Formu bu sırada doldurabilirsiniz.</Notice>
+        ) : entityMissing ? (
           <Notice tone="warning">
-            Önce üst menüden işlem yapılacak entity'yi seçin. Entity seçilene kadar işlem
-            oluşturulamaz.
+            İşlemi oluşturmak için önce bir şirket ekleyin veya üst menüden işlem yapılacak
+            şirketi seçin.{" "}
+            <Link className="font-semibold underline" to="/entities/new">Şirket ekle</Link>
           </Notice>
         ) : (
           <Notice tone="info">
@@ -145,12 +148,12 @@ export function TransactionCreatePage() {
             accept={ACCEPT_SUFFIXES}
             className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-xl file:border-0 file:bg-cyan-300 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            disabled={entityMissing || submitting}
+            disabled={submitting}
           />
           <p className="mt-1 text-xs text-slate-500">İzin verilen türler: pdf, docx, png, jpg, jpeg, md, txt.</p>
         </div>
 
-        <fieldset disabled={entityMissing || submitting}>
+        <fieldset disabled={submitting}>
           <legend className="mb-2 text-sm text-slate-300">Bu işlemdeki rolünüz</legend>
           <div className="flex gap-4">
             {(["buyer", "seller"] as ParticipantRole[]).map((role) => (
@@ -178,7 +181,7 @@ export function TransactionCreatePage() {
             className={inputClass}
             value={counterpartyEmail}
             onChange={(e) => setCounterpartyEmail(e.target.value)}
-            disabled={entityMissing || submitting}
+            disabled={submitting}
             placeholder="ornek@firma.com"
           />
           <p className="mt-1 text-xs text-slate-500">
@@ -190,7 +193,7 @@ export function TransactionCreatePage() {
         {networkWarning ? <Notice tone="warning">{CREATE_NETWORK_WARNING}</Notice> : null}
         <FormError error={formError} />
 
-        <button type="submit" className={buttonClass} disabled={entityMissing || submitting}>
+        <button type="submit" className={buttonClass} disabled={submitting}>
           {submitting ? "Oluşturuluyor…" : "İşlemi oluştur"}
         </button>
       </form>
