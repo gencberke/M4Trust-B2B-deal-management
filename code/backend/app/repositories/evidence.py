@@ -28,6 +28,8 @@ def insert(
     verification_status: str,
     analyzer_provider: str | None,
     analyzer_version: str | None,
+    analyzer_model: str | None,
+    analyzer_model_version: str | None,
     created_at: str,
 ) -> None:
     conn.execute(
@@ -35,8 +37,9 @@ def insert(
             id, transaction_id, milestone_id, evidence_type, source,
             submitted_by_user_id, submitted_by_entity_id, external_reference,
             storage_ref, file_sha256, payload_json, verification_status,
-            analyzer_provider, analyzer_version, created_at, verified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
+            analyzer_provider, analyzer_version, analyzer_model,
+            analyzer_model_version, created_at, verified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
         (
             id,
             transaction_id,
@@ -52,6 +55,8 @@ def insert(
             verification_status,
             analyzer_provider,
             analyzer_version,
+            analyzer_model,
+            analyzer_model_version,
             created_at,
         ),
     )

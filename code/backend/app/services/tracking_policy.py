@@ -7,9 +7,11 @@ modunu değiştirmez, ödeme veya LLM akışı için karar üretmez.
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import unicodedata
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from backend.app.schemas.extraction import ExtractionJSON, RequiredEvidence
 from backend.app.schemas.tracking import (
@@ -80,6 +82,88 @@ _DELIVERY_TERMS = {
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _policy_snapshot_payload(policy: TrackingPolicySnapshot) -> dict:
+    return policy.model_dump(mode="json")
+
+
+def append_policy_version(
+    conn: sqlite3.Connection,
+    transaction_id: str,
+    *,
+    configured_by_user_id: str | None = None,
+    locked_by_user_id: str | None = None,
+) -> str:
+    """Current compatibility row'u immutable history'ye idempotent append eder."""
+
+    policy = load_tracking_policy(conn, transaction_id)
+    if policy is None:
+        raise RuntimeError("Tracking policy bulunamadı.")
+    payload = _policy_snapshot_payload(policy)
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    snapshot_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    existing = conn.execute(
+        "SELECT id FROM tracking_policy_versions "
+        "WHERE transaction_id = ? AND snapshot_hash = ?",
+        (transaction_id, snapshot_hash),
+    ).fetchone()
+    if existing is not None:
+        return existing["id"]
+
+    next_version = conn.execute(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM tracking_policy_versions "
+        "WHERE transaction_id = ?",
+        (transaction_id,),
+    ).fetchone()[0]
+    version_id = uuid4().hex
+    try:
+        conn.execute(
+            """INSERT INTO tracking_policy_versions (
+                id, transaction_id, version, recommendation,
+                recommendation_reason_codes_json, physical_delivery_confirmed,
+                tracking_mode, video_role, status, snapshot_json, snapshot_hash,
+                configured_by_user_id, locked_by_user_id, configured_at, locked_at,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                version_id,
+                transaction_id,
+                next_version,
+                payload["recommendation"],
+                json.dumps(payload["recommendation_reason_codes"], sort_keys=True),
+                None
+                if payload["manager_physical_delivery_confirmed"] is None
+                else int(payload["manager_physical_delivery_confirmed"]),
+                payload["tracking_mode"],
+                payload["video_role"],
+                payload["status"],
+                canonical,
+                snapshot_hash,
+                configured_by_user_id,
+                locked_by_user_id,
+                payload["configured_at"],
+                payload["locked_at"],
+                _utc_now_iso(),
+            ),
+        )
+    except sqlite3.IntegrityError:
+        # Concurrent identical snapshots converge on the unique hash.
+        row = conn.execute(
+            "SELECT id FROM tracking_policy_versions "
+            "WHERE transaction_id = ? AND snapshot_hash = ?",
+            (transaction_id, snapshot_hash),
+        ).fetchone()
+        if row is None:
+            raise
+        return row["id"]
+    return version_id
+
+
+def current_policy_version_id(conn: sqlite3.Connection, transaction_id: str) -> str:
+    """Package binding için current snapshot'ın immutable history id'si."""
+
+    return append_policy_version(conn, transaction_id)
 
 
 def _normalized_words(value: str) -> set[str]:
@@ -164,6 +248,7 @@ def create_draft_policy(conn: sqlite3.Connection, transaction_id: str) -> Tracki
     policy = load_tracking_policy(conn, transaction_id)
     if policy is None:  # pragma: no cover - SQLite insert sonrası veri tutarlılık guard'ı
         raise RuntimeError("Tracking policy oluşturulamadı.")
+    append_policy_version(conn, transaction_id)
     return policy
 
 
@@ -217,7 +302,10 @@ def update_system_recommendation(
     )
     if cursor.rowcount != 1:
         return None
-    return load_tracking_policy(conn, transaction_id)
+    policy = load_tracking_policy(conn, transaction_id)
+    if policy is not None:
+        append_policy_version(conn, transaction_id)
+    return policy
 
 
 def contractual_required_evidence(extraction: ExtractionJSON) -> set[RequiredEvidence]:
@@ -293,6 +381,7 @@ def update_manager_policy(
     *,
     physical_delivery_confirmed: bool,
     tracking_mode: TrackingMode,
+    configured_by_user_id: str | None = None,
 ) -> tuple[TrackingPolicySnapshot, bool, PolicyConflict | None]:
     """Taslak policy'yi idempotent biçimde günceller; event üretmez."""
     policy = load_tracking_policy(conn, transaction_id)
@@ -331,6 +420,11 @@ def update_manager_policy(
     updated = load_tracking_policy(conn, transaction_id)
     if updated is None:  # pragma: no cover - SQLite update sonrası guard
         raise RuntimeError("Tracking policy güncellenemedi.")
+    append_policy_version(
+        conn,
+        transaction_id,
+        configured_by_user_id=configured_by_user_id,
+    )
     return updated, True, None
 
 
@@ -338,6 +432,8 @@ def lock_manager_policy(
     conn: sqlite3.Connection,
     transaction_id: str,
     extraction: ExtractionJSON,
+    *,
+    locked_by_user_id: str | None = None,
 ) -> tuple[TrackingPolicySnapshot, bool, PolicyConflict | None]:
     """Geçerli taslak policy'yi kilitler; tekrar çağrıda zaman damgasını korur."""
     policy = load_tracking_policy(conn, transaction_id)
@@ -361,6 +457,11 @@ def lock_manager_policy(
     locked = load_tracking_policy(conn, transaction_id)
     if locked is None:  # pragma: no cover - SQLite update sonrası guard
         raise RuntimeError("Tracking policy kilitlenemedi.")
+    append_policy_version(
+        conn,
+        transaction_id,
+        locked_by_user_id=locked_by_user_id,
+    )
     return locked, True, None
 
 
