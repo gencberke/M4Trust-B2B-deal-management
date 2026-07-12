@@ -26,6 +26,7 @@ import {
   TransactionRulesPage,
   TransactionRatificationPage,
   TransactionFulfillmentPage,
+  TransactionDisputesPage,
 } from "../pages";
 import { buildApiErrorNavigationState } from "./navigation";
 
@@ -84,6 +85,7 @@ export function AppRoutes() {
             <Route path="rules" element={<TransactionRulesPage />} />
             <Route path="ratification" element={<TransactionRatificationPage />} />
             <Route path="fulfillment" element={<TransactionFulfillmentPage />} />
+            <Route path="disputes" element={<TransactionDisputesPage />} />
           </Route>
           <Route path="invitations/:token" element={<InvitationPage />} />
           <Route path="session-required" element={<SessionRequiredPage />} />
