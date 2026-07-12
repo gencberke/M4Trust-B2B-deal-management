@@ -14,7 +14,7 @@
 - **Expected commits (exactly 3):**
   1. `feat(frontend): shared shell, primitives and data hooks` — components, lib, types/transactions+participants, api modules, route scaffolding, tests for pure helpers.
   2. `feat(frontend): transaction list, create and detail overview` — pages `/transactions`, `/transactions/new`, shell + overview section, extraction retry, tests.
-  3. `feat(frontend): invitations and participants` — parties section, `/invitations/:token`, profile/confirm flows, tests, README/doc-sync.
+  3. `feat(frontend): invitations and participants` — parties section, `/invitations/:token`, profile/confirm flows, DOM/component test layer (Task 8), README/doc-sync.
 
 ## B. Contract-drift preflight
 
@@ -79,7 +79,7 @@ Common to all: cookie session auth (`m4t_session`), errors either standard envel
 - Response 200: full `Participant` `{id, transaction_id, role, legal_entity_id, status, extracted_snapshot, declared_snapshot, confirmed_snapshot, confirmed_at, created_at, updated_at}`.
 - Rules: email must match invited email; creator cannot accept own invite; same legal entity cannot hold both roles; single-use atomic bind.
 - Errors: 403 `INVITATION_FORBIDDEN` (incl. no membership) / `INVITATION_EMAIL_MISMATCH` · 404 `INVITATION_NOT_FOUND` · 409 `INVITATION_NOT_ACCEPTABLE` (expired/revoked/accepted) / `PARTICIPANT_CONFLICT`.
-- Replay: an already-accepted token returns 409 `INVITATION_NOT_ACCEPTABLE` — if the current user already has access, treat as success-equivalent by navigating to the transaction (check via `GET /transactions`).
+- Replay: an already-accepted token returns 409 `INVITATION_NOT_ACCEPTABLE`. Do **not** attempt to infer success by matching against the transaction list (the preview reference is only an 8-char prefix — unreliable); render "Bu davet daha önce kullanılmış veya artık geçerli değil." with a link to `/transactions`.
 - Evidence: `routers/invitations.py:94-113`, `services/participants.py:203+`, `tests/test_participant_service.py`.
 
 ### C8 `POST /api/transactions/{id}/invitations/{invitation_id}/revoke`
@@ -114,12 +114,12 @@ Common to all: cookie session auth (`m4t_session`), errors either standard envel
   - Mixed error body styles (envelope vs ⚠️str) — normalize via `ApiClientError.kind`/`status`; branch on `code` only for envelope endpoints (tables above mark which).
   - No invitation list endpoint (master §14.1 B4): the parties page keeps the **last create response** in page state (id, expires_at, link) and renders participant `status` as source of truth. After page reload the pending invitation can no longer be revoked from the UI (id unknown) — render Turkish hint: "Bekleyen daveti iptal etmek için aynı role yeni davet gönderin (eski davet otomatik geçersiz olur)". This is contract-accurate supersede behavior.
   - `payment` field in detail is legacy-only — render nothing for account rows when `null`.
-- **Unsupported states needing clear UI:** `rejected` state (validator REJECT) → overview shows danger badge + explanation, no commands; `awaiting_review` → notice that manual review is pending (full review UI arrives in PR 2).
+- **Unsupported states needing clear UI:** `rejected` state (validator REJECT) → overview shows danger badge + explanation, no commands; `awaiting_review` → notice that manual review is pending (full review UI arrives in PR 2); reload-lost declared profile (B9, master §14.1) → overwrite-guard warning + confirm dialog per §H (recommended backend follow-up: `GET .../participants/me`).
 - **Assumptions the implementer must never make:** do not derive who is manager/approver from heuristics — attempt commands and render 403 results, or use only own mutation responses; do not compute lifecycle transitions client-side; do not synthesize buyer/seller names when extraction is null.
 
 ## E. Route changes
 
-- Created: `/transactions` (list), `/transactions/new` (RequireAuth), `/transactions/:transactionId` (RequireAuth; shell) with children `index → <Navigate to="overview" replace>`, `overview`, `parties`; `/invitations/:token` (public — preview visible logged-out; accept panel requires auth and shows a login CTA preserving the current URL via `state.from`).
+- Created: `/transactions` (list), `/transactions/new` (RequireAuth), `/transactions/:transactionId` (RequireAuth; shell) with children `index → <Navigate to="overview" replace>`, `overview`, `parties`; `/invitations/:token` (public — preview visible logged-out; accept panel requires auth). **Login behavior (single, security-first rule):** the token is never carried into router state, query params, or any other URL; the logged-out page shows a plain link to `/login` plus the instruction "Giriş yaptıktan sonra bu davet bağlantısını yeniden açın." (§H row 6 follows this same rule).
 - Extended: `AppShell` nav gains "İşlemler" link (`/transactions`, visible when `user`); HomePage gets a CTA link to `/transactions` for logged-in users (minimal text change only).
 - Redirects: `/transactions/:id` index → `overview`. After accept success → `navigate(\`/transactions/${participant.transaction_id}/parties\`, { replace: true })` (token leaves history).
 - Guards: RequireAuth as listed; no other guards (backend owns authorization).
@@ -220,8 +220,8 @@ Shared components: exactly as master §5 (`TransactionShell`, `SectionNav`, `Sta
 | `pages/transactions/TransactionCreatePage.tsx` | `TransactionCreatePage` | Form: file input (accept=".pdf,.docx,.png,.jpg,.jpeg,.md,.txt"), role radio (buyer/seller, Turkish labels), optional counterparty email, read-only display of selected acting entity (from `useEntities`; if none → form disabled with Notice "Önce işlem yapılacak entity'yi seçin"). Submit builds FormData; success → if `invitation` present, show one-time panel (link `/invitations/{token}` via `extractInvitationToken`, copy button, secret warning) with "İşleme git" button; else navigate to `/transactions/{id}/overview`. Client-side check only for file presence; suffix errors come from backend 400. Network-failure notice per C1. |
 | `components/TransactionShell.tsx` | `TransactionShell` | Owns `getTransaction(id)` read; heading = short id + `StatusBadge(state)` + created_at; `SectionNav` sections `[overview, parties]` (registry const in this file); outlet context `{detail, refresh, loading, error}`; 404/403/error panels per §E. |
 | `pages/transactions/TransactionOverviewPage.tsx` | `TransactionOverviewPage` | Uses shell context only (no own read). Blocks: state explanation Notice (per state map); extraction summary (`KeyValueGrid`: contract_id, taraflar, tutar `formatAmountMinor`? — **no**: `total_amount` is major units from extraction, render with `Intl.NumberFormat` + currency code, no /100), goods table, payment_rules table (milestone, trigger, %, required_evidence, confidence), risk_flags list, needs_manual_review notice; validator block (status badge + findings list code+severity+message); events `Timeline` (event_type→Turkish label map `lib/eventLabels.ts`, unknown types render raw type, payload NOT dumped — selected safe scalar fields only: status/finding_codes/counts); extraction-retry `CommandPanel` visible when `state ∈ {uploaded, extracting}` for >60s heuristic **not used** — instead always render the button when state=="extracting", with helper text; confirm dialog; result notice with job_status/attempt_count; 403 → Notice "Yalnız işlem yöneticisi tetikleyebilir". Polling: `usePolling(shell.refresh, {active: state==="uploaded"||state==="extracting", intervalMs: 4000})`. |
-| `pages/transactions/TransactionPartiesPage.tsx` | `TransactionPartiesPage` | Own read: `listParticipants`. Three blocks: (1) participants table (role, display_name, status badge, confirmed_at); (2) invitation panel: role select limited to roles whose participant is `status==="invited" && !confirmed`, email input, submit → success stores `InvitationCreateResult` in state and renders one-time link + expires_at + revoke button (`ConfirmDialog`); revoke success → refresh participants + clear stored invitation; 409 `INVITATION_ROLE_ALREADY_BOUND` → Notice; supersede hint per §D; (3) my-profile panel: fields name/tax_id/contact_email/contact_phone/address prefilled from last own `Participant` response if present in state; PUT submit → success Notice + store returned participant; Confirm button (`ConfirmDialog`, text explains snapshot freezes) → success → refresh participants + shell.refresh (state may not change; review case may open → info Notice "Profil onaylandı; olası uyuşmazlık incelemesi kural bölümünde görünecek"). 404 `PARTICIPANT_NOT_FOUND` on PUT/confirm → panel replaced with Notice "Bu işlemde katılımcı kaydınız yok (görüntüleyici olabilirsiniz)". 409 `PARTICIPANT_CONFIRMED_LOCKED`/`PARTICIPANT_CONFIRM_CONFLICT` → Notice + refresh. |
-| `pages/InvitationPage.tsx` | `InvitationPage` | Route `/invitations/:token`. Read `previewInvitation` (`useAsyncData`). 404 → `EmptyState` "Davet geçersiz, süresi dolmuş veya iptal edilmiş olabilir." Preview OK → card: rol (Turkish), işlem referansı. If not logged in → CTA to `/login` (after login user returns manually; acceptable, note in copy) — do NOT auto-redirect with token in state to avoid token spread; keep it simple: text "Giriş yaptıktan sonra bu bağlantıyı yeniden açın." If logged in → entity select (from `useEntities`; empty → link `/entities/new`), accept button → `acceptInvitation` → success navigate `replace` to `/transactions/{transaction_id}/parties`. Error handling per C7 with specific Turkish copy per code (`INVITATION_EMAIL_MISMATCH`: "Bu davet başka bir e-posta adresine gönderilmiş."; `INVITATION_NOT_ACCEPTABLE`: "Davet artık geçerli değil."; `PARTICIPANT_CONFLICT`: "Bu rol zaten bağlanmış veya entity çakışması var."). |
+| `pages/transactions/TransactionPartiesPage.tsx` | `TransactionPartiesPage` | Own read: `listParticipants`. Three blocks: (1) participants table (role, display_name, status badge, confirmed_at); (2) invitation panel: role select limited to roles whose participant is `status==="invited" && !confirmed`, email input, submit → success stores `InvitationCreateResult` in state and renders one-time link + expires_at + revoke button (`ConfirmDialog`); revoke success → refresh participants + clear stored invitation; 409 `INVITATION_ROLE_ALREADY_BOUND` → Notice; supersede hint per §D; (3) my-profile panel: fields name/tax_id/contact_email/contact_phone/address prefilled from last own `Participant` response if present in page state. **Overwrite guard (limitation B9, master §14.1 — no `GET participants/me` exists):** after a reload the declared snapshot cannot be re-read; when the public list shows my participant `status ∈ {ready, confirmed-pending}` but no local snapshot is held, the form renders collapsed behind a warning Notice — "Daha önce kaydedilmiş profil bilgileriniz görüntülenemiyor (API sınırı). Formu göndermek önceki TÜM alanların üzerine yazar." — and submit additionally requires a `ConfirmDialog`. Own explicitly-entered `tax_id` appears only inside this form (master §9.6 tax-id rule). PUT submit → success Notice + store returned participant; Confirm button (`ConfirmDialog`, text explains snapshot freezes) → success → refresh participants + shell.refresh (state may not change; review case may open → info Notice "Profil onaylandı; olası uyuşmazlık incelemesi kural bölümünde görünecek"). 404 `PARTICIPANT_NOT_FOUND` on PUT/confirm → panel replaced with Notice "Bu işlemde katılımcı kaydınız yok (görüntüleyici olabilirsiniz)". 409 `PARTICIPANT_CONFIRMED_LOCKED`/`PARTICIPANT_CONFIRM_CONFLICT` → Notice + refresh. |
+| `pages/InvitationPage.tsx` | `InvitationPage` | Route `/invitations/:token`. Read `previewInvitation` (`useAsyncData`). 404 → `EmptyState` "Davet geçersiz, süresi dolmuş veya iptal edilmiş olabilir." Preview OK → card: rol (Turkish), işlem referansı. If not logged in → CTA to `/login` (after login user returns manually; acceptable, note in copy) — do NOT auto-redirect with token in state to avoid token spread; keep it simple: text "Giriş yaptıktan sonra bu bağlantıyı yeniden açın." If logged in → entity select (from `useEntities`; empty → link `/entities/new`), accept button → `acceptInvitation` → success navigate `replace` to `/transactions/{transaction_id}/parties`. Error handling per C7 with specific Turkish copy per code (`INVITATION_EMAIL_MISMATCH`: "Bu davet başka bir e-posta adresine gönderilmiş."; `INVITATION_NOT_ACCEPTABLE`: "Bu davet daha önce kullanılmış veya artık geçerli değil." + link to `/transactions`; `PARTICIPANT_CONFLICT`: "Bu rol zaten bağlanmış veya entity çakışması var."). |
 | `pages/index.ts` | — | re-export new pages. |
 | `routes/AppRoutes.tsx` | — | add routes per §E. |
 
@@ -335,12 +335,23 @@ Backend-owned data never derived: state transitions, validator outcome, who may 
 **Verification commands** `npm run lint && npm run typecheck && npm run test && npm run build`
 **Done when** green.
 
-#### Task 8 — Docs, doc-sync and final pass
+#### Task 8 — DOM/component test layer
+**Goal** behavior that pure helpers cannot verify is covered by component tests (master §1.5 revised test strategy).
+**Depends on** Tasks 2, 5, 6, 7
+**Files to create** `src/components/ConfirmDialog.test.tsx`, `src/components/SectionNav.test.tsx`, `src/routes/AppRoutes.test.tsx`, `src/pages/InvitationPage.test.tsx`, `src/lib/useAsyncData.test.tsx` (replaces the node-only stale-guard test if it proved artificial)
+**Files to modify** `package.json` (devDependencies ONLY: `jsdom`, `@testing-library/react`, `@testing-library/user-event`; no runtime deps), `vitest.config.ts` (add `src/**/*.test.tsx` to include; keep default `environment: "node"`; `.test.tsx` files opt into jsdom via `// @vitest-environment jsdom` first-line comment)
+**Required changes** ConfirmDialog: focus trapped, `Esc` cancels, `requireText` gates confirm, focus returns to trigger; SectionNav: `aria-current` on active link; AppRoutes: `/transactions/:id` index redirects to `overview`, RequireAuth redirects anonymous to `/session-required` (mock AuthContext); InvitationPage: logged-out shows login link WITHOUT token anywhere in `document.body` HTML or the login href; useAsyncData: stale resolution after deps change is not applied (renderHook).
+**Must not change** existing `.test.ts` node tests; CI workflow (vitest picks up new include automatically).
+**Tests to add or update** the five files above.
+**Verification commands** `npm run lint && npm run typecheck && npm run test && npm run build`
+**Done when** all green including the new `.tsx` tests.
+
+#### Task 9 — Docs, doc-sync and final pass
 **Goal** README + ARCHITECTURE route list updated; whole suite green.
-**Depends on** Tasks 1–7
+**Depends on** Tasks 1–8
 **Files to create** —
 **Files to modify** `code/frontend/README.md` (new routes + smoke steps summary), `ARCHITECTURE.md` (§1 bottom frontend route list: add the PR 1 routes, mark legacy `/t/:id/*` unchanged) — **only** the frontend route sentence/paragraph; this plan file (status block, moved to `plans/done/` at merge per AGENTS protocol — the move itself happens at merge, not in this PR if the team prefers; follow AGENTS).
-**Required changes** doc text only.
+**Required changes** doc text only (README also documents the new dev-only test dependencies and the `.test.tsx`/jsdom convention).
 **Must not change** any other ARCHITECTURE section; AGENTS.md.
 **Tests to add or update** —
 **Verification commands** §N full list.
@@ -367,7 +378,8 @@ All tests are vitest node tests over pure helpers / API modules with mocked `fet
 | Lifecycle rendering: `stateNotice` for every state incl. unknown; `shouldPoll` table | `overviewProjection.test.ts`, `statusMaps.test.ts` |
 | Token states: extract/format helpers never log; `frontendInvitationPath` shape | `inviteLink.test.ts` |
 | Sensitive-data redaction: event payload allowlist drops `token`/`raw`/`markdown` keys | `overviewProjection.test.ts` |
-| Loading/empty: `useAsyncData` stale-guard unit test (resolve after deps change is ignored) | `src/lib/useAsyncData.test.ts` (add) |
+| Loading/empty: `useAsyncData` stale-guard (resolve after deps change is ignored, via renderHook) | `src/lib/useAsyncData.test.tsx` |
+| DOM behavior: dialog focus trap/Esc/requireText; nav aria-current; index redirect; RequireAuth redirect; invitation page never leaks token into DOM/login href | Task 8 `.test.tsx` files |
 
 ## M. Manual browser smoke (do not claim performed unless actually run)
 
@@ -404,8 +416,8 @@ git status --short         # only files in §O
 
 ## O. Expected file manifest
 
-Created: `src/lib/{useAsyncData,usePolling,format,eventLabels,inviteLink,statusMaps}.ts` + `src/lib/{format,inviteLink,eventLabels,statusMaps,useAsyncData}.test.ts` · `src/components/{StatusBadge,SectionNav,Timeline,ConfirmDialog,ResponsiveTable,TransactionShell}.tsx` · `src/types/{transactions,participants}.ts` · `src/api/{transactions,invitations,participants}.ts` + `src/api/transactions.test.ts` · `src/pages/transactions/{TransactionListPage,TransactionCreatePage,TransactionOverviewPage,TransactionPartiesPage}.tsx` + `{createTransactionForm,overviewProjection,partiesLogic}.ts` + matching `.test.ts` · `src/pages/InvitationPage.tsx` + `src/pages/{invitationLogic}.ts` + test.
-Modified: `src/routes/AppRoutes.tsx`, `src/pages/index.ts`, `src/components/{AppShell,Feedback}.tsx`, `src/pages/HomePage.tsx`, `code/frontend/README.md`, `ARCHITECTURE.md` (frontend route list only), this plan's status block.
+Created: `src/lib/{useAsyncData,usePolling,format,eventLabels,inviteLink,statusMaps}.ts` + `src/lib/{format,inviteLink,eventLabels,statusMaps}.test.ts` + `src/lib/useAsyncData.test.tsx` · `src/components/{StatusBadge,SectionNav,Timeline,ConfirmDialog,ResponsiveTable,TransactionShell}.tsx` + `src/components/{ConfirmDialog,SectionNav}.test.tsx` · `src/routes/AppRoutes.test.tsx` · `src/types/{transactions,participants}.ts` · `src/api/{transactions,invitations,participants}.ts` + `src/api/transactions.test.ts` · `src/pages/transactions/{TransactionListPage,TransactionCreatePage,TransactionOverviewPage,TransactionPartiesPage}.tsx` + `{createTransactionForm,overviewProjection,partiesLogic}.ts` + matching `.test.ts` · `src/pages/InvitationPage.tsx` + `src/pages/InvitationPage.test.tsx` + `src/pages/invitationLogic.ts` + test.
+Modified: `src/routes/AppRoutes.tsx`, `src/pages/index.ts`, `src/components/{AppShell,Feedback}.tsx`, `src/pages/HomePage.tsx`, `package.json` + `package-lock.json` (dev-only test deps), `vitest.config.ts` (`.test.tsx` include), `code/frontend/README.md`, `ARCHITECTURE.md` (frontend route list only), this plan's status block.
 Uncertainty: exact split of pure-helper files may vary ±1 file if lint prefers co-location; nothing else.
 
 ## P. Binary acceptance criteria
@@ -417,8 +429,10 @@ Uncertainty: exact split of pure-helper files may vary ±1 file if lint prefers 
 5. Invitation token appears in no request URL other than preview/accept (api tests + smoke).
 6. All §L rows have at least one passing test.
 7. Unknown transaction state renders neutral badge, not a crash (test).
-8. No new dependency added to `package.json`.
-9. Manual smoke §M executed and reported honestly (checklist with pass/fail per line) in the PR description.
+8. No new **runtime** dependency in `package.json`; devDependency additions limited to exactly `jsdom`, `@testing-library/react`, `@testing-library/user-event`.
+9. DOM tests of Task 8 pass (dialog focus trap, requireText gate, index redirect, RequireAuth redirect, invitation-token DOM leak check).
+10. Reload-overwrite guard on the profile form is present (warning + confirm dialog when local snapshot absent but participant status is `ready`).
+11. Manual smoke §M executed and reported honestly (checklist with pass/fail per line) in the PR description.
 
 ## Q. Implementation handoff prompt
 
@@ -427,7 +441,7 @@ You are implementing frontend PR 1 of 3 for M4Trust. Repository: gencberke/M4Tru
 1. Read AGENTS.md, then plans/ready/08_frontend_completion_master_plan.md, then plans/ready/08b1_frontend_deal_core.md fully.
 2. Run the §B contract-drift preflight (open only the named files). If any "stop" condition matches, STOP and report the drift instead of guessing.
 3. Create branch feat/frontend-deal-core from the verified base.
-4. Execute task packets §K Task 1 → Task 8 strictly in order; add the specified tests with each packet; keep UI strings Turkish.
+4. Execute task packets §K Task 1 → Task 9 strictly in order; add the specified tests with each packet; keep UI strings Turkish. The only allowed package.json change is the dev-only test dependencies in Task 8.
 5. Never modify code/backend/**, code/tests/**, api/client.ts, AuthContext, EntityContext, or CI workflows.
 6. Group work into exactly the 3 commits listed in §A.
 7. Run all §N verification commands; all must pass; git status --short must show only §O files.
