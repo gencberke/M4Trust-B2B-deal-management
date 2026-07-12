@@ -11,4 +11,5 @@ export { TransactionListPage } from "./transactions/TransactionListPage";
 export { TransactionCreatePage } from "./transactions/TransactionCreatePage";
 export { TransactionOverviewPage } from "./transactions/TransactionOverviewPage";
 export { TransactionPartiesPage } from "./transactions/TransactionPartiesPage";
+export { TransactionRulesPage } from "./transactions/TransactionRulesPage";
 export { InvitationPage } from "./InvitationPage";

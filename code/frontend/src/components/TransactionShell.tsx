@@ -14,6 +14,7 @@ import type { TransactionDetail } from "../types/transactions";
 const SECTIONS: SectionNavItem[] = [
   { slug: "overview", label: "Genel bakış" },
   { slug: "parties", label: "Taraflar" },
+  { slug: "rules", label: "Kurallar" },
 ];
 
 export interface TransactionShellContext {
