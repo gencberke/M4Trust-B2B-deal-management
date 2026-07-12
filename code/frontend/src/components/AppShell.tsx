@@ -36,6 +36,7 @@ export function AppShell() {
 
           <nav className="flex items-center gap-1">
             <NavLink to="/" className={navClass}>Ana sayfa</NavLink>
+            {user ? <NavLink to="/transactions" className={navClass}>İşlemler</NavLink> : null}
             {user ? <NavLink to="/me" className={navClass}>Hesabım</NavLink> : null}
             {user ? <NavLink to="/entities/new" className={navClass}>Şirket ekle</NavLink> : null}
             {user ? <NavLink to="/logout" className={navClass}>Çıkış</NavLink> : <NavLink to="/login" className={navClass}>Giriş</NavLink>}

@@ -40,6 +40,9 @@ export function HomePage() {
                 ) : (
                   <Notice tone="warning">İşlem yapabilmek için legal entity profili oluşturun.</Notice>
                 )}
+                <div>
+                  <Link className={buttonClass} to="/transactions">İşlemlere git</Link>
+                </div>
               </div>
             ) : (
               <div className="mt-4">

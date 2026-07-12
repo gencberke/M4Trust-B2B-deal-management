@@ -1,6 +1,7 @@
 # 08B1 — Frontend Slice B1: Deal Core (PR 1)
 
-> **Durum:** Ready — 2026-07-12 · **Master:** `plans/ready/08_frontend_completion_master_plan.md` (read it first; §1 baseline, §5–§10 shared architecture are binding)
+> **Durum:** Uygulandı — 2026-07-12 · Branch `feat/frontend-deal-core` (base `program/domain-evolution-v2`) · Sapmalar: yok — task packet'leri §K sırasıyla, 3 commit (§A), tüm §N doğrulamaları yeşil. Bilinen kısıt: `GET participants/me` yok (B9) → profil overwrite-guard uygulandı (§H). Manuel tarayıcı duman testi PR açıklamasında dürüstçe raporlanır.
+> **Master:** `plans/ready/08_frontend_completion_master_plan.md` (read it first; §1 baseline, §5–§10 shared architecture are binding)
 > **Readiness:** `READY_TO_IMPLEMENT` (see end of file)
 
 ## A. Phase identity
