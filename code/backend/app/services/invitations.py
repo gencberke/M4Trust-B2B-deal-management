@@ -74,13 +74,18 @@ def _is_expired(expires_at_iso: str) -> bool:
 
 
 def actor_is_transaction_manager(
-    conn: sqlite3.Connection, transaction_id: str, user_id: str
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
 ) -> bool:
-    """Invitation create/revoke yetkisi: manager assignment sahibi olmak yeterlidir."""
-    return (
-        participants_repo.get_active_assignment(conn, transaction_id, user_id, role="manager")
-        is not None
-    )
+    """Manager assignment must match the explicit acting entity."""
+    if actor_context.user_id is None or actor_context.acting_entity_id is None:
+        return False
+    return participants_repo.get_active_assignment_for_entity(
+        conn,
+        transaction_id,
+        actor_context.user_id,
+        actor_context.acting_entity_id,
+        role="manager",
+    ) is not None
 
 
 def create_invitation(
@@ -97,7 +102,7 @@ def create_invitation(
     """`invite_link_builder(raw_token) -> str` çağrılır -- URL şekli router'ın işidir."""
     if actor_context.user_id is None:
         raise InvitationAuthorizationError("create_invitation authenticated user gerektirir.")
-    if not actor_is_transaction_manager(conn, transaction_id, actor_context.user_id):
+    if not actor_is_transaction_manager(conn, transaction_id, actor_context):
         raise InvitationAuthorizationError(
             "Yalnız transaction manager/creator davet oluşturabilir."
         )
@@ -199,7 +204,15 @@ def revoke_invitation(
         raise InvitationNotFoundError("Davet bulunamadı.")
 
     is_creator = row["created_by_user_id"] == actor_context.user_id
-    is_manager = actor_is_transaction_manager(conn, transaction_id, actor_context.user_id)
+    is_manager = actor_is_transaction_manager(conn, transaction_id, actor_context)
+    creator_assignment = participants_repo.get_active_assignment_for_entity(
+        conn,
+        transaction_id,
+        actor_context.user_id,
+        actor_context.acting_entity_id or "",
+        role="manager",
+    )
+    is_creator = is_creator and creator_assignment is not None
     if not (is_creator or is_manager):
         raise InvitationAuthorizationError("Yalnız yetkili manager/creator daveti iptal edebilir.")
 

@@ -30,8 +30,13 @@ def conn():
         connection.close()
 
 
-def actor(user_id="u1", request_id="req-1") -> ActorContext:
-    return ActorContext(actor_type="legacy_capability", user_id=user_id, request_id=request_id)
+def actor(user_id="u1", entity_id="entity-1", request_id="req-1") -> ActorContext:
+    return ActorContext(
+        actor_type="user",
+        user_id=user_id,
+        acting_entity_id=entity_id,
+        request_id=request_id,
+    )
 
 
 ANONYMOUS = ActorContext(actor_type="anonymous")
@@ -97,7 +102,7 @@ def test_attach_creator_conflicts_if_role_owned_by_different_entity(conn) -> Non
     svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
 
     with pytest.raises(svc.ParticipantConflictError):
-        svc.attach_creator(conn, tx_id, actor("u2"), "buyer", "entity-2")
+        svc.attach_creator(conn, tx_id, actor("u2", "entity-2"), "buyer", "entity-2")
 
 
 def test_attach_creator_writes_audit_row(conn) -> None:
@@ -169,7 +174,7 @@ def test_accept_invitation_unknown_token_raises_not_found(conn) -> None:
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
     with pytest.raises(svc.InvitationNotFoundError):
-        svc.accept_invitation(conn, "totally-wrong-token", actor("u2"), "entity-2")
+        svc.accept_invitation(conn, "totally-wrong-token", actor("u2", "entity-2"), "entity-2")
 
 
 def test_accept_invitation_wrong_email_raises_mismatch(conn) -> None:
@@ -179,7 +184,7 @@ def test_accept_invitation_wrong_email_raises_mismatch(conn) -> None:
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
     with pytest.raises(svc.InvitationEmailMismatchError):
-        svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+        svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
 
 
 def test_accept_invitation_expired_raises_not_acceptable(conn) -> None:
@@ -201,7 +206,7 @@ def test_accept_invitation_expired_raises_not_acceptable(conn) -> None:
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
     with pytest.raises(svc.InvitationNotAcceptableError):
-        svc.accept_invitation(conn, "raw-token-expired", actor("u2"), "entity-2")
+        svc.accept_invitation(conn, "raw-token-expired", actor("u2", "entity-2"), "entity-2")
 
 
 def test_accept_invitation_reused_raises_not_acceptable(conn) -> None:
@@ -210,10 +215,10 @@ def test_accept_invitation_reused_raises_not_acceptable(conn) -> None:
     create_test_user(conn, email_normalized="party@example.com", user_id="u2")
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
-    svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+    svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
 
     with pytest.raises(svc.InvitationNotAcceptableError):
-        svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+        svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
 
 
 def test_accept_invitation_revoked_raises_not_acceptable(conn) -> None:
@@ -227,7 +232,7 @@ def test_accept_invitation_revoked_raises_not_acceptable(conn) -> None:
     invitations_repo.mark_revoked(conn, invitation["id"])
 
     with pytest.raises(svc.InvitationNotAcceptableError):
-        svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+        svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
 
 
 def test_accept_invitation_creator_cannot_accept_own_invitation(conn) -> None:
@@ -237,18 +242,18 @@ def test_accept_invitation_creator_cannot_accept_own_invitation(conn) -> None:
     create_test_membership(conn, user_id="u1", legal_entity_id="entity-2")
 
     with pytest.raises(svc.ParticipantConflictError):
-        svc.accept_invitation(conn, raw_token, actor("u1"), "entity-2")
+        svc.accept_invitation(conn, raw_token, actor("u1", "entity-2"), "entity-2")
 
 
 def test_accept_invitation_same_entity_as_other_role_raises_conflict(conn) -> None:
     tx_id = create_test_transaction(conn)
-    svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-shared")
+    svc.attach_creator(conn, tx_id, actor("u1", "entity-shared"), "buyer", "entity-shared")
     raw_token = _make_pending_invitation(conn, tx_id, email="party@example.com")
     create_test_user(conn, email_normalized="party@example.com", user_id="u2")
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-shared")
 
     with pytest.raises(svc.ParticipantConflictError):
-        svc.accept_invitation(conn, raw_token, actor("u2"), "entity-shared")
+        svc.accept_invitation(conn, raw_token, actor("u2", "entity-shared"), "entity-shared")
 
 
 def test_accept_invitation_inactive_membership_raises_authorization_error(conn) -> None:
@@ -258,7 +263,7 @@ def test_accept_invitation_inactive_membership_raises_authorization_error(conn) 
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2", status="revoked")
 
     with pytest.raises(svc.ParticipantAuthorizationError):
-        svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+        svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
 
 
 def test_accept_invitation_success_links_participant_and_creates_approver_assignment(conn) -> None:
@@ -267,7 +272,7 @@ def test_accept_invitation_success_links_participant_and_creates_approver_assign
     create_test_user(conn, email_normalized="party@example.com", user_id="u2")
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
-    participant = svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+    participant = svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
 
     assert participant.role.value == "seller"
     assert participant.legal_entity_id == "entity-2"
@@ -303,9 +308,9 @@ def test_accept_invitation_concurrent_double_accept_only_one_succeeds(conn) -> N
     create_test_user(conn, email_normalized="party@example.com", user_id="u2")
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
-    svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+    svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
     with pytest.raises(svc.InvitationNotAcceptableError):
-        svc.accept_invitation(conn, raw_token, actor("u2"), "entity-2")
+        svc.accept_invitation(conn, raw_token, actor("u2", "entity-2"), "entity-2")
 
 
 def test_two_invitations_cannot_overwrite_bound_participant_or_leave_stale_assignment(conn) -> None:
@@ -331,11 +336,11 @@ def test_two_invitations_cannot_overwrite_bound_participant_or_leave_stale_assig
         create_test_user(conn, email_normalized=email, user_id=user_id)
         create_test_membership(conn, user_id=user_id, legal_entity_id=entity_id)
 
-    accepted = svc.accept_invitation(conn, "token-a", actor("u2"), "entity-a")
+    accepted = svc.accept_invitation(conn, "token-a", actor("u2", "entity-a"), "entity-a")
     assert accepted.legal_entity_id == "entity-a"
 
     with pytest.raises(svc.InvitationNotAcceptableError):
-        svc.accept_invitation(conn, "token-b", actor("u3"), "entity-b")
+        svc.accept_invitation(conn, "token-b", actor("u3", "entity-b"), "entity-b")
 
     participant = conn.execute(
         "SELECT legal_entity_id, status, confirmed_at FROM transaction_participants "
@@ -375,6 +380,18 @@ def test_update_declared_profile_rejects_actor_without_participant(conn) -> None
     tx_id = create_test_transaction(conn)
     with pytest.raises(svc.ParticipantNotFoundError):
         svc.update_declared_profile(conn, tx_id, actor("unrelated-user"), {"name": "X"})
+
+
+def test_profile_mutations_require_exact_acting_entity(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+
+    with pytest.raises(svc.ParticipantAuthorizationError):
+        svc.update_declared_profile(
+            conn, tx_id, actor("u1", "entity-other"), {"name": "Hijacked"}
+        )
+    with pytest.raises(svc.ParticipantAuthorizationError):
+        svc.confirm_my_profile(conn, tx_id, actor("u1", entity_id=None))
 
 
 def test_confirm_profile_produces_immutable_snapshot_and_confirmed_at(conn) -> None:

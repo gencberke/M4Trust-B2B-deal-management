@@ -26,8 +26,13 @@ def conn():
         connection.close()
 
 
-def actor(user_id="u1") -> ActorContext:
-    return ActorContext(actor_type="legacy_capability", user_id=user_id, request_id="req-1")
+def actor(user_id="u1", entity_id="entity-1") -> ActorContext:
+    return ActorContext(
+        actor_type="user",
+        user_id=user_id,
+        acting_entity_id=entity_id,
+        request_id="req-1",
+    )
 
 
 ANONYMOUS = ActorContext(actor_type="anonymous")
@@ -152,6 +157,20 @@ def test_put_profile_unrelated_actor_gets_404_not_another_partys_profile(conn) -
         (tx_id,),
     ).fetchone()
     assert row["declared_snapshot_json"] is None
+
+
+def test_put_profile_wrong_acting_entity_gets_403(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    client = TestClient(build_isolated_app(conn, actor("u1", "entity-other")))
+
+    response = client.put(
+        f"/api/transactions/{tx_id}/participants/me/profile",
+        json={"snapshot": {"name": "Hijacked"}},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "ACTING_ENTITY_MISMATCH"
 
 
 def test_confirm_profile_end_to_end(conn) -> None:

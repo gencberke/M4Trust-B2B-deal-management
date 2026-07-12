@@ -26,6 +26,22 @@ def test_real_app_ratification_gate_keeps_same_hash_and_funds_units(
     seller_user_id = create_real_user(
         conn, email_normalized="close-seller@example.com", user_id="u-seller"
     )
+    for entity_id, legal_name, user_id, membership_id in (
+        ("entity-buyer", "Buyer Entity", buyer_user_id, "membership-close-buyer"),
+        ("entity-seller", "Seller Entity", seller_user_id, "membership-close-seller"),
+    ):
+        conn.execute(
+            "INSERT INTO legal_entities (id, entity_type, legal_name, tax_identifier_type, "
+            "tax_identifier_ciphertext, tax_identifier_lookup_hmac, tax_identifier_last4, "
+            "verification_status, created_by_user_id, created_at, updated_at) "
+            "VALUES (?, 'company', ?, 'vkn', 'cipher', ?, '0000', 'self_declared', ?, 'now', 'now')",
+            (entity_id, legal_name, f"hmac-{entity_id}", user_id),
+        )
+        conn.execute(
+            "INSERT INTO memberships (id, user_id, legal_entity_id, role, status, created_at) "
+            "VALUES (?, ?, ?, 'owner', 'active', 'now')",
+            (membership_id, user_id, entity_id),
+        )
     buyer_session = create_real_session(conn, user_id=buyer_user_id)
     seller_session = create_real_session(conn, user_id=seller_user_id)
     conn.commit()
@@ -38,26 +54,34 @@ def test_real_app_ratification_gate_keeps_same_hash_and_funds_units(
     with TestClient(create_app()) as client:
         client.cookies.set("m4t_session", buyer_session.raw_token)
         buyer_view = client.get(
-            f"/api/transactions/{tx_id}/ratification-packages/current"
+            f"/api/transactions/{tx_id}/ratification-packages/current",
+            headers={"X-Acting-Entity-ID": "entity-buyer"},
         )
         assert buyer_view.status_code == 200, buyer_view.text
         package_hash = buyer_view.json()["package_hash"]
         buyer_ratification = client.post(
             f"/api/ratification-packages/{package_id}/ratifications",
-            headers={"X-CSRF-Token": buyer_session.raw_csrf_token},
+            headers={
+                "X-CSRF-Token": buyer_session.raw_csrf_token,
+                "X-Acting-Entity-ID": "entity-buyer",
+            },
         )
         assert buyer_ratification.status_code == 200, buyer_ratification.text
 
         client.cookies.clear()
         client.cookies.set("m4t_session", seller_session.raw_token)
         seller_view = client.get(
-            f"/api/transactions/{tx_id}/ratification-packages/current"
+            f"/api/transactions/{tx_id}/ratification-packages/current",
+            headers={"X-Acting-Entity-ID": "entity-seller"},
         )
         assert seller_view.status_code == 200, seller_view.text
         assert seller_view.json()["package_hash"] == package_hash
         seller_ratification = client.post(
             f"/api/ratification-packages/{package_id}/ratifications",
-            headers={"X-CSRF-Token": seller_session.raw_csrf_token},
+            headers={
+                "X-CSRF-Token": seller_session.raw_csrf_token,
+                "X-Acting-Entity-ID": "entity-seller",
+            },
         )
         assert seller_ratification.status_code == 200, seller_ratification.text
         assert seller_ratification.json()["funding_triggered"] is True

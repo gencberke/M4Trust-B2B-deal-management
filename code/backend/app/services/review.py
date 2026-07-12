@@ -953,11 +953,15 @@ def is_platform_reviewer_or_admin(actor_context: ActorContext) -> bool:
 def is_transaction_manager(
     conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
 ) -> bool:
-    if actor_context.user_id is None:
+    if actor_context.user_id is None or actor_context.acting_entity_id is None:
         return False
     return (
-        participants_repo.get_active_assignment(
-            conn, transaction_id, actor_context.user_id, role="manager"
+        participants_repo.get_active_assignment_for_entity(
+            conn,
+            transaction_id,
+            actor_context.user_id,
+            actor_context.acting_entity_id,
+            role="manager",
         )
         is not None
     )

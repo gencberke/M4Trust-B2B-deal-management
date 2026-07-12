@@ -18,6 +18,19 @@ def _seed_transaction(*, transaction_id: str = "tx-snapshot"):
     user_id = create_real_user(conn, email_normalized=f"{transaction_id}@example.com")
     session = create_real_session(conn, user_id=user_id)
     conn.execute(
+        "INSERT OR IGNORE INTO legal_entities (id, entity_type, legal_name, "
+        "tax_identifier_type, tax_identifier_ciphertext, tax_identifier_lookup_hmac, "
+        "tax_identifier_last4, verification_status, created_by_user_id, created_at, updated_at) "
+        "VALUES ('entity-snapshot', 'company', 'Snapshot Entity', 'vkn', 'cipher', "
+        "'snapshot-hmac', '0000', 'self_declared', ?, 'now', 'now')",
+        (user_id,),
+    )
+    conn.execute(
+        "INSERT INTO memberships (id, user_id, legal_entity_id, role, status, created_at) "
+        "VALUES (?, ?, 'entity-snapshot', 'owner', 'active', 'now')",
+        (f"membership-{transaction_id}", user_id),
+    )
+    conn.execute(
         "INSERT INTO transactions (id, state, buyer_token, seller_token, manager_token, "
         "markdown, masked_markdown, created_at, lifecycle_version, owner_entity_id, "
         "created_by_user_id, content_sha256) VALUES (?, 'active', NULL, NULL, NULL, NULL, NULL, "
@@ -45,6 +58,7 @@ def _seed_transaction(*, transaction_id: str = "tx-snapshot"):
 def _auth(client: TestClient, session) -> None:
     client.cookies.set("m4t_session", session.raw_token)
     client.cookies.set("m4t_csrf", session.raw_csrf_token)
+    client.headers["X-Acting-Entity-ID"] = "entity-snapshot"
 
 
 def test_account_bundle_requires_auth_and_assignment(client: TestClient) -> None:

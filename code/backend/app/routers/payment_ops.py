@@ -92,8 +92,8 @@ def _require_transaction_assignment(
             code="PAYMENT_RESOLUTION_LEGACY_UNSUPPORTED",
             message="Payment resolution projection yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
         )
-    if actor.user_id is None or not participants_service.has_transaction_access(
-        conn, transaction_id, actor.user_id
+    if not _is_platform_actor(actor) and not participants_service.has_transaction_access_for_actor(
+        conn, transaction_id, actor
     ):
         raise ApiError(
             status_code=403,

@@ -81,6 +81,23 @@ class LoginRequest(_EmailFieldModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class PasswordResetRequest(_EmailFieldModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PasswordResetConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=20, max_length=512)
+    new_password: str = Field(min_length=8, max_length=256)
+
+
+class EmailVerificationConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=20, max_length=512)
+
+
 class UserPublic(BaseModel):
     """Response projection — password_hash asla dönmez."""
 

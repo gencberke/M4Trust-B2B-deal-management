@@ -26,8 +26,13 @@ def conn():
         connection.close()
 
 
-def actor(user_id="u1") -> ActorContext:
-    return ActorContext(actor_type="legacy_capability", user_id=user_id, request_id="req-1")
+def actor(user_id="u1", entity_id="entity-1") -> ActorContext:
+    return ActorContext(
+        actor_type="user",
+        user_id=user_id,
+        acting_entity_id=entity_id,
+        request_id="req-1",
+    )
 
 
 ANONYMOUS = ActorContext(actor_type="anonymous")
@@ -140,7 +145,7 @@ def test_accept_invitation_end_to_end(conn) -> None:
     create_test_user(conn, email_normalized="party@example.com", user_id="u2")
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
-    acceptor_app = build_isolated_app(conn, actor("u2"))
+    acceptor_app = build_isolated_app(conn, actor("u2", "entity-2"))
     acceptor_client = TestClient(acceptor_app)
     accept_resp = acceptor_client.post(
         f"/api/invitations/{token}/accept", json={"legal_entity_id": "entity-2"}
@@ -167,12 +172,33 @@ def test_accept_invitation_wrong_email_returns_403(conn) -> None:
     create_test_user(conn, email_normalized="different@example.com", user_id="u2")
     create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
 
-    acceptor_app = build_isolated_app(conn, actor("u2"))
+    acceptor_app = build_isolated_app(conn, actor("u2", "entity-2"))
     response = TestClient(acceptor_app).post(
         f"/api/invitations/{token}/accept", json={"legal_entity_id": "entity-2"}
     )
     assert response.status_code == 403
     assert response.json()["code"] == "INVITATION_EMAIL_MISMATCH"
+
+
+def test_accept_invitation_rejects_body_entity_without_matching_acting_entity(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    provider = FakeNotificationProvider()
+    creator = TestClient(build_isolated_app(conn, actor("u1"), notification_provider=provider))
+    create_resp = creator.post(
+        f"/api/transactions/{tx_id}/invitations",
+        json={"participant_role": "seller", "invited_email": "party@example.com"},
+    )
+    token = create_resp.json()["invite_link"].split("/api/invitations/")[1].split("/accept")[0]
+    create_test_user(conn, email_normalized="party@example.com", user_id="u2")
+    create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
+
+    response = TestClient(build_isolated_app(conn, actor("u2", "entity-other"))).post(
+        f"/api/invitations/{token}/accept", json={"legal_entity_id": "entity-2"}
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "INVITATION_FORBIDDEN"
 
 
 def test_revoke_invitation_by_manager(conn) -> None:

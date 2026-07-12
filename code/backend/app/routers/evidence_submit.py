@@ -36,6 +36,11 @@ from backend.app.services.settlement_trigger import reevaluate_account_settlemen
 from backend.app.services.access_control import ActorContext, require_authenticated_user
 from backend.app.services.auth import require_csrf_protection
 from backend.app.services.document_storage import make_document_storage_provider
+from backend.app.services.upload_limits import (
+    EmptyUploadError,
+    UploadTooLargeError,
+    read_upload_bounded,
+)
 from backend.app.services.tracking_policy import (
     contractual_required_evidence,
     e_irsaliye_tracking_enabled,
@@ -43,14 +48,9 @@ from backend.app.services.tracking_policy import (
     video_tracking_enabled,
 )
 from backend.app.services.video import make_video_analyzer
+from backend.app.services.video.detectors import BOX_PALLET_MODEL_ID, DAMAGE_MODEL_ID
 
 router = APIRouter(prefix="/api/transactions", tags=["evidence-submit"])
-
-# Mevcut bir video/foto upload sınırı repo'da tanımlı değildi (grep ile
-# doğrulandı) -- konservatif local sabit; kalıcı config alanı Berke'nin
-# entegrasyon TODO'su (PR açıklamasında işaretlendi), `config.py`'ye
-# dokunulmadı.
-_MAX_VIDEO_BYTES = 25 * 1024 * 1024
 
 _ANALYZER_VERSION = "video_analyzer_v1"
 
@@ -82,12 +82,13 @@ class EvidenceRecordPublicView(BaseModel):
     submitted_by_user_id: str
     submitted_by_entity_id: str
     external_reference: str | None
-    storage_ref: str | None
     file_sha256: str | None
     payload: dict
     verification_status: str
     analyzer_provider: str | None
     analyzer_version: str | None
+    analyzer_model: str | None
+    analyzer_model_version: str | None
     created_at: str
     verified_at: str | None
 
@@ -102,12 +103,13 @@ def _to_public_view(record) -> EvidenceRecordPublicView:
         submitted_by_user_id=record.submitted_by_user_id,
         submitted_by_entity_id=record.submitted_by_entity_id,
         external_reference=record.external_reference,
-        storage_ref=record.storage_ref,
         file_sha256=record.file_sha256,
         payload=record.payload,
         verification_status=record.verification_status,
         analyzer_provider=record.analyzer_provider,
         analyzer_version=record.analyzer_version,
+        analyzer_model=record.analyzer_model,
+        analyzer_model_version=record.analyzer_model_version,
         created_at=record.created_at,
         verified_at=record.verified_at,
     )
@@ -257,14 +259,21 @@ async def submit_video_evidence(
     require_evidence_submitter(conn, transaction_id, actor)
     _require_channel_enabled(conn, transaction_id, channel="video")
 
-    content = await file.read()
-    if len(content) > _MAX_VIDEO_BYTES:
+    settings = Settings.from_env()
+    try:
+        content = await read_upload_bounded(
+            file, max_bytes=settings.max_evidence_upload_bytes
+        )
+    except UploadTooLargeError as exc:
         raise ApiError(
             status_code=413, code="EVIDENCE_FILE_TOO_LARGE", message="Dosya boyutu sınırı aşıldı."
-        )
+        ) from exc
+    except EmptyUploadError as exc:
+        raise ApiError(
+            status_code=422, code="EVIDENCE_FILE_EMPTY", message="Boş kanıt dosyası yüklenemez."
+        ) from exc
     file_sha256 = hashlib.sha256(content).hexdigest()
 
-    settings = Settings.from_env()
     existing = evidence_records_service.get_by_file_sha256(
         conn, transaction_id=transaction_id, file_sha256=file_sha256
     )
@@ -327,6 +336,14 @@ async def submit_video_evidence(
             file_sha256=file_sha256,
             analyzer_provider=settings.video_provider,
             analyzer_version=_ANALYZER_VERSION,
+            analyzer_model=(
+                "fake-video-analyzer"
+                if settings.video_provider == "fake"
+                else f"{BOX_PALLET_MODEL_ID}+{DAMAGE_MODEL_ID}"
+            ),
+            analyzer_model_version=(
+                "fake-v1" if settings.video_provider == "fake" else "roboflow-model-pair-v1"
+            ),
         )
     except evidence_records_service.EvidenceIdempotencyConflictError as exc:
         existing = evidence_records_service.get_by_file_sha256(

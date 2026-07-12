@@ -72,7 +72,7 @@ def _upload_account_mode(client: TestClient, *, acting_entity_id: str) -> dict:
         "/api/transactions",
         data={"acting_entity_id": acting_entity_id, "own_role": "buyer"},
         files={"file": ("sozlesme.md", io.BytesIO(_SAMPLE_MARKDOWN.encode()), "text/markdown")},
-        headers=_csrf(client),
+        headers={**_csrf(client), "X-Acting-Entity-ID": acting_entity_id},
     )
     assert response.status_code == 200, response.text
     return response.json()

@@ -38,9 +38,7 @@ def get_transaction_milestones(
             code="LEGACY_FULFILLMENT_PROJECTION_FORBIDDEN",
             message="Milestone projection yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
         )
-    if actor.user_id is None or not participants_service.has_transaction_access(
-        conn, transaction_id, actor.user_id
-    ):
+    if not participants_service.has_transaction_access_for_actor(conn, transaction_id, actor):
         raise ApiError(
             status_code=403,
             code="TRANSACTION_ACCESS_DENIED",
