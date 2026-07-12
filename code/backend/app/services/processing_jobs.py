@@ -51,6 +51,10 @@ def start_attempt(conn: Connection, job_id: str, *, allow_succeeded: bool = Fals
     return jobs_repo.start_attempt(conn, job_id, allow_succeeded=allow_succeeded)
 
 
+def claim_for_retry(conn: Connection, job_id: str, *, from_statuses: tuple[str, ...]) -> bool:
+    return jobs_repo.claim_for_retry(conn, job_id, from_statuses=from_statuses)
+
+
 def mark_succeeded(conn: Connection, job_id: str):
     return jobs_repo.mark_succeeded(conn, job_id)
 
