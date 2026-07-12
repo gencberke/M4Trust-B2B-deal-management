@@ -1,8 +1,11 @@
 # M4Trust final system readiness report
 
-Audit date: 2026-07-12  
-Repository: `gencberke/M4Trust-B2B-deal-management`  
-Branch: `feat/final-system-audit-hardening`  
+Audit date: 2026-07-12
+
+Repository: `gencberke/M4Trust-B2B-deal-management`
+
+Branch: `feat/final-system-audit-hardening`
+
 Target: `master`
 
 ## 1. Executive verdict
@@ -32,7 +35,7 @@ Implementation commits:
 
 - Work was performed in an isolated worktree on `feat/final-system-audit-hardening`; the user's pre-existing dirty `master` checkout was not modified.
 - No force-push, history rewrite or merge was performed.
-- Draft PR: populated after publication; the PR remains draft and targets `master`.
+- Draft PR: [#72 — Final system audit, Plan 09 hardening, and readiness evidence](https://github.com/gencberke/M4Trust-B2B-deal-management/pull/72). It is verified open, unmerged and draft, targeting `master`.
 - The tracked-artifact scan found no `.env`, runtime database, uploaded document, browser storage, `dist` or `node_modules` artifact.
 
 ## 4. Architecture summary
