@@ -25,9 +25,14 @@ from pydantic import BaseModel
 from backend.app.api.errors import ApiError
 from backend.app.db import get_db
 from backend.app.repositories import participants as participants_repo
+from backend.app.repositories import ratifications as ratifications_repo
 from backend.app.repositories.transactions import load_transaction
 from backend.app.schemas.payments import FundingScheduleSpec
-from backend.app.schemas.ratification import RatificationOutcome, RatificationPackagePublicView
+from backend.app.schemas.ratification import (
+    RatificationOutcome,
+    RatificationPackagePublicView,
+    RatificationProgress,
+)
 from backend.app.services import participants as participants_service
 from backend.app.services import ratifications as ratifications_service
 from backend.app.services.access_control import ActorContext, require_authenticated_user
@@ -94,7 +99,17 @@ def _require_creator_manager(conn: Connection, transaction_id: str, actor: Actor
         )
 
 
-def _to_public_view(package) -> RatificationPackagePublicView:
+def _to_public_view(conn: Connection, package) -> RatificationPackagePublicView:
+    ratifications = {
+        "buyer": RatificationProgress(ratified=False, approved_at=None),
+        "seller": RatificationProgress(ratified=False, approved_at=None),
+    }
+    for row in ratifications_repo.list_by_package(conn, package.id):
+        if row["participant_role"] in ratifications:
+            ratifications[row["participant_role"]] = RatificationProgress(
+                ratified=True,
+                approved_at=row["approved_at"],
+            )
     return RatificationPackagePublicView(
         id=package.id,
         transaction_id=package.transaction_id,
@@ -105,6 +120,7 @@ def _to_public_view(package) -> RatificationPackagePublicView:
         created_at=package.created_at,
         opened_at=package.opened_at,
         completed_at=package.completed_at,
+        ratifications=ratifications,
     )
 
 
@@ -177,7 +193,7 @@ def build_and_open_ratification_package(
     except (PackageConflictError, PackageIntegrityError, PackageNotFoundError) as exc:
         _raise_package_api_error(exc)
 
-    return _to_public_view(package)
+    return _to_public_view(conn, package)
 
 
 @router.get("/api/transactions/{transaction_id}/ratification-packages/current")
@@ -192,7 +208,7 @@ def get_current_ratification_package(
         raise ApiError(
             status_code=404, code="PACKAGE_NOT_FOUND", message="Current package bulunamadı."
         )
-    return _to_public_view(package)
+    return _to_public_view(conn, package)
 
 
 @router.post("/api/ratification-packages/{package_id}/ratifications")

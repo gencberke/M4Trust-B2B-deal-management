@@ -80,3 +80,14 @@ class RuleSetVersionPublicView(BaseModel):
     status: RuleSetStatus
     created_by_user_id: str | None
     created_at: str
+
+
+class RuleSetVersionHistoryPublicView(BaseModel):
+    """Assignment-scoped current version and immutable version history."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    transaction_id: str
+    current_version_id: str | None
+    current_version: RuleSetVersionPublicView | None
+    versions: list[RuleSetVersionPublicView]

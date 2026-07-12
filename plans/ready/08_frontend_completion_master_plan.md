@@ -328,7 +328,7 @@ Adapted from v2 §20 (steps 1–27) to actual contracts. Two browsers/profiles: 
 
 ## 14. Global risks
 
-### 14.1 Backend contract blockers (recorded discrepancies; revised 2026-07-12 after external plan review)
+### 14.1 Backend contract blockers (historical discrepancies; resolved by the 2026-07-12 backend closure)
 
 **Blocking 08b2 (PR 2):**
 - **B1 — account_v2 tracking-policy configure/lock API missing.** The only endpoints (`PUT /api/transactions/{id}/tracking-policy`, `POST .../tracking-policy/lock`, `routers/transactions.py:672,729`) require a legacy capability `manager_token` in the body and `LEGACY_CAPABILITY_ACCESS_ENABLED` (default false); account_v2 rows have `manager_token = NULL`, so `resolve_manager` always 403s. Yet `ratification_package._build_inputs` fails closed with `TRACKING_POLICY_NOT_LOCKED` (`services/ratification_package.py:271-276`), and backend tests lock policy via raw SQL (`tests/test_ratification_package.py:83`). Consequence: the entire account ratification→funding→settlement chain is not browser-drivable. Resolution needed: session+CSRF creator-manager policy endpoints.
@@ -359,7 +359,7 @@ Invitation token exposure via history/copy-paste (mitigated §9.4); accidental r
 
 ### 14.4 PR sequencing risks
 
-Both PR 2 and PR 3 are blocked on backend projection gaps (§14.1). The recommended path is the single narrow backend "frontend projection gap closure" PR before either starts; PR 1 can proceed in parallel with that backend work (no contract overlap). Backend contract drift between planning and execution is caught by each child plan's §B preflight, which also records the gap-closure contracts into the child §C tables.
+Both PR 2 and PR 3 were blocked on the backend projection gaps recorded in §14.1. The narrow backend "frontend projection gap closure" is now recorded in §14.7; the child plans may proceed after their frontend-base prerequisites. Backend contract drift between planning and execution remains caught by each child plan's §B preflight.
 
 ### 14.5 Demo-data risks
 
@@ -368,3 +368,19 @@ Fake extraction fixture is approval-only (single milestone); multi-milestone/tra
 ### 14.6 Manual browser verification risks
 
 `SESSION_COOKIE_SECURE=false`, `APP_ENCRYPTION_KEY`/`APP_HMAC_KEY` required (frontend README); single-worker uvicorn only; video analysis needs `VIDEO_PROVIDER=fake` filename hints. Smoke reports must be honest — a build is not visual proof (README rule).
+
+## 14.7 Backend projection gap-closure status (2026-07-12)
+
+The narrow backend closure PR `feat/backend-frontend-projection-gap-closure` resolves the frontend contract blockers without implementing frontend code. The frontend child plans remain in `plans/ready/` and are not marked done.
+
+| Gap | Status after backend closure | Contract now available |
+|---|---|---|
+| B1 tracking policy | RESOLVED | Session/CSRF/creator-manager `GET`, `PUT`, and `POST .../tracking-policy/lock`; account body has no capability token |
+| B2a/B2b rule versions and quotes | RESOLVED | Assignment-scoped `GET .../rule-sets`; dedicated revision request accepts omitted `source_quote` and merges the current parent by rule index before frozen-schema validation |
+| B10 ratification progress | RESOLVED | Current package includes buyer/seller `{ratified, approved_at}` progress |
+| B3/B5 milestone and release IDs | RESOLVED | Assignment-scoped `GET .../milestones` exposes milestone/unit IDs, rule mapping, status, amount, sequence, and nullable release-instruction ID |
+| B6 payment resolutions | RESOLVED | Assignment-scoped payment-resolution list/detail reads include approvals and cross-transaction isolation |
+| B7 healthy funding-unit IDs | RESOLVED | Same milestone projection exposes real funding-unit IDs for all current-package units |
+| B8 account bundle quote invariant | RESOLVED | Account/session bundle and snapshots omit `source_quote`; only legacy capability compatibility retains it |
+
+Readiness update: 08b2 is `READY_TO_IMPLEMENT` once its frontend PR 1 base is present; 08c remains `READY_TO_IMPLEMENT` and should consume the new projection reads instead of the former B3/B5/B6/B7 limitations.

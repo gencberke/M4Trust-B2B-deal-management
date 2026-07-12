@@ -351,3 +351,16 @@ You are implementing frontend PR 3 of 3 for M4Trust. Repository: gencberke/M4Tru
 **Readiness status: `READY_TO_IMPLEMENT`**
 
 (Sequencing note: merges after PR 2. Backend contracts consumed here are stable at HEAD `ebf6dc7`; dependency assumptions on PR 1/PR 2 shared components are explicit in §B item 7; the preflight detects relevant drift. Documented limitations B3/B5 are unsupported-state UI, not blockers. The *end-to-end demo* additionally requires PR 2's blockers B1/B2 to be resolved so a transaction can reach `active` through the browser.)
+
+## R. Backend gap-closure update (2026-07-12)
+
+The backend projection gaps B3, B5, B6, and B7 are resolved by `feat/backend-frontend-projection-gap-closure`. This file remains a ready frontend implementation plan; no frontend work is claimed complete here.
+
+| Fulfillment/operations contract | Implemented backend shape | Readiness |
+|---|---|---|
+| Milestone and funding-unit projection | `GET /api/transactions/{transaction_id}/milestones` returns current-package milestones with real IDs, `rule_index`, status, amounts, required evidence, nested funding units, unit sequence/status, milestone mapping, and nullable release-instruction ID/status | READY |
+| Payment resolution list | `GET /api/transactions/{transaction_id}/payment-resolutions` returns assignment-scoped resolution views with approvals | READY |
+| Payment resolution detail | `GET /api/transactions/{transaction_id}/payment-resolutions/{resolution_id}` returns the same safe projection; cross-transaction IDs are opaque 404s | READY |
+| B3/B5/B6/B7 limitations in §D | Replaced by the reads above; frontend may enumerate milestone choices, healthy funding units, release instructions, and bilateral resolution IDs | RESOLVED |
+
+The projection does not expose provider credentials, raw payloads, storage paths, tokens, or secrets. Account/session bundle and snapshot reads also omit `source_quote`.

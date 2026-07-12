@@ -260,7 +260,9 @@ def _collect_approvals(conn: Connection, transaction_id: str) -> list[dict[str, 
     return [{"party": row["party"], "created_at": row["created_at"]} for row in rows]
 
 
-def build_bundle_core(conn: Connection, transaction_id: str) -> dict[str, Any]:
+def build_bundle_core(
+    conn: Connection, transaction_id: str, *, include_source_quote: bool = False
+) -> dict[str, Any]:
     """Build the stable, side-effect-free canonical bundle core."""
 
     tx_row = conn.execute(
@@ -278,7 +280,8 @@ def build_bundle_core(conn: Connection, transaction_id: str) -> dict[str, Any]:
     if current_rules is not None:
         if current_rules.extraction is not None:
             extraction = redacted_extraction_projection(
-                current_rules.extraction.model_dump(mode="json"), include_source_quote=True
+                current_rules.extraction.model_dump(mode="json"),
+                include_source_quote=include_source_quote,
             )
         validator_report = {
             "status": current_rules.validator_status,
@@ -307,14 +310,18 @@ def build_bundle_core(conn: Connection, transaction_id: str) -> dict[str, Any]:
     }
 
 
-def build_bundle(conn: Connection, transaction_id: str) -> dict[str, Any]:
+def build_bundle(
+    conn: Connection, transaction_id: str, *, include_source_quote: bool = False
+) -> dict[str, Any]:
     """Return safe bundle + snapshot hash + volatile response timestamp.
 
     Bu fonksiyon salt-okunurdur: evidence/events/audit veya başka business
     tablosuna INSERT/UPDATE yapmaz ve commit çağırmaz.
     """
 
-    core = build_bundle_core(conn, transaction_id)
+    core = build_bundle_core(
+        conn, transaction_id, include_source_quote=include_source_quote
+    )
     return {
         **core,
         "snapshot_hash": compute_snapshot_hash(core),

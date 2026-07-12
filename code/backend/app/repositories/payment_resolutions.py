@@ -36,6 +36,14 @@ def get_by_unit_and_operation(
     ).fetchone()
 
 
+def list_for_transaction(conn: sqlite3.Connection, transaction_id: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM payment_resolutions WHERE transaction_id = "
+        "? ORDER BY created_at ASC, id ASC",
+        (transaction_id,),
+    ).fetchall()
+
+
 def insert(
     conn: sqlite3.Connection,
     *,

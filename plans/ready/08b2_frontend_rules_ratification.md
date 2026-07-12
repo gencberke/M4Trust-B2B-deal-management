@@ -1,7 +1,7 @@
 # 08B2 — Frontend Slice B2: Rules and Ratification (PR 2)
 
-> **Durum:** Ready (plan) / **BLOCKED (implementation)** — 2026-07-12 · **Master:** `plans/ready/08_frontend_completion_master_plan.md` (§14.1 blockers B1, B2)
-> **Readiness:** `BLOCKED` (see end of file). Everything except the two blocked flows is fully specified so implementation can start the moment the backend gaps close; the §B preflight re-checks them.
+> **Durum:** Ready (plan) / **backend blockers resolved** — 2026-07-12 · **Master:** `plans/ready/08_frontend_completion_master_plan.md` (§14.7)
+> **Readiness:** `READY_TO_IMPLEMENT` (frontend PR 1 base still required). The backend contract gap closure is complete; the frontend plan itself remains ready, not done.
 
 ## A. Phase identity
 
@@ -322,8 +322,21 @@ You are implementing frontend PR 2 of 3 for M4Trust. Repository: gencberke/M4Tru
 7. Push, open a DRAFT PR against the verified base, body = scope + §P checklist + honest §M smoke report.
 ```
 
-**Readiness status: `BLOCKED`**
+**Readiness status: `READY_TO_IMPLEMENT` (backend blockers resolved; frontend PR 1 base still required)**
 
 Blockers (backend, not resolvable in frontend scope):
 1. **B1** — no account_v2 tracking-policy configure/lock endpoints (legacy `manager_token` endpoints unusable for account rows; `ratification_package` fails closed with `TRACKING_POLICY_NOT_LOCKED`). Evidence: `routers/transactions.py:672-777`, `services/ratification_package.py:271-276`, `tests/test_ratification_package.py:83` (raw SQL lock in tests).
 2. **B2** — no session read exposes current rule-set `version_id` / version history required by `POST .../rule-sets/{version_id}/revisions|validate` and the mandated version list/diff UI. Evidence: `routers/transactions.py:506-560` (detail projection), `routers/rule_sets.py` (no GET), `schemas/rule_sets.py`.
+
+## R. Backend gap-closure update (2026-07-12)
+
+The backend blockers B1, B2a, and B2b are resolved by `feat/backend-frontend-projection-gap-closure`. This file remains a ready frontend implementation plan; no frontend work is claimed complete here.
+
+| Contract table entry | Implemented backend shape | Readiness |
+|---|---|---|
+| C-RS0 | `GET /api/transactions/{transaction_id}/rule-sets` returns `current_version_id`, `current_version`, and immutable `versions[]` for active assignments; projections omit `tax_id` and `source_quote` | READY |
+| C3 revision body | Existing revision route now accepts dedicated `ExtractionRevisionRequest`; omitted `payment_rules[*].source_quote` values are merged from the current parent at the same rule index, then validated as frozen `ExtractionJSON` | READY |
+| C-TP | `GET /api/transactions/{transaction_id}/tracking-policy`, `PUT` with `{physical_delivery_confirmed, tracking_mode}`, and `POST .../tracking-policy/lock` with empty body; session + CSRF + creator-manager + acting entity | READY |
+| C6/C7 package progress | Current package projection includes `ratifications.buyer` and `.seller` with `ratified` and `approved_at` | READY |
+
+The policy endpoints preserve the legacy capability compatibility body only for legacy callers; account_v2 callers must use the session/acting-entity branch. `source_quote` must never be filled with empty or masked text by the frontend.

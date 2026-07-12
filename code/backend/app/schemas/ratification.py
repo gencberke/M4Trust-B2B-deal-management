@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RatificationPackageStatus(str, Enum):
@@ -38,6 +38,15 @@ class RatificationPackage(BaseModel):
     completed_at: str | None = None
 
 
+class RatificationProgress(BaseModel):
+    """Safe buyer/seller progress projection for the current package."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ratified: bool
+    approved_at: str | None = None
+
+
 class RatificationPackagePublicView(BaseModel):
     """`GET .../ratification-packages/current` cevabı.
 
@@ -58,6 +67,7 @@ class RatificationPackagePublicView(BaseModel):
     created_at: str
     opened_at: str | None = None
     completed_at: str | None = None
+    ratifications: dict[str, RatificationProgress] = Field(default_factory=dict)
 
 
 class Ratification(BaseModel):
