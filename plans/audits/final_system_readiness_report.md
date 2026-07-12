@@ -222,11 +222,11 @@ This verifies credential validity at test time, endpoint/model compatibility, re
 | Focused credential-pattern scan | Clear |
 | Git history/worktree search for the supplied provider credential pattern | Clear |
 | Local Gitleaks | Binary absent and Docker daemon unavailable; not represented as passed |
-| Gitleaks CI | Added as a full-history gate in [security.yml](../../.github/workflows/security.yml) |
+| Gitleaks CI | Passed inside Security workflow run `29211117378`; configured as a full-history gate in [security.yml](../../.github/workflows/security.yml) |
 | `git diff --check` | Pass |
 | Tracked generated-artifact review | Pass |
 
-The CI workflow also runs backend dependency audit, high-severity Bandit, direct startup smoke, frontend npm audit and Gitleaks.
+GitHub Actions results for PR #72 head `766a669`: Backend CI `29211117381` passed, Frontend CI `29211117384` passed, and Security `29211117378` passed. The Security workflow runs backend dependency audit, high-severity Bandit, direct startup smoke, frontend npm audit and Gitleaks.
 
 ## 16. Deferred items
 
@@ -239,7 +239,7 @@ The CI workflow also runs backend dependency audit, high-severity Bandit, direct
 | PostgreSQL/HA | Explicitly out of Plan 09 implementation scope | Resolve readiness inventory, choose locking/queue semantics and perform a separate migration program | No for local demo | Yes for multi-instance production |
 | Multi-worker distributed rate limiting | Current counters are in-process; lockout is DB-backed | Add a shared limiter before horizontal scale | No | Yes for horizontally scaled production |
 | FastAPI lifespan/TestClient deprecations | Low-risk dependency/API drift | Move startup handlers to lifespan and adopt the supported client path in a focused upgrade | No | No, but schedule |
-| Local Gitleaks reproduction | Tool absent and Docker daemon stopped | Let draft PR CI run the added Gitleaks gate; remediate any CI-only finding | No | Yes if CI fails |
+| Local Gitleaks reproduction | Tool absent and Docker daemon stopped | CI Gitleaks passed; install the binary locally only if developer parity is required | No | No |
 
 ## 17. Residual risks
 
@@ -248,7 +248,7 @@ The CI workflow also runs backend dependency audit, high-severity Bandit, direct
 - In-process rate limiting resets on restart and is per worker; persistent account lockout provides a separate durable control.
 - SMTP, Moka and representative computer-vision behavior depend on external environments that were not available for production-grade validation.
 - Legacy capability code remains by design. It defaults disabled, but removal requires the separate readiness checklist and compatibility window.
-- CI results are pending until the draft PR workflows run.
+- Backend CI, Frontend CI and Security/Gitleaks passed on the published implementation/report head; later metadata-only report commits do not change runtime code.
 
 ## 18. Safe demo and presentation claims
 
@@ -271,4 +271,4 @@ The CI workflow also runs backend dependency audit, high-severity Bandit, direct
 
 ## 20. Final recommendation
 
-**READY WITH KNOWN RISKS.** Merge consideration is appropriate after the draft PR CI passes and review confirms the broad but scoped security/storage/auth changes. A controlled demo should use fake LLM/video/payment/notification providers unless the relevant live dependency is explicitly enabled and accurately labeled. Production release remains gated on credential rotation/redaction, live Moka and SMTP contract verification, representative Roboflow quality evidence, shared rate limiting for multi-worker deployment, and resolution of the PostgreSQL/HA readiness inventory.
+**READY WITH KNOWN RISKS.** Draft PR Backend CI, Frontend CI and Security/Gitleaks passed; merge consideration is appropriate after human review confirms the broad but scoped security/storage/auth changes. A controlled demo should use fake LLM/video/payment/notification providers unless the relevant live dependency is explicitly enabled and accurately labeled. Production release remains gated on credential rotation/redaction, live Moka and SMTP contract verification, representative Roboflow quality evidence, shared rate limiting for multi-worker deployment, and resolution of the PostgreSQL/HA readiness inventory.
