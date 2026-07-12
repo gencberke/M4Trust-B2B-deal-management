@@ -12,7 +12,14 @@ function navClass({ isActive }: { isActive: boolean }): string {
 
 export function AppShell() {
   const { user } = useAuth();
-  const { entities, selectedEntityId, selectEntity, loading } = useEntities();
+  const {
+    entities,
+    selectedEntityId,
+    selectEntity,
+    loading,
+    error,
+    refreshEntities,
+  } = useEntities();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -40,22 +47,38 @@ export function AppShell() {
             <p className="text-xs text-slate-400">
               {user.first_name} {user.last_name} · {user.email}
             </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 text-xs text-slate-400">
-                İşlem yapılan tüzel/gerçek kişi
-                <select
-                className="min-w-56 rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-cyan-300"
-                value={selectedEntityId ?? ""}
-                onChange={(event) => selectEntity(event.target.value || null)}
-                disabled={loading || entities.length === 0}
-                aria-label="İşlem yapılan entity"
-              >
-                {entities.length === 0 ? <option value="">Kayıtlı entity yok</option> : null}
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>{entity.legal_name}</option>
-                ))}
-                </select>
-              </label>
+            <div className="flex flex-wrap items-center gap-3">
+              {error ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-rose-200">Entity listesi yüklenemedi.</span>
+                  <button
+                    className="text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+                    onClick={() => void refreshEntities()}
+                  >
+                    Tekrar dene
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  İşlem yapılan tüzel/gerçek kişi
+                  <select
+                    className="min-w-56 rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-cyan-300"
+                    value={selectedEntityId ?? ""}
+                    onChange={(event) => selectEntity(event.target.value || null)}
+                    disabled={loading || entities.length === 0}
+                    aria-label="İşlem yapılan entity"
+                  >
+                    {entities.length === 0 ? (
+                      <option value="">
+                        {loading ? "Entity listesi yükleniyor" : "Kayıtlı entity yok"}
+                      </option>
+                    ) : null}
+                    {entities.map((entity) => (
+                      <option key={entity.id} value={entity.id}>{entity.legal_name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {selectedEntityId ? (
                 <NavLink className="text-xs font-medium text-cyan-300 hover:text-cyan-200" to={`/entities/${selectedEntityId}`}>
                   Profili aç

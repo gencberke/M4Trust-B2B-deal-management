@@ -8,12 +8,36 @@ import {
   type ReactNode,
 } from "react";
 
-import { ApiClientError, apiRequest } from "../api/client";
+import { ApiClientError, apiRequest, toApiClientError } from "../api/client";
 import type { LoginRequest, RegisterRequest, UserPublic } from "../types/api";
+
+export type AuthBootstrapResult =
+  | { kind: "authenticated"; user: UserPublic; error: null }
+  | { kind: "anonymous"; user: null; error: null }
+  | { kind: "error"; user: null; error: ApiClientError };
+
+type CurrentUserRequester = () => Promise<UserPublic>;
+
+export async function resolveAuthBootstrap(
+  requestCurrentUser: CurrentUserRequester = () =>
+    apiRequest<UserPublic>("/auth/me", { redirectOnError: false }),
+): Promise<AuthBootstrapResult> {
+  try {
+    const user = await requestCurrentUser();
+    return { kind: "authenticated", user, error: null };
+  } catch (caught) {
+    const error = toApiClientError(caught);
+    if (error.kind === "session_required" && error.status === 401) {
+      return { kind: "anonymous", user: null, error: null };
+    }
+    return { kind: "error", user: null, error };
+  }
+}
 
 interface AuthContextValue {
   user: UserPublic | null;
   loading: boolean;
+  bootstrapError: ApiClientError | null;
   refresh: () => Promise<UserPublic | null>;
   register: (input: RegisterRequest) => Promise<UserPublic>;
   login: (input: LoginRequest) => Promise<UserPublic>;
@@ -25,39 +49,38 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserPublic | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState<ApiClientError | null>(null);
 
-  const refresh = useCallback(async (): Promise<UserPublic | null> => {
-    try {
-      const currentUser = await apiRequest<UserPublic>("/auth/me", {
-        redirectOnError: false,
-      });
-      setUser(currentUser);
-      return currentUser;
-    } catch (error) {
-      if (error instanceof ApiClientError && error.kind === "session_required") {
-        setUser(null);
-        return null;
-      }
-      throw error;
+  const applyBootstrapResult = useCallback((result: AuthBootstrapResult) => {
+    if (result.kind === "authenticated") {
+      setUser(result.user);
+    } else if (result.kind === "anonymous") {
+      setUser(null);
+    } else {
+      setBootstrapError(result.error);
     }
   }, []);
 
+  const refresh = useCallback(async (): Promise<UserPublic | null> => {
+    setLoading(true);
+    setBootstrapError(null);
+    const result = await resolveAuthBootstrap();
+    applyBootstrapResult(result);
+    setLoading(false);
+    return result.user;
+  }, [applyBootstrapResult]);
+
   useEffect(() => {
     let active = true;
-    void apiRequest<UserPublic>("/auth/me", { redirectOnError: false })
-      .then((currentUser) => {
-        if (active) setUser(currentUser);
-      })
-      .catch(() => {
-        if (active) setUser(null);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    void resolveAuthBootstrap().then((result) => {
+      if (!active) return;
+      applyBootstrapResult(result);
+      setLoading(false);
+    });
     return () => {
       active = false;
     };
-  }, []);
+  }, [applyBootstrapResult]);
 
   const register = useCallback(async (input: RegisterRequest) => {
     return apiRequest<UserPublic>("/auth/register", {
@@ -74,6 +97,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       redirectOnError: false,
     });
     setUser(loggedInUser);
+    setBootstrapError(null);
+    setLoading(false);
     return loggedInUser;
   }, []);
 
@@ -84,11 +109,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       redirectOnError: false,
     });
     setUser(null);
+    setBootstrapError(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, refresh, register, login, logout }),
-    [user, loading, refresh, register, login, logout],
+    () => ({ user, loading, bootstrapError, refresh, register, login, logout }),
+    [user, loading, bootstrapError, refresh, register, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,17 +1,16 @@
 import { Link, useLocation } from "react-router-dom";
 
 import { PageHeading } from "../components/Feedback";
-import { buttonClass } from "./shared";
-
-interface ErrorState {
-  code?: string;
-  requestId?: string | null;
-  userMessage?: string;
-}
+import {
+  conflictReturnPath,
+  type ApiErrorNavigationState,
+} from "../routes/navigation";
+import { buttonClass, secondaryButtonClass } from "./shared";
 
 function ErrorPage({ kind }: { kind: "session" | "permission" | "conflict" | "not-found" }) {
   const location = useLocation();
-  const state = (location.state as ErrorState | null) ?? {};
+  const state = (location.state as ApiErrorNavigationState | null) ?? {};
+  const returnPath = conflictReturnPath(state);
   const content = {
     session: {
       title: "Oturum gerekli",
@@ -25,8 +24,15 @@ function ErrorPage({ kind }: { kind: "session" | "permission" | "conflict" | "no
     },
     conflict: {
       title: "Güncel durumla çakışma oluştu",
-      body: state.userMessage ?? "Kayıt başka bir işlemle değişmiş olabilir. Sayfayı yenileyin ve backend’in güncel projection’ına göre tekrar deneyin.",
-      action: <button className={buttonClass} onClick={() => window.location.reload()}>Sayfayı yenile</button>,
+      body: state.userMessage ?? "Kayıt başka bir işlemle değişmiş olabilir. Backend’in güncel projection’ını yeniden yükleyip tekrar deneyin.",
+      action: (
+        <div className="flex flex-wrap justify-center gap-3">
+          {returnPath ? (
+            <Link className={buttonClass} replace to={returnPath}>Kaynak sayfaya dön</Link>
+          ) : null}
+          <Link className={secondaryButtonClass} to="/">Ana sayfaya dön</Link>
+        </div>
+      ),
     },
     "not-found": {
       title: "Sayfa bulunamadı",

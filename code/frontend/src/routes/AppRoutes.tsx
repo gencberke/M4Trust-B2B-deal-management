@@ -1,10 +1,10 @@
 import { useEffect, type ReactNode } from "react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { setApiNavigationErrorHandler } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { AppShell } from "../components/AppShell";
-import { LoadingPanel } from "../components/Feedback";
+import { LoadingPanel, RetryPanel } from "../components/Feedback";
 import {
   ConflictPage,
   EntityCreatePage,
@@ -18,28 +18,37 @@ import {
   RegisterPage,
   SessionRequiredPage,
 } from "../pages";
+import { buildApiErrorNavigationState } from "./navigation";
 
 function ApiErrorRedirector() {
   const navigate = useNavigate();
+  const location = useLocation();
+
   useEffect(() => {
     setApiNavigationErrorHandler((error) => {
-      const state = {
-        code: error.code,
-        requestId: error.requestId,
-        userMessage: error.userMessage,
-      };
+      const sourcePath = `${location.pathname}${location.search}${location.hash}`;
+      const state = buildApiErrorNavigationState(error, sourcePath);
       if (error.kind === "session_required") navigate("/session-required", { state });
       if (error.kind === "permission_denied") navigate("/permission-denied", { state });
       if (error.kind === "conflict") navigate("/conflict", { state });
     });
     return () => setApiNavigationErrorHandler(null);
-  }, [navigate]);
+  }, [location.hash, location.pathname, location.search, navigate]);
   return null;
 }
 
 function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, bootstrapError, refresh } = useAuth();
   if (loading) return <LoadingPanel label="Oturum doğrulanıyor…" />;
+  if (bootstrapError) {
+    return (
+      <RetryPanel
+        title="Oturum doğrulanamadı"
+        message={bootstrapError.userMessage}
+        onRetry={() => void refresh()}
+      />
+    );
+  }
   if (!user) return <Navigate to="/session-required" replace />;
   return children;
 }
