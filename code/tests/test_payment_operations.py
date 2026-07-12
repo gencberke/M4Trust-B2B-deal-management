@@ -10,7 +10,12 @@ from backend.app.repositories import funding_units as funding_units_repo
 from backend.app.repositories import participants as participants_repo
 from backend.app.repositories import provider_payments as provider_payments_repo
 from backend.app.services.access_control import ActorContext
+from backend.app.services.account_lifecycle import AccountLifecycleError
 from backend.app.services.payments import funding_coordinator, payment_operations
+from backend.app.services.payments.domain import (
+    ProviderOperationOutcome,
+    ProviderOperationResult,
+)
 from backend.app.services.payments.ports import FakePaymentGateway
 
 from test_plan06a_persistence import _seed_complete_package
@@ -414,3 +419,321 @@ def test_refund_without_gateway_capability_is_unsupported_and_opens_review(conn)
         "AND reason_code = 'PAYMENT_REFUND_FAILED'",
         (transaction_id,),
     ).fetchone()[0] == 1
+
+
+# --- Review remediation regression tests (BOLA / unknown recovery / atomic claim / lifecycle drift) ---
+
+
+def test_unrelated_authenticated_user_cannot_execute_bilateral_resolution(conn) -> None:
+    transaction_id, unit, provider_payment, gateway = _funded_transaction(conn)
+    from backend.app.services.payments.release_coordinator import release_units
+
+    release_units(
+        conn,
+        transaction_id=transaction_id,
+        unit_ids=(unit["id"],),
+        gateway=gateway,
+        actor_context=_actor("manager-07"),
+    )
+    _attach_buyer_seller_approvers(conn, transaction_id)
+    resolution = payment_operations.request_resolution(
+        conn,
+        funding_unit_id=unit["id"],
+        operation_type="undo_approval",
+        actor_context=_actor("manager-07"),
+    )
+    payment_operations.approve_resolution(
+        conn, resolution_id=resolution["id"],
+        actor_context=_actor("buyer-approver-07", _BUYER_ENTITY),
+    )
+    payment_operations.approve_resolution(
+        conn, resolution_id=resolution["id"],
+        actor_context=_actor("seller-approver-07", _SELLER_ENTITY),
+    )
+
+    class BoomGateway(FakePaymentGateway):
+        def undo_pool_approval(self, identifier):
+            raise AssertionError("provider ilgisiz kullanıcı için çağrılmamalıydı")
+
+    with pytest.raises(payment_operations.PaymentOperationError):
+        payment_operations.execute_resolution(
+            conn,
+            resolution_id=resolution["id"],
+            actor_context=_actor("random-stranger-99", "unrelated-entity-99"),
+            gateway=BoomGateway(),
+        )
+    assert conn.execute(
+        "SELECT status FROM payment_resolutions WHERE id = ?", (resolution["id"],)
+    ).fetchone()[0] == "authorized"
+
+
+def test_execute_resolution_atomic_claim_rejects_concurrent_call(conn) -> None:
+    transaction_id, unit, provider_payment, gateway = _funded_transaction(conn)
+    from backend.app.services.payments.release_coordinator import release_units
+
+    release_units(
+        conn,
+        transaction_id=transaction_id,
+        unit_ids=(unit["id"],),
+        gateway=gateway,
+        actor_context=_actor("manager-07"),
+    )
+    resolution = payment_operations.request_resolution(
+        conn,
+        funding_unit_id=unit["id"],
+        operation_type="undo_approval",
+        actor_context=_actor("manager-07"),
+    )
+    # Başka bir worker/process aynı resolution'ı zaten claim etmiş gibi simüle eder.
+    claimed = payment_operations.resolutions_repo.claim_executing(
+        conn, resolution["id"], from_statuses=("requested", "authorized")
+    )
+    assert claimed is True
+
+    class BoomGateway(FakePaymentGateway):
+        def undo_pool_approval(self, identifier):
+            raise AssertionError("provider ikinci (kaybeden) çağrı için çağrılmamalıydı")
+
+    with pytest.raises(payment_operations.PaymentOperationError):
+        payment_operations.execute_resolution(
+            conn,
+            resolution_id=resolution["id"],
+            actor_context=_actor("platform-07", None, platform_role="reviewer"),
+            gateway=BoomGateway(),
+        )
+    assert conn.execute(
+        "SELECT status FROM payment_resolutions WHERE id = ?", (resolution["id"],)
+    ).fetchone()[0] == "executing"
+
+
+def test_undo_unknown_after_provider_success_reconciles_to_executed(conn) -> None:
+    transaction_id, unit, provider_payment, gateway = _funded_transaction(conn)
+    from backend.app.services.payments.release_coordinator import release_units
+
+    release_units(
+        conn,
+        transaction_id=transaction_id,
+        unit_ids=(unit["id"],),
+        gateway=gateway,
+        actor_context=_actor("manager-07"),
+    )
+    conn.execute("UPDATE transactions SET state = 'settled' WHERE id = ?", (transaction_id,))
+    conn.commit()
+
+    class TimeoutAfterCommitGateway(FakePaymentGateway):
+        def undo_pool_approval(self, identifier):
+            result = super().undo_pool_approval(identifier)
+            if result.outcome is ProviderOperationOutcome.SUCCESS:
+                return ProviderOperationResult(
+                    outcome=ProviderOperationOutcome.UNKNOWN, identifier=identifier
+                )
+            return result
+
+    timeout_gateway = TimeoutAfterCommitGateway(store=gateway._store)
+    resolution = payment_operations.request_resolution(
+        conn,
+        funding_unit_id=unit["id"],
+        operation_type="undo_approval",
+        actor_context=_actor("manager-07"),
+    )
+
+    first = payment_operations.execute_resolution(
+        conn,
+        resolution_id=resolution["id"],
+        actor_context=_actor("platform-07", None, platform_role="reviewer"),
+        gateway=timeout_gateway,
+    )
+    assert first.status == "unknown"
+    assert conn.execute(
+        "SELECT status FROM payment_resolutions WHERE id = ?", (resolution["id"],)
+    ).fetchone()[0] == "unknown"
+
+    second = payment_operations.execute_resolution(
+        conn,
+        resolution_id=resolution["id"],
+        actor_context=_actor("platform-07", None, platform_role="reviewer"),
+        gateway=timeout_gateway,
+    )
+    assert second.status == "executed"
+    assert conn.execute(
+        "SELECT status FROM funding_units WHERE id = ?", (unit["id"],)
+    ).fetchone()[0] == "approval_undone"
+    assert conn.execute(
+        "SELECT state FROM transactions WHERE id = ?", (transaction_id,)
+    ).fetchone()[0] == "active"
+    ops = conn.execute(
+        "SELECT COUNT(*) FROM provider_operations WHERE funding_unit_id = ? "
+        "AND operation_type = 'undo_pool_approval'",
+        (unit["id"],),
+    ).fetchone()[0]
+    assert ops == 1
+
+
+def test_refund_unknown_after_provider_success_reconciles_to_executed(conn) -> None:
+    transaction_id, unit, provider_payment, gateway = _funded_transaction(conn)
+    from backend.app.services.payments.release_coordinator import release_units
+
+    release_units(
+        conn,
+        transaction_id=transaction_id,
+        unit_ids=(unit["id"],),
+        gateway=gateway,
+        actor_context=_actor("manager-07"),
+    )
+
+    class TimeoutAfterCommitGateway(FakePaymentGateway):
+        def refund_payment(self, identifier):
+            result = super().refund_payment(identifier)
+            if result.outcome is ProviderOperationOutcome.SUCCESS:
+                return ProviderOperationResult(
+                    outcome=ProviderOperationOutcome.UNKNOWN, identifier=identifier
+                )
+            return result
+
+    timeout_gateway = TimeoutAfterCommitGateway(store=gateway._store)
+    resolution = payment_operations.request_resolution(
+        conn,
+        funding_unit_id=unit["id"],
+        operation_type="refund",
+        actor_context=_actor("manager-07"),
+    )
+
+    first = payment_operations.execute_resolution(
+        conn,
+        resolution_id=resolution["id"],
+        actor_context=_actor("platform-07", None, platform_role="reviewer"),
+        gateway=timeout_gateway,
+    )
+    assert first.status == "unknown"
+
+    second = payment_operations.execute_resolution(
+        conn,
+        resolution_id=resolution["id"],
+        actor_context=_actor("platform-07", None, platform_role="reviewer"),
+        gateway=timeout_gateway,
+    )
+    assert second.status == "executed"
+    assert conn.execute(
+        "SELECT status FROM funding_units WHERE id = ?", (unit["id"],)
+    ).fetchone()[0] == "refunded"
+    ops = conn.execute(
+        "SELECT COUNT(*) FROM provider_operations WHERE funding_unit_id = ? "
+        "AND operation_type = 'refund'",
+        (unit["id"],),
+    ).fetchone()[0]
+    assert ops == 1
+
+
+def test_lifecycle_transition_failure_does_not_report_success(conn, monkeypatch) -> None:
+    transaction_id, unit, provider_payment, gateway = _funded_transaction(conn)
+    from backend.app.services.payments.release_coordinator import release_units
+
+    release_units(
+        conn,
+        transaction_id=transaction_id,
+        unit_ids=(unit["id"],),
+        gateway=gateway,
+        actor_context=_actor("manager-07"),
+    )
+    conn.execute("UPDATE transactions SET state = 'settled' WHERE id = ?", (transaction_id,))
+    conn.commit()
+
+    resolution = payment_operations.request_resolution(
+        conn,
+        funding_unit_id=unit["id"],
+        operation_type="undo_approval",
+        actor_context=_actor("manager-07"),
+    )
+
+    def _boom(*args, **kwargs):
+        raise AccountLifecycleError("simulated lifecycle transition failure")
+
+    monkeypatch.setattr(payment_operations, "transition_account_state", _boom)
+
+    result = payment_operations.execute_resolution(
+        conn,
+        resolution_id=resolution["id"],
+        actor_context=_actor("platform-07", None, platform_role="reviewer"),
+        gateway=gateway,
+    )
+
+    assert result.status == "unknown"
+    assert result.provider_code == "PAYMENT_LIFECYCLE_TRANSITION_FAILED"
+    # Provider side effect (irreversible) local olarak korunur:
+    assert conn.execute(
+        "SELECT status FROM funding_units WHERE id = ?", (unit["id"],)
+    ).fetchone()[0] == "approval_undone"
+    assert conn.execute(
+        "SELECT internal_status FROM provider_payments WHERE id = ?",
+        (provider_payment["id"],),
+    ).fetchone()[0] == "approval_undone"
+    # Ama resolution 'executed' DEĞİL -- API tam başarı bildirmez, case açık kalır.
+    assert conn.execute(
+        "SELECT status FROM payment_resolutions WHERE id = ?", (resolution["id"],)
+    ).fetchone()[0] == "unknown"
+    assert conn.execute(
+        "SELECT state FROM transactions WHERE id = ?", (transaction_id,)
+    ).fetchone()[0] == "settled"
+
+
+def test_successful_retry_resolves_payment_approve_failed_case(conn) -> None:
+    class FailOnceGateway(FakePaymentGateway):
+        def __init__(self):
+            super().__init__()
+            self.approve_calls = 0
+
+        def approve_pool_payment(self, identifier):
+            self.approve_calls += 1
+            if self.approve_calls == 1:
+                return self._failed(identifier, "BANK_DECLINED", "safe test failure")
+            return super().approve_pool_payment(identifier)
+
+    failing_gateway = FailOnceGateway()
+    transaction_id, package_id = _seed_complete_package(conn)
+    participants_repo.create_assignment(
+        conn,
+        transaction_id=transaction_id,
+        participant_id=None,
+        user_id="manager-07",
+        legal_entity_id="entity",
+        role="manager",
+    )
+    result = funding_coordinator.ensure_pool_funded(
+        conn, transaction_id, package_id, _actor("manager-07"), gateway=failing_gateway,
+    )
+    assert result.status == "active"
+    unit = conn.execute(
+        "SELECT * FROM funding_units WHERE transaction_id = ? ORDER BY sequence LIMIT 1",
+        (transaction_id,),
+    ).fetchone()
+    from backend.app.services.payments.release_coordinator import release_units
+
+    release_units(
+        conn,
+        transaction_id=transaction_id,
+        unit_ids=(unit["id"],),
+        gateway=failing_gateway,
+        actor_context=_actor("manager-07"),
+    )
+    assert conn.execute(
+        "SELECT status FROM review_cases WHERE transaction_id = ? AND reason_code = 'PAYMENT_APPROVE_FAILED'",
+        (transaction_id,),
+    ).fetchone()[0] == "open"
+
+    instruction = conn.execute(
+        "SELECT * FROM release_instructions WHERE funding_unit_id = ?", (unit["id"],),
+    ).fetchone()
+    payment_operations.retry_release_instruction(
+        conn,
+        instruction_id=instruction["id"],
+        actor_context=_actor("manager-07"),
+        gateway=failing_gateway,
+    )
+
+    case_status = conn.execute(
+        "SELECT status, resolution_code FROM review_cases WHERE transaction_id = ? "
+        "AND reason_code = 'PAYMENT_APPROVE_FAILED'",
+        (transaction_id,),
+    ).fetchone()
+    assert case_status["status"] == "resolved"
+    assert case_status["resolution_code"] == "RETRY_PAYMENT_AUTHORIZED"
