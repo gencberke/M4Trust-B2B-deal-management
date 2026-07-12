@@ -156,12 +156,12 @@ def _require_account_creator_manager_policy(
 
     row = load_transaction(conn, transaction_id)
     if row is None:
-        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="Ä°ÅŸlem bulunamadÄ±.")
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="İşlem bulunamadı.")
     if row["lifecycle_version"] != "account_v2":
         raise ApiError(
             status_code=409,
             code="ACCOUNT_TRACKING_POLICY_FORBIDDEN",
-            message="Account tracking policy yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
+            message="Account tracking policy yalnız account_v2 işlemler için kullanılabilir.",
         )
 
     assignment = (
@@ -181,7 +181,7 @@ def _require_account_creator_manager_policy(
         raise ApiError(
             status_code=403,
             code="TRACKING_POLICY_FORBIDDEN",
-            message="YalnÄ±z creator-side manager tracking policy iÅŸlemi yapabilir.",
+            message="Yalnız creator-side manager tracking policy işlemi yapabilir.",
         )
     return row
 
@@ -195,7 +195,7 @@ def _account_tracking_policy_projection(
         raise ApiError(
             status_code=404,
             code="TRACKING_POLICY_NOT_FOUND",
-            message="Tracking policy bulunamadÄ±.",
+            message="Tracking policy bulunamadı.",
         )
     validator = _load_validator(conn, transaction_id)
     extraction = _validated_extraction(_load_extraction(conn, transaction_id))
@@ -798,7 +798,7 @@ def update_account_tracking_policy(
         _raise_policy_conflict(
             PolicyConflict(
                 code=PolicyConflictCode.POLICY_NOT_CONFIGURABLE,
-                message="DoÄŸrulanmÄ±ÅŸ sÃ¶zleÅŸme kurallarÄ± bulunamadÄ±.",
+                message="Doğrulanmış sözleşme kuralları bulunamadı.",
                 conflicts=["EXTRACTION_NOT_AVAILABLE"],
             )
         )
@@ -851,7 +851,7 @@ def lock_account_tracking_policy(
         _raise_policy_conflict(
             PolicyConflict(
                 code=PolicyConflictCode.POLICY_NOT_CONFIGURABLE,
-                message="DoÄŸrulanmÄ±ÅŸ sÃ¶zleÅŸme kurallarÄ± bulunamadÄ±.",
+                message="Doğrulanmış sözleşme kuralları bulunamadı.",
                 conflicts=["EXTRACTION_NOT_AVAILABLE"],
             )
         )

@@ -67,7 +67,6 @@ def _resolution_view(conn: Connection, row) -> dict:
         "executed_by_user_id": row["executed_by_user_id"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
-        "updated_at": row["updated_at"],
         "approvals": [
             {
                 "participant_role": approval["participant_role"],
@@ -85,12 +84,12 @@ def _require_transaction_assignment(
 ) -> None:
     transaction = load_transaction(conn, transaction_id)
     if transaction is None:
-        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="Ä°ÅŸlem bulunamadÄ±.")
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="İşlem bulunamadı.")
     if transaction["lifecycle_version"] != "account_v2":
         raise ApiError(
             status_code=409,
             code="PAYMENT_RESOLUTION_LEGACY_UNSUPPORTED",
-            message="Payment resolution projection yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
+            message="Payment resolution projection yalnız account_v2 işlemler için kullanılabilir.",
         )
     if actor.user_id is None or not participants_service.has_transaction_access(
         conn, transaction_id, actor.user_id
@@ -98,7 +97,7 @@ def _require_transaction_assignment(
         raise ApiError(
             status_code=403,
             code="TRANSACTION_ACCESS_DENIED",
-            message="Bu iÅŸlemde eriÅŸiminiz yok.",
+            message="Bu işlemde erişiminiz yok.",
         )
 
 
@@ -271,7 +270,7 @@ def get_payment_resolution(
         raise ApiError(
             status_code=404,
             code="PAYMENT_RESOLUTION_NOT_FOUND",
-            message="Payment resolution bulunamadÄ±.",
+            message="Payment resolution bulunamadı.",
         )
     return PaymentResolutionPublic.model_validate(_resolution_view(conn, row))
 

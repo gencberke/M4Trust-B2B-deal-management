@@ -347,7 +347,7 @@ def _revision(
         raise ApiError(
             status_code=422,
             code="RULE_REVISION_SOURCE_QUOTE_REQUIRED",
-            message="Omitted source_quote parent rule index'inden yeniden kurulamadÄ±.",
+            message="Omitted source_quote parent rule index'inden yeniden kurulamadı.",
         ) from exc
     except sqlite3.IntegrityError as exc:
         raise ApiError(
@@ -393,12 +393,12 @@ def list_rule_set_versions(
 
     transaction = load_transaction(conn, transaction_id)
     if transaction is None:
-        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="Ä°ÅŸlem bulunamadÄ±.")
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="İşlem bulunamadı.")
     if transaction["lifecycle_version"] != "account_v2":
         raise ApiError(
             status_code=409,
             code="LEGACY_RULE_SET_READ_FORBIDDEN",
-            message="Rule-set version history yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
+            message="Rule-set version history yalnız account_v2 işlemler için kullanılabilir.",
         )
     if actor.user_id is None or not participants_service.has_transaction_access(
         conn, transaction_id, actor.user_id
@@ -406,7 +406,7 @@ def list_rule_set_versions(
         raise ApiError(
             status_code=403,
             code="TRANSACTION_ACCESS_DENIED",
-            message="Bu iÅŸlemde eriÅŸiminiz yok.",
+            message="Bu işlemde erişiminiz yok.",
         )
 
     versions = rule_versions.list_versions(conn, transaction_id)
