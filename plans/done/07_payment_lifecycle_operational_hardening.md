@@ -1,6 +1,8 @@
 # 07 — Payment Lifecycle: Retry, Reconciliation, Undo, Processing Jobs, Trace (Program 5)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 Program 5 · Moka §11.5-11.6, §16, §20 (payment_attempts tablosu Moka `provider_operations` ile SUPERSEDED — harita §4)
+> **Durum:** Uygulandı — 2026-07-12 · Sapmalar: (1) Migration numarası `024_payment_lifecycle_operational_extensions` program haritasının orijinal rezervasyon tablosunda yoktu (harita bu plan finalize edilmeden önce yazılmıştı); faz prompt'unda (seven.md) Berke'ye şartlı olarak zaten tanımlıydı, kapanışta haritaya işlendi. (2) 7A implementasyonu Yusuf'un 7B frozen review kontratından (`open_payment_review_case`, `PAYMENT_REASON_CODES`) önce yazıldığı için ilk halinde ad-hoc `PAYMENT_REFUND_UNSUPPORTED` reason-code'u ve yanlış `source_id` kullanıyordu; kapanış öncesi entegrasyon geçişinde `PAYMENT_REFUND_FAILED` + `funding_unit_id`'ye düzeltildi. (3) Kapanışta ayrıca bilateral undo/refund onay akışını tamamen kıran bir audit-metadata bug'ı (`"participant_role"` anahtarı kart-PAN filtresine yanlışlıkla takılıyordu) bulunup düzeltildi ve reconciliation/refund/migration-024 için önceden eksik olan test kapsamı eklendi — bkz. PR [#61](https://github.com/gencberke/M4Trust-B2B-deal-management/pull/61), [#60](https://github.com/gencberke/M4Trust-B2B-deal-management/pull/60), [#62](https://github.com/gencberke/M4Trust-B2B-deal-management/pull/62). Full suite kapanışta **956 passed**.
+>
+> **Durum (orijinal):** Ready — 2026-07-10 · **Master ref:** v2 Program 5 · Moka §11.5-11.6, §16, §20 (payment_attempts tablosu Moka `provider_operations` ile SUPERSEDED — harita §4)
 > **Bağımlılık:** 06 tamam. Integration branch: `program/domain-evolution-v2`
 > **Branch'ler:** Berke `feat/payment-reconciliation-jobs` · Yusuf `feat/payment-failure-review-and-faults`
 > **Tahmin:** 4-5 gün (paralel)
