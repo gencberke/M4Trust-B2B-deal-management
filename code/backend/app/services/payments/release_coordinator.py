@@ -114,6 +114,25 @@ def _mark_unit_approved(conn: Connection, *, unit, provider_payment, instruction
     funding_units_repo.update_status(conn, unit["id"], "approved")
 
 
+def _mark_unit_refunded(conn: Connection, *, unit, provider_payment, instruction) -> None:
+    """Persist a provider-confirmed refund as a terminal, non-retryable state."""
+
+    if instruction["status"] != "confirmed":
+        release_instructions_repo.update_status(conn, instruction["id"], "failed")
+    provider_payments_repo.upsert_payment(
+        conn,
+        payment_id=provider_payment["id"],
+        funding_unit_id=unit["id"],
+        provider_profile=provider_payment["provider_profile"],
+        other_trx_code=provider_payment["other_trx_code"],
+        virtual_pos_order_id=provider_payment["virtual_pos_order_id"],
+        amount_minor=provider_payment["amount_minor"],
+        currency=provider_payment["currency"],
+        internal_status="refunded",
+    )
+    funding_units_repo.update_status(conn, unit["id"], "refunded")
+
+
 def _detail_shows_approved(gateway: PaymentGateway, *, unit) -> bool:
     try:
         detail = gateway.get_payment_detail(
@@ -164,8 +183,19 @@ def _reconcile_unknown_approval(
             )
             processing_jobs.mark_succeeded(conn, job["id"])
             return "approved"
-        processing_jobs.mark_succeeded(conn, job["id"])
-        return "retry"
+        if detail.payment.status is ProviderPaymentStatus.POOL:
+            processing_jobs.mark_succeeded(conn, job["id"])
+            return "retry"
+        if detail.payment.status is ProviderPaymentStatus.REFUNDED:
+            _mark_unit_refunded(
+                conn, unit=unit, provider_payment=provider_payment, instruction=instruction
+            )
+            processing_jobs.mark_succeeded(conn, job["id"])
+            return "refunded"
+
+        # Defense-in-depth for a future enum extension: never retry approval.
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PAYMENT_RECONCILE_AMBIGUOUS")
+        return "unknown"
     processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_DETAIL_UNKNOWN")
     return "unknown"
 
@@ -176,6 +206,8 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
         raise ReleaseCoordinatorError(f"Funding unit bulunamadı: {unit_id}")
     if unit["status"] == "approved":
         return "already"
+    if unit["status"] in {"refunded", "cancelled"}:
+        return "terminal"
 
     provider_payment = provider_payments_repo.get_by_funding_unit(conn, unit_id)
     if provider_payment is None or provider_payment["virtual_pos_order_id"] is None:
@@ -222,6 +254,11 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
         if reconciled != "retry":
             if reconciled == "approved":
                 processing_jobs.mark_succeeded(conn, job["id"])
+            elif reconciled == "refunded":
+                processing_jobs.mark_failed(
+                    conn, job["id"], reason_code="PAYMENT_APPROVE_FAILED"
+                )
+                return "failed"
             else:
                 processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_APPROVE_UNKNOWN")
             return reconciled
@@ -311,10 +348,15 @@ def _recompute_milestone_aggregates(conn: Connection, transaction_id: str) -> No
         released = sum(
             int(unit["amount_minor"]) for unit in units if unit["status"] == "approved"
         )
-        if released <= 0:
-            continue
         total = int(milestone["amount_minor"])
-        status = "released" if released >= total else "partially_released"
+        if released >= total:
+            status = "released"
+        elif released > 0:
+            status = "partially_released"
+        elif milestone["status"] not in {"cancelled", "disputed"}:
+            status = "pending"
+        else:
+            status = milestone["status"]
         if milestone["released_amount_minor"] == released and milestone["status"] == status:
             continue
         milestones_repo.update_released_amount(

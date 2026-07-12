@@ -436,6 +436,58 @@ def test_approval_unknown_detail_approved_reconciles_without_reapprove(tmp_path)
     conn.close()
 
 
+def test_approval_unknown_detail_refunded_never_reapproves(tmp_path) -> None:
+    conn, tx_id, _ = _seed_funded_account(tmp_path)
+    gateway = _UnknownFirstApproveGateway(FakePaymentGateway(SQLitePaymentStore(conn)))
+
+    first = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path), gateway=gateway)
+    unit = funding_units_repo.list_for_transaction(conn, tx_id)[0]
+    assert first["settled"] is False
+    assert unit["status"] == "approval_unknown"
+    assert gateway.approve_calls == 1
+
+    # Simulate the definitive provider state discovered after the approve timeout.
+    conn.execute(
+        "UPDATE fake_provider_payments SET status = 'refunded' WHERE other_trx_code = ?",
+        (unit["other_trx_code"],),
+    )
+
+    second = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path), gateway=gateway)
+
+    assert second["settled"] is False
+    assert second["approved_unit_ids"] == []
+    assert second["failed_unit_ids"] == [unit["id"]]
+    assert gateway.approve_calls == 1
+    assert funding_units_repo.get_by_id(conn, unit["id"])["status"] == "refunded"
+    assert conn.execute(
+        "SELECT internal_status FROM provider_payments WHERE funding_unit_id = ?",
+        (unit["id"],),
+    ).fetchone()[0] == "refunded"
+    assert conn.execute(
+        "SELECT status FROM release_instructions WHERE funding_unit_id = ? "
+        "AND operation_type = 'approve_pool_payment'",
+        (unit["id"],),
+    ).fetchone()[0] == "failed"
+    milestone = conn.execute(
+        "SELECT status, released_amount_minor FROM milestones WHERE transaction_id = ?",
+        (tx_id,),
+    ).fetchone()
+    assert milestone["status"] == "pending"
+    assert milestone["released_amount_minor"] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) FROM review_cases WHERE transaction_id = ? "
+        "AND reason_code = 'PAYMENT_APPROVE_FAILED' AND status = 'open'",
+        (tx_id,),
+    ).fetchone()[0] == 1
+
+    # Refunded is terminal and is excluded from further release attempts.
+    assert settlement.evaluate_settlement(
+        conn, tx_id, _settings(tmp_path), gateway=gateway
+    ) is None
+    assert gateway.approve_calls == 1
+    conn.close()
+
+
 def test_multi_unit_approval_unknown_reconciles_on_retry(tmp_path) -> None:
     conn, tx_id, _ = _seed_fixed_tranche_account(tmp_path, tranche_count=4)
     _submit_verified_irsaliye(conn, tx_id, 100, "irsaliye-full")  # 4 unit eligible
