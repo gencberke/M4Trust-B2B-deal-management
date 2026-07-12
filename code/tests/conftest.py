@@ -20,6 +20,27 @@ sys.path.insert(0, str(_CODE_ROOT / "scripts"))
 sys.path.insert(0, str(_CODE_ROOT))
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "legacy_compat: legacy_v1 capability-token davranışını doğrulayan dar set "
+        "(Plan 06 closure'da LEGACY_CAPABILITY_ACCESS_ENABLED default false olduğu "
+        "için bu testler flag'i env üzerinden açar).",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _legacy_capability_compat(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`legacy_compat` işaretli testlerde legacy capability erişimini env ile açar.
+
+    Plan 06 closure default'u kapalıdır; legacy token akışları yalnız bu dar
+    işaretli sette (removal gate'ine kadar) yaşar."""
+    if request.node.get_closest_marker("legacy_compat"):
+        monkeypatch.setenv("LEGACY_CAPABILITY_ACCESS_ENABLED", "true")
+
+
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Her test kendi sqlite dosyasını kullanır — gerçek runtime DB'ye dokunulmaz.

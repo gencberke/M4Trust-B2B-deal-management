@@ -272,6 +272,76 @@ def test_unit_order_is_deterministic_regardless_of_input_order() -> None:
     assert decision.release_candidate.funding_unit_ids == ("U01", "U02", "U03")
 
 
+def test_unsupported_trigger_fails_closed_to_hold() -> None:
+    # customs_clearance / service_completion gibi desteklenmeyen trigger, kanıt
+    # tamam olsa bile fail-closed hold üretir (trigger semantiği, §6B blocker).
+    milestone = md.Milestone(
+        milestone_id="m-customs",
+        release_mode=ReleaseMode.ALL_OR_NOTHING,
+        required_evidence=frozenset(),
+        trigger_type="customs_clearance",
+    )
+    evidence_set = md.MilestoneEvidenceSet(
+        verified_evidence_types=frozenset({"e_irsaliye"}),
+        funding_units=(_unit("U01", 1),),
+        trigger_satisfied=True,
+    )
+    decision = md.evaluate_milestone(milestone, evidence_set, _NO_REVIEW)
+    assert decision.status == "hold"
+    assert decision.manual_review_required is True
+    assert "UNSUPPORTED_TRIGGER" in {f.code for f in decision.findings}
+
+
+def test_supported_trigger_not_satisfied_holds() -> None:
+    milestone = md.Milestone(
+        milestone_id="m-einvoice",
+        release_mode=ReleaseMode.ALL_OR_NOTHING,
+        required_evidence=frozenset(),
+        trigger_type="e_invoice",
+    )
+    evidence_set = md.MilestoneEvidenceSet(
+        verified_evidence_types=frozenset(),
+        funding_units=(_unit("U01", 1),),
+        trigger_satisfied=False,
+    )
+    decision = md.evaluate_milestone(milestone, evidence_set, _NO_REVIEW)
+    assert decision.status == "hold"
+    assert "TRIGGER_NOT_OCCURRED" in {f.code for f in decision.findings}
+
+
+def test_approval_only_trigger_satisfied_is_eligible() -> None:
+    # Approval-only milestone: trigger (ratification) gerçekleşti, required
+    # evidence yok -> tek unit eligible.
+    milestone = md.Milestone(
+        milestone_id="m-approval",
+        release_mode=ReleaseMode.ALL_OR_NOTHING,
+        required_evidence=frozenset(),
+        trigger_type="approval",
+    )
+    evidence_set = md.MilestoneEvidenceSet(
+        funding_units=(_unit("U01", 1),), trigger_satisfied=True
+    )
+    decision = md.evaluate_milestone(milestone, evidence_set, _NO_REVIEW)
+    assert decision.status == "eligible"
+    assert decision.release_candidate.funding_unit_ids == ("U01",)
+
+
+def test_delivery_video_trigger_satisfied_with_verified_video_is_eligible() -> None:
+    milestone = md.Milestone(
+        milestone_id="m-delivery",
+        release_mode=ReleaseMode.ALL_OR_NOTHING,
+        required_evidence=frozenset(),
+        trigger_type="delivery_video",
+    )
+    evidence_set = md.MilestoneEvidenceSet(
+        verified_evidence_types=frozenset({"video"}),
+        funding_units=(_unit("U01", 1),),
+        trigger_satisfied=True,
+    )
+    decision = md.evaluate_milestone(milestone, evidence_set, _NO_REVIEW)
+    assert decision.status == "eligible"
+
+
 def test_legacy_ratio_helper_does_not_split_units() -> None:
     candidate = md.select_units_for_legacy_ratio(_FOUR_TRANCHE_UNITS, 0.5)
     assert candidate.funding_unit_ids == ("U01", "U02")

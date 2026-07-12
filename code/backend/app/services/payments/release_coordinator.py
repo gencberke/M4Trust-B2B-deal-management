@@ -125,6 +125,31 @@ def _detail_shows_approved(gateway: PaymentGateway, *, unit) -> bool:
     )
 
 
+def _reconcile_unknown_approval(
+    conn: Connection, *, unit, provider_payment, instruction, gateway: PaymentGateway
+) -> str:
+    """approval_unknown unit'i provider detail ile mutabık kılar (kör approve yok).
+
+    approved → confirmed (success-equivalent) · hâlâ pool → kontrollü retry ('retry')
+    · not-found/error → belirsiz kalır ('unknown'), manuel kurtarma; approve YENİDEN
+    çağrılmaz.
+    """
+
+    detail = gateway.get_payment_detail(
+        query=PaymentDetailQuery(
+            identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
+        )
+    )
+    if detail.outcome is ProviderOperationOutcome.SUCCESS and detail.payment is not None:
+        if detail.payment.status is ProviderPaymentStatus.APPROVED:
+            _mark_unit_approved(
+                conn, unit=unit, provider_payment=provider_payment, instruction=instruction
+            )
+            return "approved"
+        return "retry"
+    return "unknown"
+
+
 def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway) -> str:
     unit = funding_units_repo.get_by_id(conn, unit_id)
     if unit is None:
@@ -157,6 +182,16 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
         # Duplicate evaluation: ikinci approve çağrısı yok, idempotent tamamla.
         _mark_unit_approved(conn, unit=unit, provider_payment=provider_payment, instruction=instruction)
         return "already"
+
+    # approval_unknown (approve timeout): önce reconcile, kör re-approve YOK.
+    if unit["status"] == "approval_unknown":
+        reconciled = _reconcile_unknown_approval(
+            conn, unit=unit, provider_payment=provider_payment,
+            instruction=instruction, gateway=gateway,
+        )
+        if reconciled != "retry":
+            return reconciled
+        # detail hâlâ pool: kontrollü retry -- approve tekrar denenebilir.
 
     identifier = ProviderPaymentIdentifier(
         virtual_pos_order_id=provider_payment["virtual_pos_order_id"],

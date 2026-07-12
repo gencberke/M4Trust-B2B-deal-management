@@ -303,8 +303,12 @@ def _account_ready_package(conn: Connection, transaction_id: str):
         for unit in units
     ):
         return None
-    if not any(unit["status"] == "pool_created" for unit in units):
-        # Hepsi zaten approved/unknown ise yeni release yok.
+    # İlerletilebilecek en az bir unit olmalı: yeni release için pool_created,
+    # ya da belirsiz kalmış (approval_unknown) bir unit'in reconcile'ı. Hepsi
+    # zaten approved ise yapılacak iş yoktur.
+    if not any(
+        unit["status"] in {"pool_created", "approval_unknown"} for unit in units
+    ):
         return None
     return package
 
@@ -344,11 +348,30 @@ def _verified_evidence_rows(conn: Connection, transaction_id: str, milestone_id:
     """Milestone-scoped VEYA transaction-level (milestone_id NULL) verified kanıt.
 
     Plan 05 evidence'ı milestone_id=NULL ile gelir; transaction-level teslim
-    kanıtı her milestone'a deterministik fallback olarak uygulanır (WP2 §2)."""
+    kanıtı her milestone'a deterministik fallback olarak uygulanır (WP2 §2).
+    Yalnız ``verified`` kayıtlar required-evidence tamamlamaya sayılır (rejected/
+    review_required hariç)."""
 
     return conn.execute(
         "SELECT evidence_type, payload_json FROM evidence_records "
         "WHERE transaction_id = ? AND verification_status = 'verified' "
+        "AND (milestone_id = ? OR milestone_id IS NULL) "
+        "ORDER BY created_at ASC, id ASC",
+        (transaction_id, milestone_id),
+    ).fetchall()
+
+
+def _advisory_video_rows(conn: Connection, transaction_id: str, milestone_id: str):
+    """Video advisory sinyali için verified VEYA review_required video kayıtları.
+
+    Yüksek güvenli hasar sinyali evidence'ı ``review_required`` yapar (ingestion);
+    bu kayıt required-evidence'ı TAMAMLAMAZ ama hold/review sinyalini taşımalıdır,
+    aksi halde hasarlı teslimat release'i durdurmayabilir (blocker)."""
+
+    return conn.execute(
+        "SELECT payload_json FROM evidence_records "
+        "WHERE transaction_id = ? AND evidence_type = 'video' "
+        "AND verification_status IN ('verified', 'review_required') "
         "AND (milestone_id = ? OR milestone_id IS NULL) "
         "ORDER BY created_at ASC, id ASC",
         (transaction_id, milestone_id),
@@ -376,9 +399,10 @@ def _build_video_advisory(
     damage = False
     if high_conf:
         for signal in payload.get("damage_signals") or []:
+            # Ingestion güvenli projeksiyonu `matched_box` alanını yazar.
             if (
                 isinstance(signal, dict)
-                and signal.get("matched")
+                and signal.get("matched_box")
                 and (_as_float(signal.get("confidence")) or 0.0) >= threshold
             ):
                 damage = True
@@ -389,6 +413,25 @@ def _build_video_advisory(
         count_divergence_detected=divergence,
         damage_matched=damage,
     )
+
+
+def _trigger_satisfied(trigger_type: str, verified_types: frozenset[str]) -> bool:
+    """Milestone trigger fact'ini deterministik çözer (caller sorumluluğu, §6B).
+
+    approval → ratification precondition (settlement readiness zaten garanti eder).
+    e_invoice/delivery_video → ilgili verified kanıt. manual_review → en az bir
+    verified teslim kanıtı. Bilinmeyen trigger → False (evaluator ayrıca fail-closed).
+    """
+
+    if trigger_type == "approval":
+        return True
+    if trigger_type == "e_invoice":
+        return "e_invoice" in verified_types
+    if trigger_type == "delivery_video":
+        return "video" in verified_types
+    if trigger_type == "manual_review":
+        return bool({"e_irsaliye", "e_invoice", "video"} & verified_types)
+    return False
 
 
 def _build_milestone_evidence_set(
@@ -404,15 +447,18 @@ def _build_milestone_evidence_set(
     e_irsaliye_rows = [row for row in rows if row["evidence_type"] == "e_irsaliye"]
     cumulative_qty: int | None = None
     if e_irsaliye_rows:
-        # En güncel verified e-irsaliye kümülatif teslim miktarını taşır
-        # (decision.py semantiğiyle uyumlu; video asla katkı yapmaz).
-        latest = json.loads(e_irsaliye_rows[-1]["payload_json"])
-        qty = _as_float(latest.get("delivered_quantity"))
-        cumulative_qty = int(qty) if qty is not None else None
+        # Her verified e-irsaliye bir teslim DELTA'sıdır; kümülatif doğrulanmış
+        # miktar tüm verified e-irsaliye delta'larının toplamıdır (video asla
+        # katkı yapmaz). Idempotent submit aynı satırı çift saymaz.
+        total = 0.0
+        for row in e_irsaliye_rows:
+            qty = _as_float(json.loads(row["payload_json"]).get("delivered_quantity"))
+            if qty is not None:
+                total += qty
+        cumulative_qty = int(total)
 
-    video_rows = [row for row in rows if row["evidence_type"] == "video"]
     video_advisory = _build_video_advisory(
-        video_rows,
+        _advisory_video_rows(conn, transaction_id, milestone_row["id"]),
         cumulative_qty=cumulative_qty,
         contract_quantity=contract_quantity,
         threshold=settings.video_advisory_confidence_threshold,
@@ -441,6 +487,7 @@ def _build_milestone_evidence_set(
         cumulative_verified_quantity=cumulative_qty,
         video_advisory=video_advisory,
         funding_units=tuple(unit_eligibility),
+        trigger_satisfied=_trigger_satisfied(milestone_row["trigger_type"], verified_types),
     )
 
 
@@ -514,6 +561,7 @@ def _evaluate_account_settlement(
             required_evidence=_milestone_required_evidence(
                 milestone_row["required_evidence_json"]
             ),
+            trigger_type=milestone_row["trigger_type"],
         )
         evidence_set = _build_milestone_evidence_set(
             conn, transaction_id, milestone_row,
@@ -540,6 +588,16 @@ def _evaluate_account_settlement(
             }
         )
 
+    # approval_unknown unit'ler (approve timeout) release candidate olmasalar bile
+    # reconcile edilmelidir; ReleaseCoordinator önce detail sorgular (kör approve yok).
+    reconcile_ids = [
+        unit["id"]
+        for unit in funding_units_repo.list_for_transaction(conn, transaction_id)
+        if unit["ratification_package_id"] == package.id
+        and unit["status"] == "approval_unknown"
+    ]
+    release_ids = list(dict.fromkeys([*eligible_unit_ids, *reconcile_ids]))
+
     if gateway is None:
         from backend.app.services.payments.funding_coordinator import make_payment_gateway
 
@@ -548,7 +606,7 @@ def _evaluate_account_settlement(
     release = release_coordinator.release_units(
         conn,
         transaction_id=transaction_id,
-        unit_ids=tuple(eligible_unit_ids),
+        unit_ids=tuple(release_ids),
         gateway=gateway,
         actor_context=_system_actor(),
     )
