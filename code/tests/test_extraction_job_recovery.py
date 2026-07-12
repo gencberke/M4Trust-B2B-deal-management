@@ -96,6 +96,13 @@ def _csrf(client: TestClient) -> dict:
     return {"X-CSRF-Token": client.cookies.get("m4t_csrf")}
 
 
+def _acting_csrf(client: TestClient, created: dict) -> dict:
+    return {
+        **_csrf(client),
+        "X-Acting-Entity-ID": created["acting_entity_id"],
+    }
+
+
 def _create_entity(client: TestClient) -> str:
     r = client.post("/api/entities", json=_ENTITY_PAYLOAD, headers=_csrf(client))
     assert r.status_code == 201, r.text
@@ -107,7 +114,7 @@ def _upload_account_mode(client: TestClient, *, acting_entity_id: str) -> dict:
         "/api/transactions",
         data={"acting_entity_id": acting_entity_id, "own_role": "buyer"},
         files={"file": ("sozlesme.md", io.BytesIO(_SAMPLE_MARKDOWN.encode()), "text/markdown")},
-        headers=_csrf(client),
+        headers={**_csrf(client), "X-Acting-Entity-ID": acting_entity_id},
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -204,7 +211,8 @@ def test_retry_pending_job_reruns_pipeline(client: TestClient, identity_keys, mo
 
     patch_extraction(monkeypatch, _PASS_PAYLOAD)
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
 
     assert resp.status_code == 200, resp.text
@@ -222,7 +230,8 @@ def test_successful_retry_clears_extracting_and_succeeds_job(
 
     patch_extraction(monkeypatch, _PASS_PAYLOAD)
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
 
     assert resp.status_code == 200, resp.text
@@ -242,7 +251,8 @@ def test_pipeline_failure_marks_job_failed_and_transaction_awaiting_review(
         lambda settings: _RaisingExtractionService(),
     )
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
 
     assert resp.status_code == 200, resp.text
@@ -283,7 +293,8 @@ def test_concurrent_retry_returns_409_and_pipeline_runs_once(
     )
 
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
 
     assert resp.status_code == 409
@@ -299,7 +310,8 @@ def test_succeeded_job_is_not_retried(client: TestClient, identity_keys, monkeyp
     assert _job_for_transaction(transaction_id)["status"] == "succeeded"
 
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
 
     assert resp.status_code == 409
@@ -331,7 +343,8 @@ def test_unrelated_authenticated_user_gets_403(client: TestClient, identity_keys
     # değişir, bu işlemle hiçbir ilişkisi (assignment) yoktur.
     _register_login(client, "stranger@example.com")
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
 
     assert resp.status_code == 403
@@ -355,7 +368,8 @@ def test_platform_reviewer_can_retry(client: TestClient, identity_keys, monkeypa
     try:
         patch_extraction(monkeypatch, _PASS_PAYLOAD)
         resp = client.post(
-            f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+            f"/api/transactions/{transaction_id}/extraction/retry",
+            headers=_acting_csrf(client, created),
         )
     finally:
         app.dependency_overrides.clear()
@@ -382,7 +396,8 @@ def test_retry_reuses_persisted_document_no_new_upload(
 
     patch_extraction(monkeypatch, _PASS_PAYLOAD)
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
     assert resp.status_code == 200, resp.text
 
@@ -411,7 +426,8 @@ def test_attempt_count_only_increments_on_real_execution(
 
     patch_extraction(monkeypatch, _PASS_PAYLOAD)
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
     assert resp.status_code == 200, resp.text
     assert _job_row(job_id)["attempt_count"] == before_attempts + 1
@@ -427,7 +443,8 @@ def test_raw_exception_and_pii_never_leak(client: TestClient, identity_keys, mon
         lambda settings: _RaisingExtractionService(),
     )
     resp = client.post(
-        f"/api/transactions/{transaction_id}/extraction/retry", headers=_csrf(client)
+        f"/api/transactions/{transaction_id}/extraction/retry",
+        headers=_acting_csrf(client, created),
     )
     assert resp.status_code == 200, resp.text
     assert _RAW_EXCEPTION_TEXT not in resp.text

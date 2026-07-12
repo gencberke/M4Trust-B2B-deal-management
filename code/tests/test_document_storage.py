@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from backend.app.services.document_storage import (
     DocumentStorageConflictError,
     DocumentStorageIntegrityError,
     DocumentStorageInvalidReferenceError,
+    DocumentStorageKeyError,
     LocalDocumentStorageProvider,
 )
 
@@ -20,7 +23,10 @@ def _sha256(content: bytes) -> str:
 
 
 def _provider(tmp_path: Path) -> LocalDocumentStorageProvider:
-    return LocalDocumentStorageProvider(root=tmp_path / "documents")
+    return LocalDocumentStorageProvider(
+        root=tmp_path / "documents",
+        encryption_key=base64.b64encode(b"k" * 32).decode("ascii"),
+    )
 
 
 def test_store_and_read_round_trip(tmp_path: Path) -> None:
@@ -37,6 +43,72 @@ def test_store_and_read_round_trip(tmp_path: Path) -> None:
     assert stored.content_sha256 == _sha256(content)
     assert stored.size_bytes == len(content)
     assert provider.read_bytes(stored.storage_ref) == content
+    persisted = (tmp_path / "documents" / "tx1" / "doc1").read_bytes()
+    assert content not in persisted
+    assert persisted != content
+
+
+def test_missing_or_invalid_key_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(DocumentStorageKeyError):
+        LocalDocumentStorageProvider(root=tmp_path, encryption_key="")
+    with pytest.raises(DocumentStorageKeyError):
+        LocalDocumentStorageProvider(root=tmp_path, encryption_key="not-base64")
+    with pytest.raises(DocumentStorageKeyError):
+        LocalDocumentStorageProvider(
+            root=tmp_path,
+            encryption_key=base64.b64encode(b"short").decode("ascii"),
+        )
+
+
+def test_same_plaintext_uses_distinct_nonces(tmp_path: Path) -> None:
+    provider = _provider(tmp_path)
+    content = b"same sensitive contract"
+    for document_id in ("doc1", "doc2"):
+        provider.store(
+            transaction_id="tx1",
+            document_id=document_id,
+            original_filename="a.pdf",
+            media_type=None,
+            content=content,
+            expected_sha256=_sha256(content),
+        )
+    first = (tmp_path / "documents" / "tx1" / "doc1").read_bytes()
+    second = (tmp_path / "documents" / "tx1" / "doc2").read_bytes()
+    assert first != second
+
+
+def test_wrong_key_and_corrupted_ciphertext_fail_closed(tmp_path: Path) -> None:
+    provider = _provider(tmp_path)
+    content = b"sensitive"
+    provider.store(
+        transaction_id="tx1",
+        document_id="doc1",
+        original_filename="a.pdf",
+        media_type=None,
+        content=content,
+        expected_sha256=_sha256(content),
+    )
+    wrong_key_provider = LocalDocumentStorageProvider(
+        root=tmp_path / "documents",
+        encryption_key=base64.b64encode(os.urandom(32)).decode("ascii"),
+    )
+    with pytest.raises(DocumentStorageIntegrityError):
+        wrong_key_provider.read_bytes("tx1/doc1")
+
+    path = tmp_path / "documents" / "tx1" / "doc1"
+    blob = bytearray(path.read_bytes())
+    blob[-1] ^= 1
+    path.write_bytes(blob)
+    with pytest.raises(DocumentStorageIntegrityError):
+        provider.read_bytes("tx1/doc1")
+
+
+def test_legacy_plaintext_blob_is_not_silently_read(tmp_path: Path) -> None:
+    path = tmp_path / "documents" / "tx1" / "doc1"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"legacy plaintext")
+    with pytest.raises(DocumentStorageIntegrityError, match="migration"):
+        _provider(tmp_path).read_bytes("tx1/doc1")
 
 
 def test_hash_mismatch_is_rejected_before_write(tmp_path: Path) -> None:

@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sys
 import tempfile
+from importlib.metadata import PackageNotFoundError, version as package_version
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,32 +33,24 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-# Import köprüsü: `document_parser` `code/scripts/` altında yaşar (bkz.
-# `scripts/extract_contract.py` aynı desen). `scripts/extract_contract.py`
-# DEĞİŞMEZ; bu modül onun arka plan eşdeğeridir.
-_CODE_ROOT = Path(__file__).resolve().parents[4]
-_SCRIPTS_ROOT = _CODE_ROOT / "scripts"
-if str(_SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_ROOT))
+from scripts.document_parser import DocumentConverter
 
-from document_parser import DocumentConverter  # noqa: E402
-
-from backend.app.config import Settings  # noqa: E402
-from backend.app.db import open_background_connection  # noqa: E402
-from backend.app.eventbus import emit  # noqa: E402
-from backend.app.repositories import documents as documents_repo  # noqa: E402
-from backend.app.repositories import extraction_runs as extraction_runs_repo  # noqa: E402
-from backend.app.schemas.extraction import ExtractionJSON  # noqa: E402
-from backend.app.services import review as review_service  # noqa: E402
-from backend.app.services import processing_jobs  # noqa: E402
-from backend.app.services import rule_versions  # noqa: E402
-from backend.app.services.access_control import ActorContext  # noqa: E402
-from backend.app.services.context_builder import ContextBuilder, ContextPack  # noqa: E402
-from backend.app.services.document_storage import make_document_storage_provider  # noqa: E402
-from backend.app.services.extraction import make_extraction_service  # noqa: E402
-from backend.app.services.privacy import PrivacyReport, analyze, restore  # noqa: E402
-from backend.app.services.rag import Retriever  # noqa: E402
-from backend.app.services.tracking_policy import (  # noqa: E402
+from backend.app.config import Settings
+from backend.app.db import open_background_connection
+from backend.app.eventbus import emit
+from backend.app.repositories import documents as documents_repo
+from backend.app.repositories import extraction_runs as extraction_runs_repo
+from backend.app.schemas.extraction import ExtractionJSON
+from backend.app.services import processing_jobs
+from backend.app.services import review as review_service
+from backend.app.services import rule_versions
+from backend.app.services.access_control import ActorContext
+from backend.app.services.context_builder import ContextBuilder, ContextPack
+from backend.app.services.document_storage import make_document_storage_provider
+from backend.app.services.extraction import make_extraction_service
+from backend.app.services.privacy import PrivacyReport, analyze, restore
+from backend.app.services.rag import Retriever
+from backend.app.services.tracking_policy import (
     recommend_physical_delivery,
     update_system_recommendation,
 )
@@ -89,9 +81,10 @@ _CARD_SAD_TYPES = {"TRACK_DATA", "CVV", "PIN"}
 
 @dataclass(frozen=True, slots=True)
 class LegacyPipelineInput:
-    """`legacy_v1` — request-scope temp dosyası (mevcut davranış, değişmedi)."""
+    """`legacy_v1` raw upload, durably encrypted before dispatch."""
 
-    file_path: Path
+    storage_ref: str
+    suffix: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,9 +128,29 @@ def _rag_provenance(context: ContextPack | None) -> list[dict]:
             "madde_no": src.madde_no,
             "heading": src.heading,
             "score": src.score,
+            "chunk_id": src.chunk_id,
+            "collection_version": src.collection_version,
         }
         for src in context.sources
     ]
+
+
+def _rag_collection_versions(context: ContextPack | None) -> dict[str, list[str]]:
+    versions: dict[str, set[str]] = {}
+    if context is not None:
+        for source in context.sources:
+            value = source.collection_version or "unversioned"
+            versions.setdefault(source.collection, set()).add(value)
+    return {name: sorted(values) for name, values in sorted(versions.items())}
+
+
+def _llm_provider_version(provider: str) -> str:
+    if provider != "openai":
+        return "fake-extraction-v1"
+    try:
+        return package_version("openai")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def _privacy_summary(report: PrivacyReport) -> dict:
@@ -285,6 +298,7 @@ def _persist_account(
     extraction: ExtractionJSON | None,
     raw_result_data: ExtractionJSON | None,
     safe_reason_key: str,
+    conversion_provenance: dict,
 ) -> None:
     """`account_v2` — `contract_documents`/`extraction_runs`/`rule_set_versions`'a yazar.
 
@@ -317,6 +331,24 @@ def _persist_account(
             status="ok",
             failure_reason=None,
             now=now,
+            ocr_engine=conversion_provenance.get("ocr_engine"),
+            ocr_version=conversion_provenance.get("ocr_version"),
+            ocr_confidence=conversion_provenance.get("ocr_confidence"),
+            llm_provider_version=_llm_provider_version(provider),
+            rag_collection_versions_json=json.dumps(
+                _rag_collection_versions(context), sort_keys=True
+            ),
+            source_locator_json=json.dumps(
+                {
+                    "document_engine": conversion_provenance.get("document_engine"),
+                    "document_engine_version": conversion_provenance.get(
+                        "document_engine_version"
+                    ),
+                    "page_count": conversion_provenance.get("page_count"),
+                    "ocr_pages": conversion_provenance.get("ocr_pages", []),
+                },
+                sort_keys=True,
+            ),
         )
         rule_version = rule_versions.create_initial_from_extraction(
             conn,
@@ -361,6 +393,24 @@ def _persist_account(
             status="needs_review",
             failure_reason=_SAFE_FAILURE_REASON[safe_reason_key],
             now=now,
+            ocr_engine=conversion_provenance.get("ocr_engine"),
+            ocr_version=conversion_provenance.get("ocr_version"),
+            ocr_confidence=conversion_provenance.get("ocr_confidence"),
+            llm_provider_version=_llm_provider_version(provider),
+            rag_collection_versions_json=json.dumps(
+                _rag_collection_versions(context), sort_keys=True
+            ),
+            source_locator_json=json.dumps(
+                {
+                    "document_engine": conversion_provenance.get("document_engine"),
+                    "document_engine_version": conversion_provenance.get(
+                        "document_engine_version"
+                    ),
+                    "page_count": conversion_provenance.get("page_count"),
+                    "ocr_pages": conversion_provenance.get("ocr_pages", []),
+                },
+                sort_keys=True,
+            ),
         )
         _apply_no_extraction_side_effects(conn, transaction_id, _SAFE_FAILURE_REASON[safe_reason_key])
 
@@ -376,13 +426,45 @@ def _execute_pipeline(
     """convert -> analyze -> ContextBuilder -> blocking-check -> extract -> restore -> validate."""
     if is_passthrough:
         markdown = file_path.read_text(encoding="utf-8")
+        conversion_provenance = {
+            "document_engine": "utf8-passthrough",
+            "document_engine_version": "v1",
+            "ocr_engine": None,
+            "ocr_version": None,
+            "ocr_confidence": None,
+            "page_count": None,
+            "ocr_pages": [],
+        }
     else:
-        markdown = DocumentConverter().convert(file_path)
+        converter = DocumentConverter()
+        markdown = converter.convert(file_path)
+        conversion_provenance = converter.last_provenance
 
     report = analyze(markdown)  # §6.7: mask + kart-verisi sınıflandırma (canlı çağrıdan ÖNCE)
+    storage = make_document_storage_provider(settings)
+    base_id = account_input.document_id if account_input is not None else "legacy-v1"
+    markdown_bytes = markdown.encode("utf-8")
+    masked_bytes = report.masked_text.encode("utf-8")
+    markdown_stored = storage.store(
+        transaction_id=transaction_id,
+        document_id=f"{base_id}-markdown",
+        original_filename="normalized-markdown.txt",
+        media_type="text/markdown",
+        content=markdown_bytes,
+        expected_sha256=hashlib.sha256(markdown_bytes).hexdigest(),
+    )
+    masked_stored = storage.store(
+        transaction_id=transaction_id,
+        document_id=f"{base_id}-masked",
+        original_filename="masked-markdown.txt",
+        media_type="text/markdown",
+        content=masked_bytes,
+        expected_sha256=hashlib.sha256(masked_bytes).hexdigest(),
+    )
     conn.execute(
-        "UPDATE transactions SET markdown = ?, masked_markdown = ? WHERE id = ?",
-        (markdown, report.masked_text, transaction_id),
+        "UPDATE transactions SET markdown = NULL, masked_markdown = NULL, "
+        "markdown_storage_ref = ?, masked_markdown_storage_ref = ? WHERE id = ?",
+        (markdown_stored.storage_ref, masked_stored.storage_ref, transaction_id),
     )
 
     if account_input is not None:
@@ -433,6 +515,7 @@ def _execute_pipeline(
             extraction,
             raw_result_data,
             safe_reason_key,
+            conversion_provenance,
         )
     else:
         _persist_legacy(conn, transaction_id, settings, extraction, safe_reason_key)
@@ -452,6 +535,8 @@ def run_pipeline(
     is_passthrough: bool,
     settings: Settings,
     mode_input: LegacyPipelineInput | AccountPipelineInput,
+    *,
+    attempt_already_claimed: bool = False,
 ) -> None:
     """`BackgroundTasks` tarafından çağrılan pipeline task'ı — kendi DB bağlantısını açar.
 
@@ -464,16 +549,9 @@ def run_pipeline(
     satırı da eklenir.
     """
     account_input = mode_input if isinstance(mode_input, AccountPipelineInput) else None
-
-    if account_input is not None:
-        storage = make_document_storage_provider(settings)
-        content = storage.read_bytes(account_input.storage_ref)
-        file_path = _materialize_account_temp_file(content, account_input.suffix)
-    else:
-        file_path = mode_input.file_path
-
     conn = open_background_connection(settings)
     extraction_job = None
+    file_path: Path | None = None
     try:
         extraction_job = processing_jobs.ensure_job(
             conn,
@@ -482,13 +560,26 @@ def run_pipeline(
             transaction_id=transaction_id,
             idempotency_key=f"extraction:transaction:{transaction_id}",
         )
-        processing_jobs.start_attempt(conn, extraction_job["id"])
+        if extraction_job["status"] == "succeeded":
+            return
+        if not attempt_already_claimed:
+            claimed = processing_jobs.claim_for_retry(
+                conn,
+                extraction_job["id"],
+                from_statuses=("queued", "retry_pending", "failed", "unknown"),
+            )
+            if not claimed:
+                # Another worker owns this job; never duplicate extraction.
+                return
         conn.execute(
             "UPDATE transactions SET state = 'extracting' WHERE id = ?", (transaction_id,)
         )
         conn.commit()
 
         try:
+            storage = make_document_storage_provider(settings)
+            content = storage.read_bytes(mode_input.storage_ref)
+            file_path = _materialize_account_temp_file(content, mode_input.suffix)
             _execute_pipeline(conn, transaction_id, file_path, is_passthrough, settings, account_input)
         except Exception:  # noqa: BLE001 — hat asla sessizce çökmez (Notes for Implementer)
             conn.execute(
@@ -544,4 +635,5 @@ def run_pipeline(
         conn.commit()
     finally:
         conn.close()
-        file_path.unlink(missing_ok=True)
+        if file_path is not None:
+            file_path.unlink(missing_ok=True)

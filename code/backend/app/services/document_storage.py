@@ -1,7 +1,8 @@
-"""DocumentStorageProvider — kalıcı, provider-bağımsız doküman depolama sözleşmesi.
+"""DocumentStorageProvider — encrypted, provider-bağımsız doküman depolama.
 
-Bu faz local filesystem implementasyonunu içerir; şifreleme YAPILMAZ (bilinçli
-sınır, v2 §2.14 — hardening hedefi sonraki bir iştir). Sözleşme:
+Local adapter her blob'u AES-256-GCM ile şifreler. Anahtar yalnız
+``APP_ENCRYPTION_KEY``'den gelir; eksik/yanlış anahtar, bozuk ciphertext ve
+eski plaintext bloblar fail-closed davranır. Sözleşme:
 
 - `store()` bytes'ı `expected_sha256` ile eşleşmeye zorlar (fail-closed),
   atomic yazar (temp dosya + fsync + `os.replace`) ve aynı `storage_ref` için
@@ -15,14 +16,23 @@ sınır, v2 §2.14 — hardening hedefi sonraki bir iştir). Sözleşme:
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
+import secrets
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 from backend.app.config import Settings
+
+_AES_KEY_BYTES = 32
+_AES_NONCE_BYTES = 12
+_ENVELOPE_MAGIC = b"M4TDS\x01"
 
 
 class DocumentStorageError(Exception):
@@ -39,6 +49,10 @@ class DocumentStorageConflictError(DocumentStorageError):
 
 class DocumentStorageInvalidReferenceError(DocumentStorageError):
     """`transaction_id`/`document_id`/`storage_ref` path traversal'a izin verecek biçimde."""
+
+
+class DocumentStorageKeyError(DocumentStorageError):
+    """Storage encryption key eksik veya biçimsiz (fail-closed)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,11 +90,55 @@ def _validate_id_component(name: str, *, label: str) -> None:
         raise DocumentStorageInvalidReferenceError(f"Geçersiz {label}: {name!r}")
 
 
-class LocalDocumentStorageProvider:
-    """Filesystem tabanlı `DocumentStorageProvider` — şifresiz, local/demo implementasyonu."""
+def _decode_encryption_key(raw_base64: str) -> bytes:
+    if not raw_base64:
+        raise DocumentStorageKeyError(
+            "APP_ENCRYPTION_KEY tanımlı değil; encrypted document storage açılamaz."
+        )
+    try:
+        key = base64.b64decode(raw_base64, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise DocumentStorageKeyError(
+            "APP_ENCRYPTION_KEY geçerli base64 olmalıdır."
+        ) from exc
+    if len(key) != _AES_KEY_BYTES:
+        raise DocumentStorageKeyError(
+            "APP_ENCRYPTION_KEY 32 byte (AES-256) olmalıdır."
+        )
+    return key
 
-    def __init__(self, root: Path):
+
+class LocalDocumentStorageProvider:
+    """Filesystem tabanlı AES-256-GCM encrypted storage adapter'ı."""
+
+    def __init__(self, root: Path, *, encryption_key: str):
         self._root = root.resolve()
+        self._key = _decode_encryption_key(encryption_key)
+
+    def _encrypt(self, content: bytes, *, storage_ref: str) -> bytes:
+        nonce = secrets.token_bytes(_AES_NONCE_BYTES)
+        ciphertext = AESGCM(self._key).encrypt(
+            nonce, content, storage_ref.encode("utf-8")
+        )
+        return _ENVELOPE_MAGIC + nonce + ciphertext
+
+    def _decrypt(self, blob: bytes, *, storage_ref: str) -> bytes:
+        minimum_length = len(_ENVELOPE_MAGIC) + _AES_NONCE_BYTES + 16
+        if len(blob) < minimum_length or not blob.startswith(_ENVELOPE_MAGIC):
+            raise DocumentStorageIntegrityError(
+                "Encrypted storage envelope geçersiz; legacy plaintext migration gerekir."
+            )
+        nonce_offset = len(_ENVELOPE_MAGIC)
+        nonce = blob[nonce_offset : nonce_offset + _AES_NONCE_BYTES]
+        ciphertext = blob[nonce_offset + _AES_NONCE_BYTES :]
+        try:
+            return AESGCM(self._key).decrypt(
+                nonce, ciphertext, storage_ref.encode("utf-8")
+            )
+        except (InvalidTag, ValueError) as exc:
+            raise DocumentStorageIntegrityError(
+                "Encrypted document doğrulanamadı (anahtar veya ciphertext geçersiz)."
+            ) from exc
 
     def _final_path(self, transaction_id: str, document_id: str) -> tuple[str, Path]:
         _validate_id_component(transaction_id, label="transaction_id")
@@ -117,6 +175,7 @@ class LocalDocumentStorageProvider:
             )
 
         storage_ref, final_path = self._final_path(transaction_id, document_id)
+        encrypted = self._encrypt(content, storage_ref=storage_ref)
 
         # Major 5 remediation: önceden `final_path.exists()` ön-kontrolü + koşulsuz
         # `os.replace()` kullanılıyordu -- iki concurrent farklı-içerikli yazıcı
@@ -129,13 +188,15 @@ class LocalDocumentStorageProvider:
         fd, tmp_name = tempfile.mkstemp(dir=str(final_path.parent), prefix=".tmp-")
         try:
             with os.fdopen(fd, "wb") as tmp_file:
-                tmp_file.write(content)
+                tmp_file.write(encrypted)
                 tmp_file.flush()
                 os.fsync(tmp_file.fileno())
             try:
                 os.link(tmp_name, final_path)
             except FileExistsError:
-                existing = final_path.read_bytes()
+                existing = self._decrypt(
+                    final_path.read_bytes(), storage_ref=storage_ref
+                )
                 if existing != content:
                     raise DocumentStorageConflictError(
                         f"storage_ref zaten farklı içerikle var: {storage_ref!r} (immutable)"
@@ -148,12 +209,50 @@ class LocalDocumentStorageProvider:
         )
 
     def read_bytes(self, storage_ref: str) -> bytes:
-        return self._resolve_existing(storage_ref).read_bytes()
+        blob = self._resolve_existing(storage_ref).read_bytes()
+        return self._decrypt(blob, storage_ref=storage_ref)
 
     def delete(self, storage_ref: str) -> None:
         self._resolve_existing(storage_ref).unlink(missing_ok=True)
 
+    def migrate_legacy_plaintext(
+        self, storage_ref: str, *, expected_sha256: str
+    ) -> bool:
+        """Explicit offline migration; normal ``read_bytes`` stays fail-closed.
+
+        Returns ``True`` only when a plaintext blob was atomically replaced.
+        Existing encrypted blobs are verified and treated idempotently.
+        """
+
+        path = self._resolve_existing(storage_ref)
+        blob = path.read_bytes()
+        if blob.startswith(_ENVELOPE_MAGIC):
+            plaintext = self._decrypt(blob, storage_ref=storage_ref)
+            if hashlib.sha256(plaintext).hexdigest() != expected_sha256:
+                raise DocumentStorageIntegrityError(
+                    "Encrypted document hash beklenen değerle eşleşmiyor."
+                )
+            return False
+        if hashlib.sha256(blob).hexdigest() != expected_sha256:
+            raise DocumentStorageIntegrityError(
+                "Legacy plaintext document hash beklenen değerle eşleşmiyor."
+            )
+        encrypted = self._encrypt(blob, storage_ref=storage_ref)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-migrate-")
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(encrypted)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_name, path)
+        finally:
+            Path(tmp_name).unlink(missing_ok=True)
+        return True
+
 
 def make_document_storage_provider(settings: Settings) -> DocumentStorageProvider:
-    """§3 adapter seçimi — bu fazda tek implementasyon (`LocalDocumentStorageProvider`)."""
-    return LocalDocumentStorageProvider(root=settings.document_storage_dir)
+    """§3 adapter seçimi — local adapter daima encrypted ve fail-closed'dur."""
+    return LocalDocumentStorageProvider(
+        root=settings.document_storage_dir,
+        encryption_key=settings.app_encryption_key,
+    )

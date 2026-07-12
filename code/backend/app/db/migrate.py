@@ -38,8 +38,13 @@ _MIGRATION_MODULES = (
     "backend.app.db.migrations.016_funding_units_provider_payments",
     "backend.app.db.migrations.017_release_instructions",
     "backend.app.db.migrations.018_processing_jobs",
+    "backend.app.db.migrations.019_tracking_policy_versions",
+    "backend.app.db.migrations.020_document_storage_references",
+    "backend.app.db.migrations.021_auth_verification_reset_tokens",
+    "backend.app.db.migrations.022_extraction_provenance_extensions",
     "backend.app.db.migrations.023_plan05_remediation_constraints",
     "backend.app.db.migrations.024_payment_lifecycle_operational_extensions",
+    "backend.app.db.migrations.025_plan09_provenance_constraints",
 )
 
 _LEGACY_COLUMNS = {
