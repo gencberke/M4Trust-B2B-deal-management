@@ -1,6 +1,6 @@
 # 08C — Frontend Slice C: Fulfillment and Operations (PR 3)
 
-> **Durum:** Ready — 2026-07-12 · **Master:** `plans/ready/08_frontend_completion_master_plan.md` (§14.1 notes B3/B5 handled here as explicit UI limitations)
+> **Durum:** Uygulandı — 2026-07-12 · Sapmalar: live projection ID reads kullanıldı; eski pasted/derived-ID limitations uygulanmadı; source_quote ve provider request/response objeleri render edilmedi. · **Master:** `plans/done/08_frontend_completion_master_plan.md`
 > **Readiness:** `READY_TO_IMPLEMENT` (see end of file; independent of PR 2's *implementation* — backend contracts for this slice are stable and the preflight detects drift; the PR still **merges after PR 2** per master §12)
 
 ## A. Phase identity
