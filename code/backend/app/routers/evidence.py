@@ -140,4 +140,6 @@ def get_legacy_evidence(
     response.headers[
         "Link"
     ] = f'</api/transactions/{transaction_id}/evidence-bundle>; rel="replacement"'
-    return evidence_service.build_bundle(conn, transaction_id)
+    return evidence_service.build_bundle(
+        conn, transaction_id, include_source_quote=True
+    )

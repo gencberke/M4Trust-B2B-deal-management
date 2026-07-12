@@ -17,6 +17,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlite3 import Connection, Row
+from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
@@ -27,6 +28,7 @@ from backend.app.config import Settings
 from backend.app.db import get_db
 from backend.app.eventbus import emit
 from backend.app.repositories import documents as documents_repo
+from backend.app.repositories import participants as participants_repo
 from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.repositories.entities import get_active_membership
 from backend.app.repositories.transactions import (
@@ -47,7 +49,7 @@ from backend.app.services import invitations as invitations_service
 from backend.app.services import participants as participants_service
 from backend.app.services import transaction_pipeline
 from backend.app.services import transaction_state
-from backend.app.services.auth import verify_csrf
+from backend.app.services.auth import require_csrf_protection, verify_csrf
 from backend.app.services.access_control import (
     ActorContext,
     get_current_actor,
@@ -147,6 +149,72 @@ def _raise_policy_conflict(conflict: PolicyConflict) -> None:
     raise HTTPException(status_code=409, detail=conflict.model_dump(mode="json"))
 
 
+def _require_account_creator_manager_policy(
+    conn: Connection, transaction_id: str, actor: ActorContext
+) -> Row:
+    """Resolve the session/acting-entity creator-manager policy boundary."""
+
+    row = load_transaction(conn, transaction_id)
+    if row is None:
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="Ä°ÅŸlem bulunamadÄ±.")
+    if row["lifecycle_version"] != "account_v2":
+        raise ApiError(
+            status_code=409,
+            code="ACCOUNT_TRACKING_POLICY_FORBIDDEN",
+            message="Account tracking policy yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
+        )
+
+    assignment = (
+        participants_repo.get_active_assignment(
+            conn, transaction_id, actor.user_id or "", role="manager"
+        )
+        if actor.user_id is not None
+        else None
+    )
+    owner_entity_id = row["owner_entity_id"]
+    if (
+        owner_entity_id is None
+        or actor.acting_entity_id != owner_entity_id
+        or assignment is None
+        or assignment["legal_entity_id"] != owner_entity_id
+    ):
+        raise ApiError(
+            status_code=403,
+            code="TRACKING_POLICY_FORBIDDEN",
+            message="YalnÄ±z creator-side manager tracking policy iÅŸlemi yapabilir.",
+        )
+    return row
+
+
+def _account_tracking_policy_projection(
+    conn: Connection, transaction_id: str, actor: ActorContext
+) -> dict:
+    row = _require_account_creator_manager_policy(conn, transaction_id, actor)
+    policy = load_tracking_policy(conn, transaction_id)
+    if policy is None:
+        raise ApiError(
+            status_code=404,
+            code="TRACKING_POLICY_NOT_FOUND",
+            message="Tracking policy bulunamadÄ±.",
+        )
+    validator = _load_validator(conn, transaction_id)
+    extraction = _validated_extraction(_load_extraction(conn, transaction_id))
+    contractual_requirements = (
+        contractual_required_evidence(extraction) if extraction is not None else set()
+    )
+    ready_for_policy = (
+        _not_configurable_conflict(row, validator) is None
+        and policy.status is TrackingPolicyStatus.draft
+    )
+    return {
+        "tracking_policy": policy.model_dump(mode="json"),
+        "ready_for_policy": ready_for_policy,
+        "contractual_required_evidence": sorted(
+            requirement.value for requirement in contractual_requirements
+        ),
+    }
+
+
 class TrackingPolicyUpdateRequest(BaseModel):
     """Manager policy update contract'ı — beklenmeyen alan kabul edilmez."""
 
@@ -163,6 +231,24 @@ class TrackingPolicyLockRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     manager_token: str
+
+
+class AccountTrackingPolicyUpdateRequest(BaseModel):
+    """Session-authenticated account_v2 policy mutation body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manager_token: str | None = None
+    physical_delivery_confirmed: bool
+    tracking_mode: TrackingMode
+
+
+class AccountTrackingPolicyLockRequest(BaseModel):
+    """Empty account_v2 policy lock body; authorization comes from session/AE."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manager_token: str | None = None
 
 
 # --- POST / GET endpoint'leri -----------------------------------------------
@@ -669,7 +755,121 @@ def get_manager_view(transaction_id: str, token: str, conn: Connection = Depends
         pass
 
 
+@router.get("/{transaction_id}/tracking-policy")
+def get_account_tracking_policy(
+    transaction_id: str,
+    actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    conn: Connection = Depends(get_db),
+) -> dict:
+    """Account_v2 creator-manager policy read without legacy capability tokens."""
+
+    return _account_tracking_policy_projection(conn, transaction_id, actor)
+
+
 @router.put("/{transaction_id}/tracking-policy")
+def update_account_tracking_policy(
+    transaction_id: str,
+    body: AccountTrackingPolicyUpdateRequest,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
+    conn: Connection = Depends(get_db),
+) -> dict:
+    """Update an account_v2 draft policy through session + acting entity."""
+
+    if body.manager_token is not None:
+        return update_tracking_policy(
+            transaction_id,
+            TrackingPolicyUpdateRequest(
+                manager_token=body.manager_token,
+                physical_delivery_confirmed=body.physical_delivery_confirmed,
+                tracking_mode=body.tracking_mode,
+            ),
+            conn,
+        )
+    actor = require_authenticated_user(actor)
+    row = _require_account_creator_manager_policy(conn, transaction_id, actor)
+    validator = _load_validator(conn, transaction_id)
+    gate_conflict = _not_configurable_conflict(row, validator)
+    if gate_conflict is not None:
+        _raise_policy_conflict(gate_conflict)
+
+    extraction = _validated_extraction(_load_extraction(conn, transaction_id))
+    if extraction is None:
+        _raise_policy_conflict(
+            PolicyConflict(
+                code=PolicyConflictCode.POLICY_NOT_CONFIGURABLE,
+                message="DoÄŸrulanmÄ±ÅŸ sÃ¶zleÅŸme kurallarÄ± bulunamadÄ±.",
+                conflicts=["EXTRACTION_NOT_AVAILABLE"],
+            )
+        )
+
+    policy, updated, conflict = update_manager_policy(
+        conn,
+        transaction_id,
+        extraction,
+        physical_delivery_confirmed=body.physical_delivery_confirmed,
+        tracking_mode=body.tracking_mode,
+    )
+    if conflict is not None:
+        _raise_policy_conflict(conflict)
+    if updated:
+        emit(
+            conn,
+            transaction_id,
+            "tracking_policy_updated",
+            {"tracking_policy": policy.model_dump(mode="json")},
+            "manager",
+        )
+    return {"updated": updated, "tracking_policy": policy.model_dump(mode="json")}
+
+
+@router.post("/{transaction_id}/tracking-policy/lock")
+def lock_account_tracking_policy(
+    transaction_id: str,
+    actor: Annotated[ActorContext, Depends(get_current_actor)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
+    conn: Connection = Depends(get_db),
+    body: AccountTrackingPolicyLockRequest | None = None,
+) -> dict:
+    """Lock an account_v2 draft policy; an empty JSON body is accepted."""
+
+    if body is not None and body.manager_token is not None:
+        return lock_tracking_policy(
+            transaction_id,
+            TrackingPolicyLockRequest(manager_token=body.manager_token),
+            conn,
+        )
+    actor = require_authenticated_user(actor)
+    row = _require_account_creator_manager_policy(conn, transaction_id, actor)
+    validator = _load_validator(conn, transaction_id)
+    gate_conflict = _not_configurable_conflict(row, validator)
+    if gate_conflict is not None:
+        _raise_policy_conflict(gate_conflict)
+
+    extraction = _validated_extraction(_load_extraction(conn, transaction_id))
+    if extraction is None:
+        _raise_policy_conflict(
+            PolicyConflict(
+                code=PolicyConflictCode.POLICY_NOT_CONFIGURABLE,
+                message="DoÄŸrulanmÄ±ÅŸ sÃ¶zleÅŸme kurallarÄ± bulunamadÄ±.",
+                conflicts=["EXTRACTION_NOT_AVAILABLE"],
+            )
+        )
+
+    policy, locked, conflict = lock_manager_policy(conn, transaction_id, extraction)
+    if conflict is not None:
+        _raise_policy_conflict(conflict)
+    if locked:
+        emit(
+            conn,
+            transaction_id,
+            "tracking_policy_locked",
+            {"tracking_policy": policy.model_dump(mode="json")},
+            "manager",
+        )
+    return {"locked": locked, "tracking_policy": policy.model_dump(mode="json")}
+
+
 def update_tracking_policy(transaction_id: str, body: TrackingPolicyUpdateRequest, conn: Connection = Depends(get_db)) -> dict:
     """Manager'ın taslak takip seçimini değiştirir; aynı seçim idempotenttir."""
     try:
@@ -726,7 +926,6 @@ def update_tracking_policy(transaction_id: str, body: TrackingPolicyUpdateReques
         pass
 
 
-@router.post("/{transaction_id}/tracking-policy/lock")
 def lock_tracking_policy(transaction_id: str, body: TrackingPolicyLockRequest, conn: Connection = Depends(get_db)) -> dict:
     """Manager'ın hazır policy'yi onaylardan önce değişmez hale getirmesi."""
     try:
