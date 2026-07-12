@@ -22,12 +22,17 @@ from backend.app.repositories import payment_resolutions as resolutions_repo
 from backend.app.repositories import participants as participants_repo
 from backend.app.repositories import provider_payments as provider_payments_repo
 from backend.app.repositories import release_instructions as release_instructions_repo
+from backend.app.repositories import reviews as reviews_repo
 from backend.app.services import audit
 from backend.app.services import processing_jobs
 from backend.app.services import review as review_service
 from backend.app.services.access_control import ActorContext
-from backend.app.services.account_lifecycle import transition_account_state
+from backend.app.services.account_lifecycle import (
+    AccountLifecycleError,
+    transition_account_state,
+)
 from backend.app.services.payments.domain import (
+    PaymentDetailQuery,
     ProviderOperationOutcome,
     ProviderPaymentIdentifier,
     ProviderPaymentStatus,
@@ -286,9 +291,30 @@ def approve_resolution(
     return resolution
 
 
+def _actor_belongs_to_transaction(
+    conn: Connection, *, transaction_id: str, actor: ActorContext
+) -> bool:
+    if actor_is_transaction_manager(conn, transaction_id=transaction_id, actor=actor):
+        return True
+    return (
+        _participant_role_for_actor(conn, transaction_id=transaction_id, actor=actor)
+        is not None
+    )
+
+
 def _can_execute(conn: Connection, resolution, actor_context: ActorContext) -> bool:
+    """Execution guard (review remediation): bilateral approval TEK BAŞINA
+    yetki değildir -- tetikleyen aktör de bu transaction'la ilişkili olmalıdır
+    (platform reviewer/admin, transaction manager veya aynı transaction'ın
+    aktif buyer/seller assignment sahibi). Opak `resolution_id`'ye erişebilen
+    ilgisiz bir authenticated kullanıcı bilateral onay tamamlanmış diye
+    provider reversal'ı tetikleyemez (BOLA guard)."""
     if actor_context.platform_role in _PLATFORM_ROLES:
         return True
+    if not _actor_belongs_to_transaction(
+        conn, transaction_id=resolution["transaction_id"], actor=actor_context
+    ):
+        return False
     approvals = resolutions_repo.list_approvals(conn, resolution["id"])
     return {row["participant_role"] for row in approvals} == {"buyer", "seller"}
 
@@ -357,9 +383,13 @@ def _recompute_aggregates(conn: Connection, transaction_id: str) -> None:
             )
 
 
-def _transition_after_undo(conn: Connection, *, unit, actor_context: ActorContext) -> None:
+def _transition_after_undo(conn: Connection, *, unit, actor_context: ActorContext) -> bool:
+    """`True` döner: geçiş gerekmedi veya başarıyla yapıldı. `False`: provider
+    reversal'ı zaten uygulandı ama local transaction lifecycle geçişi
+    başarısız oldu -- çağıran bunu tam başarı olarak RAPORLAMAMALI (review
+    remediation, Major 5: lifecycle drift sessizce yutulmaz)."""
     if unit["transaction_state"] != "settled":
-        return
+        return True
     try:
         transition_account_state(
             conn,
@@ -369,11 +399,13 @@ def _transition_after_undo(conn: Connection, *, unit, actor_context: ActorContex
             actor_context=actor_context,
             reason_code="PAYMENT_APPROVAL_UNDONE",
         )
-    except Exception:
-        return
+        return True
+    except AccountLifecycleError:
+        return False
 
 
-def _transition_after_refund(conn: Connection, *, unit, actor_context: ActorContext) -> None:
+def _transition_after_refund(conn: Connection, *, unit, actor_context: ActorContext) -> bool:
+    """Bkz. `_transition_after_undo` docstring'i -- aynı `True`/`False` kontratı."""
     units = funding_units_repo.list_for_transaction(conn, unit["transaction_id"])
     if units and all(u["status"] in {"refunded", "cancelled"} for u in units):
         target = "cancelled"
@@ -383,7 +415,7 @@ def _transition_after_refund(conn: Connection, *, unit, actor_context: ActorCont
         "SELECT state FROM transactions WHERE id = ?", (unit["transaction_id"],)
     ).fetchone()
     if tx is None or tx["state"] == target:
-        return
+        return True
     try:
         transition_account_state(
             conn,
@@ -393,8 +425,9 @@ def _transition_after_refund(conn: Connection, *, unit, actor_context: ActorCont
             actor_context=actor_context,
             reason_code="PAYMENT_REFUNDED",
         )
-    except Exception:
-        return
+        return True
+    except AccountLifecycleError:
+        return False
 
 
 def _resolution_instruction(conn: Connection, *, unit, provider_payment, operation_type: str):
@@ -438,6 +471,106 @@ def _open_blocked_case(
     )
 
 
+def _safe_get_payment_detail(gateway: PaymentGateway, unit):
+    try:
+        return gateway.get_payment_detail(
+            query=PaymentDetailQuery(
+                identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
+            )
+        )
+    except Exception:
+        return None
+
+
+def _finalize_reversal_success(
+    conn: Connection,
+    *,
+    resolution,
+    unit,
+    provider_payment,
+    operation_type: str,
+    job,
+    actor_context: ActorContext,
+) -> PaymentOperationResult:
+    """Provider reversal'ı definitif olarak başarılı. Local state (provider_payment/
+    funding_unit/aggregate) HER ZAMAN güncellenir -- provider side effect'i geri
+    alınamaz. Ancak transaction lifecycle geçişi başarısız olursa resolution
+    `executed` YAPILMAZ (review remediation, Major 5): API tam başarı bildirmez,
+    case açık kalır, iş `unknown` (recoverable) olarak işaretlenir."""
+    instruction = _resolution_instruction(
+        conn, unit=unit, provider_payment=provider_payment, operation_type=operation_type
+    )
+    release_instructions_repo.update_status(conn, instruction["id"], "confirmed")
+    new_status = (
+        "approval_undone" if resolution["operation_type"] == "undo_approval" else "refunded"
+    )
+    provider_payments_repo.upsert_payment(
+        conn,
+        payment_id=provider_payment["id"],
+        funding_unit_id=unit["id"],
+        provider_profile=provider_payment["provider_profile"],
+        other_trx_code=provider_payment["other_trx_code"],
+        virtual_pos_order_id=provider_payment["virtual_pos_order_id"],
+        amount_minor=provider_payment["amount_minor"],
+        currency=provider_payment["currency"],
+        internal_status=new_status,
+    )
+    funding_units_repo.update_status(conn, unit["id"], new_status)
+    _recompute_aggregates(conn, unit["transaction_id"])
+
+    if resolution["operation_type"] == "undo_approval":
+        lifecycle_ok = _transition_after_undo(conn, unit=unit, actor_context=actor_context)
+        event_type, action = "payment_approval_undone", "payment.approval_undone"
+    else:
+        lifecycle_ok = _transition_after_refund(conn, unit=unit, actor_context=actor_context)
+        event_type, action = "payment_refunded", "payment.refunded"
+
+    if not lifecycle_ok:
+        resolutions_repo.update_status(conn, resolution["id"], status="unknown")
+        processing_jobs.mark_unknown(
+            conn, job["id"], reason_code="PAYMENT_LIFECYCLE_TRANSITION_FAILED"
+        )
+        return PaymentOperationResult(
+            resolution_id=resolution["id"],
+            funding_unit_id=unit["id"],
+            operation_type=resolution["operation_type"],
+            status="unknown",
+            provider_outcome="success",
+            provider_code="PAYMENT_LIFECYCLE_TRANSITION_FAILED",
+        )
+
+    resolutions_repo.update_status(
+        conn, resolution["id"], status="executed", executed_by_user_id=actor_context.user_id
+    )
+    emit(
+        conn,
+        unit["transaction_id"],
+        event_type,
+        {"funding_unit_id": unit["id"], "resolution_id": resolution["id"]},
+        "payment_operations",
+    )
+    audit.record(
+        conn,
+        _now_actor(actor_context),
+        action=action,
+        target=f"payment_resolution:{resolution['id']}",
+        metadata_allowlist=frozenset({"funding_unit_id", "operation_type"}),
+        metadata={
+            "funding_unit_id": unit["id"],
+            "operation_type": resolution["operation_type"],
+        },
+        transaction_id=unit["transaction_id"],
+    )
+    processing_jobs.mark_succeeded(conn, job["id"])
+    return PaymentOperationResult(
+        resolution_id=resolution["id"],
+        funding_unit_id=unit["id"],
+        operation_type=resolution["operation_type"],
+        status="executed",
+        provider_outcome="success",
+    )
+
+
 def execute_resolution(
     conn: Connection,
     *,
@@ -455,32 +588,50 @@ def execute_resolution(
             operation_type=resolution["operation_type"],
             status="executed",
         )
-    if resolution["status"] == "unknown":
-        raise PaymentOperationError(
-            "Unknown reversal sonucu reconciliation olmadan tekrar yürütülemez."
-        )
+    if resolution["status"] not in {"requested", "authorized", "unknown"}:
+        raise PaymentOperationError("Payment resolution yürütülebilir durumda değil.")
     if not _can_execute(conn, resolution, actor_context):
         raise PaymentOperationError(
-            "Undo/refund yalnız platform reviewer/admin veya bilateral buyer+seller onayıyla yürütülebilir."
+            "Undo/refund yalnız bu transaction'ın manager/approver'ı veya platform "
+            "reviewer/admin'i tarafından -- ve yalnız bilateral buyer+seller onayı "
+            "tamamlanmışsa ya da platform yetkisiyle -- yürütülebilir."
         )
-    if resolution["status"] not in {"requested", "authorized"}:
-        raise PaymentOperationError("Payment resolution yürütülebilir durumda değil.")
+
+    # Atomik claim (review remediation, Major 4): yalnız claim'i kazanan çağrı
+    # provider'ı çağırır; concurrent ikinci çağrı ne yeni bir provider isteği
+    # üretir ne de kör biçimde bekler -- mevcut/son durumu yorumlar.
+    reconciling = resolution["status"] == "unknown"
+    claimed = resolutions_repo.claim_executing(
+        conn,
+        resolution_id,
+        from_statuses=("unknown",) if reconciling else ("requested", "authorized"),
+    )
+    if not claimed:
+        current = resolutions_repo.get_by_id(conn, resolution_id)
+        if current is not None and current["status"] == "executed":
+            return PaymentOperationResult(
+                resolution_id=resolution_id,
+                funding_unit_id=current["funding_unit_id"],
+                operation_type=current["operation_type"],
+                status="executed",
+            )
+        raise PaymentOperationError(
+            "Payment resolution şu anda başka bir çağrı tarafından yürütülüyor."
+        )
 
     unit = _unit_with_transaction(conn, resolution["funding_unit_id"])
     provider_payment = provider_payments_repo.get_by_funding_unit(
         conn, resolution["funding_unit_id"]
     )
     if unit is None or provider_payment is None:
+        resolutions_repo.update_status(conn, resolution_id, status="failed")
         raise PaymentOperationError("Funding unit/provider payment bulunamadı.")
-    if unit["status"] != "approved" or provider_payment["internal_status"] != "approved":
-        raise PaymentOperationError(
-            "Undo/refund precondition: funding unit ve provider payment approved olmalıdır."
-        )
+
+    if gateway is None:
+        gateway = make_payment_gateway(Settings.from_env(), conn)
 
     operation_type = (
-        "undo_pool_approval"
-        if resolution["operation_type"] == "undo_approval"
-        else "refund"
+        "undo_pool_approval" if resolution["operation_type"] == "undo_approval" else "refund"
     )
     job = processing_jobs.ensure_job(
         conn,
@@ -490,13 +641,69 @@ def execute_resolution(
         idempotency_key=f"release:resolution:{resolution_id}",
     )
     processing_jobs.start_attempt(conn, job["id"])
-    if gateway is None:
-        gateway = make_payment_gateway(Settings.from_env(), conn)
+
+    if reconciling:
+        # Unknown sonuç sonrası kör tekrar YOK: önce provider detail'i ile
+        # reconcile edilir (review remediation, Blocker 2). Detail definitif
+        # olarak reversal'ı doğruluyorsa provider'a hiç tekrar gidilmez.
+        detail = _safe_get_payment_detail(gateway, unit)
+        expected_status = (
+            ProviderPaymentStatus.POOL
+            if resolution["operation_type"] == "undo_approval"
+            else ProviderPaymentStatus.REFUNDED
+        )
+        if (
+            detail is None
+            or detail.outcome is not ProviderOperationOutcome.SUCCESS
+            or detail.payment is None
+            or detail.payment.identifier.other_trx_code != provider_payment["other_trx_code"]
+        ):
+            resolutions_repo.update_status(conn, resolution_id, status="unknown")
+            processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_DETAIL_UNKNOWN")
+            raise PaymentOperationError(
+                "Provider reconciliation hâlâ ambiguous; reversal tekrar denenemedi."
+            )
+        if detail.payment.status is expected_status:
+            return _finalize_reversal_success(
+                conn,
+                resolution=resolution,
+                unit=unit,
+                provider_payment=provider_payment,
+                operation_type=operation_type,
+                job=job,
+                actor_context=actor_context,
+            )
+        if detail.payment.status is not ProviderPaymentStatus.APPROVED:
+            resolutions_repo.update_status(conn, resolution_id, status="unknown")
+            processing_jobs.mark_unknown(
+                conn, job["id"], reason_code="PAYMENT_RECONCILE_AMBIGUOUS"
+            )
+            raise PaymentOperationError(
+                "Provider durumu reversal ile tutarsız; reconciliation review gerekiyor."
+            )
+        # detail.payment.status APPROVED: provider'da reversal hiç işlenmemiş --
+        # kontrollü (informed) retry güvenlidir, aşağıdaki provider çağrısına düşer.
+
+    if unit["status"] != "approved" or provider_payment["internal_status"] != "approved":
+        resolutions_repo.update_status(conn, resolution_id, status="failed")
+        processing_jobs.mark_failed(
+            conn, job["id"], reason_code="PAYMENT_OPERATION_PRECONDITION_FAILED"
+        )
+        raise PaymentOperationError(
+            "Undo/refund precondition: funding unit ve provider payment approved olmalıdır."
+        )
+
+    # Instruction provider çağrısından ÖNCE oluşturulur (get-or-create, idempotent) --
+    # unknown/failed sonuç sonrası kaybolan bir kayıt olmasın diye (review remediation,
+    # Blocker 2).
+    instruction = _resolution_instruction(
+        conn, unit=unit, provider_payment=provider_payment, operation_type=operation_type
+    )
+
     identifier = ProviderPaymentIdentifier(
         virtual_pos_order_id=provider_payment["virtual_pos_order_id"],
         other_trx_code=provider_payment["other_trx_code"],
     )
-
     provider_method = (
         gateway.undo_pool_approval
         if resolution["operation_type"] == "undo_approval"
@@ -510,6 +717,7 @@ def execute_resolution(
             actor_context=actor_context,
             reason_code=review_service.PAYMENT_REFUND_FAILED,
         )
+        release_instructions_repo.update_status(conn, instruction["id"], "failed")
         resolutions_repo.update_status(conn, resolution_id, status="failed")
         processing_jobs.mark_failed(conn, job["id"], reason_code="PAYMENT_REFUND_UNSUPPORTED")
         return PaymentOperationResult(
@@ -557,6 +765,7 @@ def execute_resolution(
             actor_context=actor_context,
             reason_code="PAYMENT_UNDO_BLOCKED",
         )
+        release_instructions_repo.update_status(conn, instruction["id"], "failed")
         resolutions_repo.update_status(conn, resolution_id, status="failed")
         processing_jobs.mark_failed(conn, job["id"], reason_code="PAYMENT_UNDO_BLOCKED")
         return PaymentOperationResult(
@@ -568,6 +777,7 @@ def execute_resolution(
             provider_code="PAYMENT_UNDO_BLOCKED",
         )
     if result is None or result.outcome is ProviderOperationOutcome.UNKNOWN:
+        release_instructions_repo.update_status(conn, instruction["id"], "unknown")
         resolutions_repo.update_status(conn, resolution_id, status="unknown")
         processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_OPERATION_UNKNOWN")
         return PaymentOperationResult(
@@ -596,6 +806,7 @@ def execute_resolution(
                 actor_context=actor_context,
                 reason_code="PAYMENT_UNDO_BLOCKED",
             )
+        release_instructions_repo.update_status(conn, instruction["id"], "failed")
         resolutions_repo.update_status(conn, resolution_id, status="failed")
         processing_jobs.mark_failed(conn, job["id"], reason_code=(
             "PAYMENT_UNDO_BLOCKED" if statement_closed else "PAYMENT_OPERATION_FAILED"
@@ -609,76 +820,14 @@ def execute_resolution(
             provider_code=provider_code,
         )
 
-    instruction = _resolution_instruction(
+    return _finalize_reversal_success(
         conn,
+        resolution=resolution,
         unit=unit,
         provider_payment=provider_payment,
         operation_type=operation_type,
-    )
-    release_instructions_repo.update_status(conn, instruction["id"], "confirmed")
-    new_internal_status = (
-        "approval_undone"
-        if resolution["operation_type"] == "undo_approval"
-        else "refunded"
-    )
-    new_unit_status = (
-        "approval_undone"
-        if resolution["operation_type"] == "undo_approval"
-        else "refunded"
-    )
-    provider_payments_repo.upsert_payment(
-        conn,
-        payment_id=provider_payment["id"],
-        funding_unit_id=unit["id"],
-        provider_profile=provider_payment["provider_profile"],
-        other_trx_code=provider_payment["other_trx_code"],
-        virtual_pos_order_id=provider_payment["virtual_pos_order_id"],
-        amount_minor=provider_payment["amount_minor"],
-        currency=provider_payment["currency"],
-        internal_status=new_internal_status,
-    )
-    funding_units_repo.update_status(conn, unit["id"], new_unit_status)
-    _recompute_aggregates(conn, unit["transaction_id"])
-    if resolution["operation_type"] == "undo_approval":
-        _transition_after_undo(conn, unit=unit, actor_context=actor_context)
-        event_type = "payment_approval_undone"
-        action = "payment.approval_undone"
-    else:
-        _transition_after_refund(conn, unit=unit, actor_context=actor_context)
-        event_type = "payment_refunded"
-        action = "payment.refunded"
-    resolutions_repo.update_status(
-        conn,
-        resolution_id,
-        status="executed",
-        executed_by_user_id=actor_context.user_id,
-    )
-    emit(
-        conn,
-        unit["transaction_id"],
-        event_type,
-        {"funding_unit_id": unit["id"], "resolution_id": resolution_id},
-        "payment_operations",
-    )
-    audit.record(
-        conn,
-        _now_actor(actor_context),
-        action=action,
-        target=f"payment_resolution:{resolution_id}",
-        metadata_allowlist=frozenset({"funding_unit_id", "operation_type"}),
-        metadata={
-            "funding_unit_id": unit["id"],
-            "operation_type": resolution["operation_type"],
-        },
-        transaction_id=unit["transaction_id"],
-    )
-    processing_jobs.mark_succeeded(conn, job["id"])
-    return PaymentOperationResult(
-        resolution_id=resolution_id,
-        funding_unit_id=unit["id"],
-        operation_type=resolution["operation_type"],
-        status="executed",
-        provider_outcome="success",
+        job=job,
+        actor_context=actor_context,
     )
 
 
@@ -726,6 +875,38 @@ def get_payment_trace(conn: Connection, transaction_id: str) -> list[dict]:
             }
         )
     return result
+
+
+def _resolve_open_payment_case(
+    conn: Connection,
+    *,
+    transaction_id: str,
+    funding_unit_id: str,
+    reason_code: str,
+    resolution_code: str,
+    actor_context: ActorContext,
+) -> None:
+    """Başarılı retry sonrası ilgili blocking case'i kapatır (review remediation,
+    Blocker 3): `PAYMENT_APPROVE_FAILED` gibi failure case'leri `resolve_continue`
+    ile otomatik kapanmaz (review.py fail-closed reddeder) -- kapanış tek yolu
+    budur. Açık case yoksa no-op (idempotent, retry'ın kendisi tekrar tekrar
+    çağrılabilir)."""
+    case_row = reviews_repo.find_active_case(
+        conn,
+        transaction_id=transaction_id,
+        phase="payment",
+        source_type="payment",
+        source_id=funding_unit_id,
+        reason_code=reason_code,
+    )
+    if case_row is None:
+        return
+    review_service.resolve_case(
+        conn,
+        case_id=case_row["id"],
+        actor_context=actor_context,
+        resolution_code=resolution_code,
+    )
 
 
 def retry_release_instruction(
@@ -793,6 +974,15 @@ def retry_release_instruction(
         gateway=gateway,
         actor_context=actor_context,
     )
+    if instruction["unit_id"] in result.approved_unit_ids:
+        _resolve_open_payment_case(
+            conn,
+            transaction_id=instruction["transaction_id"],
+            funding_unit_id=instruction["unit_id"],
+            reason_code=review_service.PAYMENT_APPROVE_FAILED,
+            resolution_code=review_service.RETRY_PAYMENT_AUTHORIZED,
+            actor_context=actor_context,
+        )
     return {
         "instruction_id": instruction_id,
         "transaction_id": instruction["transaction_id"],

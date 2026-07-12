@@ -89,6 +89,26 @@ def update_status(
     return row
 
 
+def claim_executing(
+    conn: sqlite3.Connection,
+    resolution_id: str,
+    *,
+    from_statuses: tuple[str, ...],
+) -> bool:
+    """Atomik compare-and-set: yalnız `status IN from_statuses` iken `executing`e
+    geçer. `rowcount == 1` dönerse çağıran provider'ı çağırmaya yetkilidir;
+    aksi hâlde başka bir çağrı zaten claim etmiştir (concurrent execute guard,
+    Plan 07 review remediation)."""
+
+    placeholders = ",".join("?" for _ in from_statuses)
+    cursor = conn.execute(
+        f"UPDATE payment_resolutions SET status = 'executing', updated_at = ? "
+        f"WHERE id = ? AND status IN ({placeholders})",
+        (_now(), resolution_id, *from_statuses),
+    )
+    return cursor.rowcount == 1
+
+
 def list_approvals(
     conn: sqlite3.Connection, resolution_id: str
 ) -> list[sqlite3.Row]:
