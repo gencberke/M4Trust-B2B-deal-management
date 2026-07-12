@@ -50,6 +50,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from dataclasses import dataclass
 from typing import Any
 
 from backend.app.config import Settings
@@ -750,3 +751,256 @@ def open_validator_case(
         severity=ReviewSeverity.blocking.value,
         actor_context=actor_context,
     )
+
+
+# ---------------------------------------------------------------------------
+# Plan 07 — payment failure -> review kontratı (Faz 7B, Yusuf)
+#
+# Aşağıdaki reason/resolution-code sabitleri dondurulmuştur: Berke'nin 7A
+# payment reconciliation/retry/undo servisi bu isimleri birebir kullanır,
+# yeni ad-hoc kod türetmez. `PAYMENT_REFUND_FAILED` şimdiden hazırlanmıştır
+# ancak gerçek Moka refund contract'ı repository kaynaklarında YOKTUR (bkz.
+# `services/payments/moka/contracts.py`/`errors.py` — bu commit'te
+# değiştirilmedi); refund execution/PaymentGateway yüzeyi ayrı, iki taraf
+# onaylı bir contract PR'ını bekler.
+# ---------------------------------------------------------------------------
+
+PAYMENT_POOL_CREATION_FAILED = "PAYMENT_POOL_CREATION_FAILED"
+PAYMENT_APPROVE_FAILED = "PAYMENT_APPROVE_FAILED"
+PAYMENT_RECONCILE_AMBIGUOUS = "PAYMENT_RECONCILE_AMBIGUOUS"
+PAYMENT_UNDO_BLOCKED = "PAYMENT_UNDO_BLOCKED"
+PAYMENT_REFUND_FAILED = "PAYMENT_REFUND_FAILED"
+
+PAYMENT_REASON_CODES = frozenset(
+    {
+        PAYMENT_POOL_CREATION_FAILED,
+        PAYMENT_APPROVE_FAILED,
+        PAYMENT_RECONCILE_AMBIGUOUS,
+        PAYMENT_UNDO_BLOCKED,
+        PAYMENT_REFUND_FAILED,
+    }
+)
+
+RETRY_PAYMENT_AUTHORIZED = "RETRY_PAYMENT_AUTHORIZED"
+UNDO_APPROVAL_AUTHORIZED = "UNDO_APPROVAL_AUTHORIZED"
+REFUND_AUTHORIZED = "REFUND_AUTHORIZED"
+RECONCILIATION_CONFIRMED = "RECONCILIATION_CONFIRMED"
+PAYMENT_OPERATION_REJECTED = "PAYMENT_OPERATION_REJECTED"
+
+PAYMENT_RESOLUTION_CODES = frozenset(
+    {
+        RETRY_PAYMENT_AUTHORIZED,
+        UNDO_APPROVAL_AUTHORIZED,
+        REFUND_AUTHORIZED,
+        RECONCILIATION_CONFIRMED,
+        PAYMENT_OPERATION_REJECTED,
+    }
+)
+
+
+class PaymentReviewReasonCodeError(Exception):
+    """`open_payment_review_case` bilinmeyen/dondurulmamış bir reason_code aldı."""
+
+
+def open_payment_review_case(
+    conn: sqlite3.Connection,
+    *,
+    transaction_id: str,
+    funding_unit_id: str,
+    reason_code: str,
+    title: str,
+    description: str,
+    actor_context: ActorContext,
+) -> ReviewCase:
+    """Payment case'lerinin TEK açılış kapısı — `phase=payment`,
+    `source_type=payment`, `severity=blocking`, `source_id=funding_unit_id`
+    sabittir (Plan 07 kontratı). `reason_code` dondurulmuş kümenin dışındaysa
+    fail-closed reddedilir (ad-hoc reason-code türetilmesini engeller).
+
+    Idempotency `open_case`'in kendi (transaction, phase, source_type,
+    source_id, reason_code) partial-unique kapısından miras alınır: aynı
+    funding unit için aynı reason_code'lu aktif bir case zaten varsa yenisi
+    açılmaz, mevcut case döner. `title`/`description` deterministik ve
+    PII'siz olmalıdır -- ham provider exception/response, kart token'ı,
+    CheckKey, password, IP, e-posta buraya asla yazılmaz (yalnız güvenli,
+    typed action payload'ında -- örn. `instruction_id`/`operation_type` --
+    taşınabilir; onlar da bu fonksiyonun parametresi değildir, `record_action`
+    payload'ında taşınır).
+    """
+    if reason_code not in PAYMENT_REASON_CODES:
+        raise PaymentReviewReasonCodeError(
+            f"Bilinmeyen payment reason_code: {reason_code!r}. "
+            f"İzin verilen kümeyle sınırlıdır: {sorted(PAYMENT_REASON_CODES)}."
+        )
+    # Defense-in-depth: para-hareketi case'leri için title/description caller'ın
+    # (Berke'nin 7A reconciliation servisi) ham provider mesajı/exception metni
+    # sızdırmasına karşı burada da taranır (`record_action`'ın comment taraması
+    # gibi) -- fail closed reddedilir, sessizce temizlenmez.
+    _reject_if_sensitive_comment(title)
+    _reject_if_sensitive_comment(description)
+    return open_case(
+        conn,
+        transaction_id=transaction_id,
+        phase=ReviewPhase.payment.value,
+        source_type=ReviewSourceType.payment.value,
+        source_id=funding_unit_id,
+        reason_code=reason_code,
+        title=title,
+        description=description,
+        severity=ReviewSeverity.blocking.value,
+        actor_context=actor_context,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Plan 07 — payment review authorization kontratı (Faz 7B, Yusuf)
+#
+# Bu predicate'ler saf/DB-okuma-only'dir; hiçbiri provider çağırmaz veya para
+# hareketi üretmez. Berke'nin 7A payment operation servisi bunları EXECUTION
+# guard'ından ÖNCE tüketir. `payment_resolutions` tablosu henüz yoktur (7A'da
+# gelecek) -- bilateral onay durumu bu yüzden aşağıdaki saf, DB'siz
+# `BilateralApprovalState` ile modellenir; Berke'nin gerçek seam'i bu
+# kuralları (tek approval/taraf, entity eşleşmesi, iki taraf tamamlanınca
+# yetkilendirme) persisted satırlar üzerinde uygulayabilir.
+# ---------------------------------------------------------------------------
+
+
+def is_platform_reviewer_or_admin(actor_context: ActorContext) -> bool:
+    return actor_context.platform_role in {"reviewer", "admin"}
+
+
+def is_transaction_manager(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> bool:
+    if actor_context.user_id is None:
+        return False
+    return (
+        participants_repo.get_active_assignment(
+            conn, transaction_id, actor_context.user_id, role="manager"
+        )
+        is not None
+    )
+
+
+def can_request_payment_reconciliation(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> bool:
+    """Para hareketi üretmeyen reconciliation talebi: manager veya platform reviewer/admin."""
+    return is_platform_reviewer_or_admin(actor_context) or is_transaction_manager(
+        conn, transaction_id, actor_context
+    )
+
+
+def can_request_payment_retry(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> bool:
+    """Retry talebi (yeni para tersine çevirme işlemi değildir): manager veya
+    platform reviewer/admin. Gerçek retry yalnız failed/unknown instruction
+    üzerinde ve Berke'nin servis guard'ı üzerinden çalışır -- bu predicate
+    yalnız talep yetkisidir, execution guard'ı değildir."""
+    return is_platform_reviewer_or_admin(actor_context) or is_transaction_manager(
+        conn, transaction_id, actor_context
+    )
+
+
+def can_request_payment_reversal(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> bool:
+    """Manager undo_request/refund_request review case'i AÇABİLİR ama provider
+    undo/refund çalıştıramaz -- bu yalnız case açma yetkisidir, aşağıdaki
+    `can_authorize_payment_reversal` (execution yetkisi) ile KARIŞTIRILMAZ."""
+    return is_platform_reviewer_or_admin(actor_context) or is_transaction_manager(
+        conn, transaction_id, actor_context
+    )
+
+
+def can_authorize_payment_reversal(
+    *, is_platform_reviewer: bool, bilateral_resolution_complete: bool
+) -> bool:
+    """Undo/refund EXECUTION yalnız platform reviewer/admin VEYA iki tarafın
+    approver'ının aynı resolution kaydını onayladığı bilateral resolution ile
+    yetkilendirilir. Transaction manager (yalnızca) bu fonksiyonda YOKTUR --
+    manager tek başına asla execution yetkisi alamaz."""
+    return is_platform_reviewer or bilateral_resolution_complete
+
+
+def is_payment_resolution_approver(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> str | None:
+    """Actor buyer veya seller participant approver'ı ise rolünü döner, değilse `None`.
+
+    `disputes`/`review.escalate_dispute` ile aynı assignment-tabanlı deseni
+    kullanır (bkz. `_is_participant_approver`) -- approver olmayan aktörler
+    (manager, platform reviewer/admin, ilgisiz kullanıcı) bilateral onay
+    veremez."""
+    if actor_context.user_id is None or actor_context.acting_entity_id is None:
+        return None
+    assignments = conn.execute(
+        "SELECT participant_id FROM transaction_assignments "
+        "WHERE transaction_id = ? AND user_id = ? AND legal_entity_id = ? "
+        "AND role = 'approver' AND status = 'active'",
+        (transaction_id, actor_context.user_id, actor_context.acting_entity_id),
+    ).fetchall()
+    for assignment in assignments:
+        if assignment["participant_id"] is None:
+            continue
+        participant = participants_repo.get_participant_by_id(conn, assignment["participant_id"])
+        if participant is not None and participant["role"] in {"buyer", "seller"}:
+            return participant["role"]
+    return None
+
+
+class BilateralApprovalRejectedError(Exception):
+    """Aynı taraf ikinci kez approval verdi veya approval yanlış entity adına geldi."""
+
+
+@dataclass(frozen=True, slots=True)
+class BilateralApprovalRecord:
+    role: str
+    approving_user_id: str
+    approving_entity_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class BilateralResolutionState:
+    """Bir payment resolution'ın (undo/refund) saf, DB'siz onay durumu.
+
+    `payment_resolutions` tablosu gelene kadar Berke'nin 7A servisi bu
+    state'i persisted satırlardan inşa edip bu modülün kurallarına göre
+    değerlendirir. `buyer_entity_id`/`seller_entity_id` ratification
+    package'daki (veya participant tablosundaki) gerçek taraf entity'leridir
+    -- yanlış entity adına approval fail-closed reddedilir."""
+
+    buyer_entity_id: str
+    seller_entity_id: str
+    approvals: tuple[BilateralApprovalRecord, ...] = ()
+
+    def record_approval(
+        self, *, role: str, user_id: str, entity_id: str
+    ) -> "BilateralResolutionState":
+        if role not in {"buyer", "seller"}:
+            raise BilateralApprovalRejectedError(f"Bilinmeyen resolution rolü: {role!r}.")
+        expected_entity = self.buyer_entity_id if role == "buyer" else self.seller_entity_id
+        if entity_id != expected_entity:
+            raise BilateralApprovalRejectedError(
+                f"Approval yanlış entity adına geldi: {role} için beklenen {expected_entity!r}, "
+                f"gelen {entity_id!r}."
+            )
+        if any(existing.role == role for existing in self.approvals):
+            raise BilateralApprovalRejectedError(
+                f"'{role}' tarafı bu resolution için zaten approval verdi (ikinci kez veremez)."
+            )
+        return BilateralResolutionState(
+            buyer_entity_id=self.buyer_entity_id,
+            seller_entity_id=self.seller_entity_id,
+            approvals=self.approvals + (
+                BilateralApprovalRecord(
+                    role=role, approving_user_id=user_id, approving_entity_id=entity_id
+                ),
+            ),
+        )
+
+    @property
+    def is_complete(self) -> bool:
+        roles = {approval.role for approval in self.approvals}
+        return {"buyer", "seller"} <= roles
