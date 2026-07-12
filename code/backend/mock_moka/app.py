@@ -68,11 +68,15 @@ from .schemas import (
 _DEMO_TOKEN_SUCCESS = "DEMO-TOKEN-SUCCESS"
 _DEMO_TOKEN_BANK_DECLINE = "DEMO-TOKEN-BANK-DECLINE"
 _DEMO_TOKEN_TIMEOUT_AFTER_CREATE = "DEMO-TOKEN-TIMEOUT-AFTER-CREATE"
+_DEMO_TOKEN_APPROVE_TIMEOUT = "DEMO-TOKEN-APPROVE-TIMEOUT"
 _SUPPORTED_DEMO_TOKENS = {
     _DEMO_TOKEN_SUCCESS,
     _DEMO_TOKEN_BANK_DECLINE,
     _DEMO_TOKEN_TIMEOUT_AFTER_CREATE,
+    _DEMO_TOKEN_APPROVE_TIMEOUT,
 }
+
+_FAULT_PROFILE_APPROVE_TIMEOUT = "approve_timeout"
 
 _SENSITIVE_PERSISTENCE_KEYS = {
     "password",
@@ -247,12 +251,20 @@ def do_direct_payment(body: DoDirectPaymentRequest) -> DoDirectPaymentResponse:
             return response
 
         virtual_pos_order_id = f"ORDER-DEMO-{uuid4()}"
+        # Approve request Moka'da CardToken taşımaz (§2.5) -- approve-timeout
+        # fault'unu tetikleyebilmek için bunu create anında satıra bağlıyoruz,
+        # approve isteğinden değil.
+        fault_profile = (
+            _FAULT_PROFILE_APPROVE_TIMEOUT
+            if fields.CardToken == _DEMO_TOKEN_APPROVE_TIMEOUT and settings.faults_enabled
+            else None
+        )
         conn.execute(
             """
             INSERT INTO dealer_payments
                 (other_trx_code, virtual_pos_order_id, amount, currency, is_pool_payment,
-                 payment_status, trx_status, statement_closed, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+                 payment_status, trx_status, statement_closed, fault_profile, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             """,
             (
                 fields.OtherTrxCode,
@@ -262,6 +274,7 @@ def do_direct_payment(body: DoDirectPaymentRequest) -> DoDirectPaymentResponse:
                 1 if fields.IsPoolPayment else 0,
                 status_mapper.PAYMENT_STATUS_PENDING,
                 status_mapper.TRX_STATUS_PENDING,
+                fault_profile,
                 _utc_now_iso(),
             ),
         )
@@ -347,6 +360,21 @@ def do_approve_pool_payment(body: DoApprovePoolPaymentWireRequest) -> DoApproveP
             ),
         )
         conn.commit()
+
+        if row["fault_profile"] == _FAULT_PROFILE_APPROVE_TIMEOUT and settings.faults_enabled:
+            # Approve isteği CardToken taşımadığı için fault create anında satıra
+            # bağlanmıştı. Provider state ÖNCE approved yapılır (gerçek Moka bunu
+            # işlemiş olur), sonra response transport seviyesinde gecikir/kesilir
+            # -- client bunu ReadTimeout/UNKNOWN olarak görür, sonraki detail
+            # sorgusu approved gösterir (§16.2 semantiği approve tarafına
+            # taşınmış hali). Yeni/dokümante edilmemiş bir Moka ResultCode
+            # icat edilmez -- bu da create-timeout gibi transport seviyesinde
+            # modellenir, ApiResponse zarfı olarak değil.
+            _record_operation(
+                conn, "DoApprovePoolPayment", row["other_trx_code"], request_payload,
+                {"fault": "approve_timeout"},
+            )
+            time.sleep(settings.timeout_after_approve_delay_seconds)
 
         response = DoApprovePoolPaymentResponse(
             Data=ApproveOrUndoData(

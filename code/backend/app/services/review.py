@@ -832,6 +832,12 @@ def open_payment_review_case(
             f"Bilinmeyen payment reason_code: {reason_code!r}. "
             f"İzin verilen kümeyle sınırlıdır: {sorted(PAYMENT_REASON_CODES)}."
         )
+    # Defense-in-depth: para-hareketi case'leri için title/description caller'ın
+    # (Berke'nin 7A reconciliation servisi) ham provider mesajı/exception metni
+    # sızdırmasına karşı burada da taranır (`record_action`'ın comment taraması
+    # gibi) -- fail closed reddedilir, sessizce temizlenmez.
+    _reject_if_sensitive_comment(title)
+    _reject_if_sensitive_comment(description)
     return open_case(
         conn,
         transaction_id=transaction_id,

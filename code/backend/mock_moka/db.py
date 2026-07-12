@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS dealer_payments (
     payment_status INTEGER NOT NULL,
     trx_status INTEGER NOT NULL,
     statement_closed INTEGER NOT NULL DEFAULT 0,
+    fault_profile TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -48,4 +49,32 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    # `fault_profile` Plan 07'de eklendi; `CREATE TABLE IF NOT EXISTS` daha
+    # eski bir dosyada tabloyu değiştirmez -- eksikse additive olarak ekle.
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(dealer_payments)")}
+    if "fault_profile" not in columns:
+        conn.execute("ALTER TABLE dealer_payments ADD COLUMN fault_profile TEXT")
+    conn.commit()
+
+
+def mark_statement_closed(conn: sqlite3.Connection, other_trx_code: str) -> None:
+    """Test-only helper: ilgili provider payment'i `statement_closed=true`
+    durumuna getirir. Gerçek Moka'da bu, açık ekstre penceresi kapandığında
+    bankanın kendisi tarafından belirlenir -- mock'ta hiçbir public HTTP
+    endpoint'i bu alanı set etmez (dokümante edilmemiş davranış icat
+    edilmez, §3.1); yalnız test fixture'ları doğrudan bu fonksiyonu çağırır."""
+    conn.execute(
+        "UPDATE dealer_payments SET statement_closed = 1 WHERE other_trx_code = ?",
+        (other_trx_code,),
+    )
+    conn.commit()
+
+
+def set_fault_profile(conn: sqlite3.Connection, other_trx_code: str, fault_profile: str | None) -> None:
+    """Create sırasında persist edilen fault profile'ı (ör. `approve_timeout`)
+    okuma/yazma seam'i -- yalnız bu modül içinden ve testlerden kullanılır."""
+    conn.execute(
+        "UPDATE dealer_payments SET fault_profile = ? WHERE other_trx_code = ?",
+        (fault_profile, other_trx_code),
+    )
     conn.commit()
