@@ -15,9 +15,9 @@ vi.mock("../auth/AuthContext", () => ({
 }));
 vi.mock("../entities/EntityContext", () => ({
   useEntities: () => ({
-    entities: [],
-    selectedEntity: null,
-    selectedEntityId: null,
+    entities: [{ id: "entity-1", legal_name: "Test Entity" }],
+    selectedEntity: { id: "entity-1", legal_name: "Test Entity" },
+    selectedEntityId: "entity-1",
     loading: false,
     error: null,
     refreshEntities: () => Promise.resolve([]),

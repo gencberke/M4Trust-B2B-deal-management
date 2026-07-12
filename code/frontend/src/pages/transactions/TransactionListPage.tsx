@@ -1,16 +1,22 @@
 import { Link } from "react-router-dom";
 
 import { listTransactions } from "../../api/transactions";
-import { EmptyState, LoadingPanel, PageHeading, RetryPanel } from "../../components/Feedback";
+import { EmptyState, LoadingPanel, Notice, PageHeading, RetryPanel } from "../../components/Feedback";
 import { ResponsiveTable } from "../../components/ResponsiveTable";
 import { StatusBadge } from "../../components/StatusBadge";
+import { useEntities } from "../../entities/EntityContext";
 import { formatDateTime, shortId } from "../../lib/format";
 import { transactionStateMap } from "../../lib/statusMaps";
 import { useAsyncData } from "../../lib/useAsyncData";
 import { buttonClass } from "../shared";
 
 export function TransactionListPage() {
-  const { data, loading, error, refresh } = useAsyncData(() => listTransactions(), []);
+  const { selectedEntity, selectedEntityId, loading: entitiesLoading } = useEntities();
+  const { data, loading, error, refresh } = useAsyncData(
+    () => listTransactions(),
+    [selectedEntityId],
+    Boolean(selectedEntityId),
+  );
 
   return (
     <>
@@ -33,7 +39,13 @@ export function TransactionListPage() {
         </button>
       </div>
 
-      {loading && !data ? (
+      {!selectedEntity && !entitiesLoading ? (
+        <Notice tone="warning">İşlemleri listelemek için üst menüden bir entity seçin.</Notice>
+      ) : null}
+
+      {entitiesLoading && !selectedEntity ? (
+        <LoadingPanel label="İşlem yapılan entity yükleniyor…" />
+      ) : !selectedEntity ? null : loading && !data ? (
         <LoadingPanel label="İşlemler yükleniyor…" />
       ) : error ? (
         <RetryPanel

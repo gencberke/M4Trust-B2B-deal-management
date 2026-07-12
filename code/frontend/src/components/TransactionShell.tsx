@@ -7,6 +7,7 @@ import { StatusBadge } from "./StatusBadge";
 import { formatDateTime, shortId } from "../lib/format";
 import { transactionStateMap } from "../lib/statusMaps";
 import { useAsyncData } from "../lib/useAsyncData";
+import { useEntities } from "../entities/EntityContext";
 import type { ApiClientError } from "../api/client";
 import type { TransactionDetail } from "../types/transactions";
 
@@ -35,8 +36,25 @@ export function useTransactionShell(): TransactionShellContext {
 
 export function TransactionShell() {
   const { transactionId } = useParams<{ transactionId: string }>();
+  const { selectedEntity, selectedEntityId, loading: entitiesLoading } = useEntities();
   const id = transactionId ?? "";
-  const { data, loading, error, refresh } = useAsyncData(() => getTransaction(id), [id]);
+  const { data, loading, error, refresh } = useAsyncData(
+    () => getTransaction(id),
+    [id, selectedEntityId],
+    Boolean(id && selectedEntityId),
+  );
+
+  if (entitiesLoading && !selectedEntity) {
+    return <LoadingPanel label="İşlem yapılan entity yükleniyor…" />;
+  }
+
+  if (!selectedEntity) {
+    return (
+      <Notice tone="warning">
+        İşlem ayrıntılarını görmek için üst menüden işlem yapılan entity'yi seçin.
+      </Notice>
+    );
+  }
 
   if (loading && !data) {
     return <LoadingPanel label="İşlem yükleniyor…" />;
@@ -86,10 +104,13 @@ export function TransactionShell() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <StatusBadge value={data.state} map={transactionStateMap} />
         <span className="font-mono text-xs text-slate-500">{data.id}</span>
+        <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-xs text-cyan-100">
+          {selectedEntity.legal_name} adına
+        </span>
       </div>
       <SectionNav sections={SECTIONS} basePath={`/transactions/${data.id}`} />
       <div className="mt-6">
-        <Outlet context={context} />
+        <Outlet key={selectedEntityId} context={context} />
       </div>
     </>
   );
