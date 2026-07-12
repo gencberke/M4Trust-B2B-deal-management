@@ -453,8 +453,11 @@ def test_real_app_plan05_evidence_and_dispute_guards(
 
     conn = make_db(db_path)
     try:
+        # Plan 06 closure: evidence submit artık account settlement'ı tetikler;
+        # approval-only milestone (required_evidence=contract) trigger gerçekleşince
+        # release olur ve işlem settled'e geçer (dispute-auth kontrolü bağımsızdır).
         assert conn.execute(
             "SELECT state FROM transactions WHERE id = ?", (transaction_id,)
-        ).fetchone()[0] == "active"
+        ).fetchone()[0] == "settled"
     finally:
         conn.close()

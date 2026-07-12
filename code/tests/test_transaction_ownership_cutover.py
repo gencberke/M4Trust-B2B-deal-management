@@ -481,15 +481,23 @@ def test_canonical_state_settled_after_full_capture(client: TestClient, tmp_path
 # --- LEGACY_CAPABILITY_ACCESS_ENABLED (Wave 3 hazırlığı, varsayılan true) -----
 
 
-def test_legacy_capability_access_flag_defaults_enabled(
-    client: TestClient, tmp_path: Path
+def test_legacy_capability_access_flag_defaults_disabled(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Plan 06 closure: LEGACY_CAPABILITY_ACCESS_ENABLED default false. Legacy
+    # party-view varsayılan olarak 403; env ile açıldığında yeniden 200 döner.
     created = _upload_legacy(client, tmp_path)
     buyer_token = _extract_token(created["buyer_link"])
-    response = client.get(
+    default_response = client.get(
         f"/api/transactions/{created['id']}/party-view", params={"token": buyer_token}
     )
-    assert response.status_code == 200
+    assert default_response.status_code == 403
+
+    monkeypatch.setenv("LEGACY_CAPABILITY_ACCESS_ENABLED", "true")
+    enabled_response = client.get(
+        f"/api/transactions/{created['id']}/party-view", params={"token": buyer_token}
+    )
+    assert enabled_response.status_code == 200
 
 
 def test_legacy_capability_access_flag_disabled_rejects_party_view(

@@ -27,6 +27,10 @@ EvidenceKind = Literal["contract", "e_irsaliye", "video", "e_invoice", "other"]
 MilestoneStatus = Literal["eligible", "hold"]
 FindingSeverity = Literal["info", "warning", "review"]
 
+# Extraction `Trigger` enum ile birebir; buraya eklenmeyen trigger fail-closed
+# hold üretir (bir milestone trigger gerçekleşmeden eligible olamaz, §6B).
+_SUPPORTED_TRIGGERS = frozenset({"approval", "e_invoice", "delivery_video", "manual_review"})
+
 
 @dataclass(frozen=True, slots=True)
 class MilestoneFinding:
@@ -45,12 +49,16 @@ class MilestoneFinding:
 @dataclass(frozen=True, slots=True)
 class Milestone:
     """Evaluator'ın milestone girdisi -- persisted `milestones` satırının saf
-    projeksiyonu (id, release_mode, required_evidence dışında hiçbir alan
-    evaluator kararını etkilemez)."""
+    projeksiyonu.
+
+    `trigger_type`: milestone'un release tetikleyicisi (extraction `Trigger`
+    değeri). Desteklenmeyen bir trigger fail-closed hold üretir; trigger fact'i
+    ``MilestoneEvidenceSet.trigger_satisfied`` ile caller tarafından taşınır."""
 
     milestone_id: str
     release_mode: ReleaseMode
     required_evidence: frozenset[RequiredEvidence] = frozenset()
+    trigger_type: str = "approval"
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +109,10 @@ class MilestoneEvidenceSet:
     cumulative_verified_quantity: int | None = None
     video_advisory: VideoAdvisorySummary = field(default_factory=VideoAdvisorySummary)
     funding_units: tuple[FundingUnitEligibility, ...] = ()
+    # Milestone trigger fact'i caller tarafından çözülür (ör. approval trigger
+    # ratification precondition'ıyla, e_invoice/delivery_video ilgili verified
+    # kanıtla). Trigger gerçekleşmeden hiçbir unit eligible olamaz.
+    trigger_satisfied: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +264,29 @@ def evaluate_milestone(
     findings.extend(video_findings)
     if video_manual_review:
         return _hold(findings, manual_review_required=True)
+
+    # Trigger gating: desteklenmeyen trigger fail-closed hold; desteklenen trigger
+    # gerçekleşmeden (trigger_satisfied) hiçbir unit eligible olamaz.
+    if milestone.trigger_type not in _SUPPORTED_TRIGGERS:
+        findings.append(
+            _finding(
+                "UNSUPPORTED_TRIGGER",
+                "review",
+                f"Desteklenmeyen milestone trigger'ı ({milestone.trigger_type!r}); "
+                "release fail-closed bloklanır.",
+            )
+        )
+        return _hold(findings, manual_review_required=True)
+    if not evidence_set.trigger_satisfied:
+        findings.append(
+            _finding(
+                "TRIGGER_NOT_OCCURRED",
+                "warning",
+                f"Milestone trigger'ı ({milestone.trigger_type}) henüz gerçekleşmedi; "
+                "release beklemede.",
+            )
+        )
+        return _hold(findings)
 
     effective_required = frozenset(milestone.required_evidence) - {RequiredEvidence.contract}
     missing = effective_required - evidence_set.verified_evidence_types

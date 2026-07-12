@@ -54,6 +54,19 @@ _MAX_VIDEO_BYTES = 25 * 1024 * 1024
 _ANALYZER_VERSION = "video_analyzer_v1"
 
 
+def _maybe_run_account_settlement(conn: Connection, transaction_id: str) -> None:
+    """account_v2 işlemlerde kanıt sonrası tek release guard'ını (settlement)
+    tetikler. Release guard, provider çağrısı ve state geçişi settlement'ta tek
+    yerdedir; router provider çağırmaz ve commit etmez (get_db sahibi)."""
+
+    row = load_transaction(conn, transaction_id)
+    if row is None or row["lifecycle_version"] != "account_v2":
+        return
+    from backend.app.services.settlement import evaluate_settlement
+
+    evaluate_settlement(conn, transaction_id, Settings.from_env())
+
+
 class EIrsaliyeSubmitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -199,6 +212,7 @@ def submit_e_irsaliye_evidence(
     except evidence_records_service.EvidenceIdempotencyConflictError as exc:
         raise ApiError(status_code=409, code=exc.code, message=str(exc)) from exc
 
+    _maybe_run_account_settlement(conn, transaction_id)
     return _to_public_view(record)
 
 
@@ -322,4 +336,5 @@ async def submit_video_evidence(
             storage.delete(stored.storage_ref)
         raise
 
+    _maybe_run_account_settlement(conn, transaction_id)
     return _to_public_view(record)

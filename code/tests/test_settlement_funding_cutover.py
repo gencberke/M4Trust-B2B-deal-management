@@ -40,8 +40,9 @@ from backend.app.services.rule_versions import (
     create_initial_from_extraction,
     validate_version,
 )
+from backend.app.repositories.provider_payments import SQLitePaymentStore
 from backend.app.services.tracking_policy import create_draft_policy
-from reviews_fixtures import create_real_user
+from reviews_fixtures import create_real_session, create_real_user
 from test_ratifications import _PAYLOAD, _actor, _setup_open_package, make_db
 
 
@@ -71,12 +72,22 @@ def _ratify_both(conn, package_id: str) -> None:
     conn.commit()
 
 
+def _add_membership(conn, membership_id: str, user_id: str, entity_id: str) -> None:
+    conn.execute(
+        "INSERT INTO memberships (id, user_id, legal_entity_id, role, status, created_at) "
+        "VALUES (?, ?, ?, 'member', 'active', 'now')",
+        (membership_id, user_id, entity_id),
+    )
+
+
 def _seed_funded_account(tmp_path, tx_id: str = "tx-6c"):
     conn = make_db(tmp_path / "6c.db")
     create_real_user(conn, email_normalized="6c-buyer@example.com", user_id="u-buyer")
     create_real_user(conn, email_normalized="6c-seller@example.com", user_id="u-seller")
     _create_entity(conn, "entity-buyer", "u-buyer")
     _create_entity(conn, "entity-seller", "u-seller")
+    _add_membership(conn, "m-6c-buyer", "u-buyer", "entity-buyer")
+    _add_membership(conn, "m-6c-seller", "u-seller", "entity-seller")
     package_id = _setup_open_package(conn, tx_id)
     _ratify_both(conn, package_id)
     # Çift ratification funding'i tetikler; account active + unit'ler pool_created.
@@ -203,8 +214,8 @@ def test_fixed_tranche_half_delivery_releases_two_of_four_units(tmp_path) -> Non
         "SELECT COUNT(*) FROM provider_operations WHERE operation_type = 'approve_pool_payment'"
     ).fetchone()[0] == 2
 
-    # Kalan teslim -> tüm tranche'lar release -> settled.
-    _submit_verified_irsaliye(conn, tx_id, 100, "irsaliye-100")
+    # Kalan teslim (delta) -> kümülatif 100 -> tüm tranche'lar release -> settled.
+    _submit_verified_irsaliye(conn, tx_id, 50, "irsaliye-100")
     third = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path))
     assert len(third["approved_unit_ids"]) == 2
     assert third["settled"] is True
@@ -333,3 +344,160 @@ def test_payment_already_approved_reconciles_as_success(tmp_path) -> None:
     statuses = [u["status"] for u in funding_units_repo.list_for_transaction(conn, tx_id)]
     assert statuses == ["approved"]
     conn.close()
+
+
+# --- Blocker 2: approval_unknown reconcile (kör re-approve / kilitlenme yok) ---
+
+
+class _UnknownFirstApproveGateway:
+    """İlk approve UNKNOWN döner ve ödemeyi pool bırakır (timeout); sonraki
+    çağrılar gerçekten approve eder. Reconcile detail(pool)->kontrollü retry."""
+
+    def __init__(self, inner: FakePaymentGateway) -> None:
+        self._inner = inner
+        self._first_done = False
+        self.approve_calls = 0
+
+    def create_pool_payment(self, command):
+        return self._inner.create_pool_payment(command)
+
+    def approve_pool_payment(self, identifier):
+        self.approve_calls += 1
+        if not self._first_done:
+            self._first_done = True
+            return ProviderOperationResult(
+                outcome=ProviderOperationOutcome.UNKNOWN,
+                identifier=identifier,
+                provider_code="TRANSPORT_TIMEOUT",
+            )
+        return self._inner.approve_pool_payment(identifier)
+
+    def undo_pool_approval(self, identifier):
+        return self._inner.undo_pool_approval(identifier)
+
+    def get_payment_detail(self, query):
+        return self._inner.get_payment_detail(query)
+
+
+class _UnknownButApprovedGateway:
+    """approve UNKNOWN döner ama ödemeyi gerçekten approve eder (detail approved)."""
+
+    def __init__(self, inner: FakePaymentGateway) -> None:
+        self._inner = inner
+        self.approve_calls = 0
+
+    def create_pool_payment(self, command):
+        return self._inner.create_pool_payment(command)
+
+    def approve_pool_payment(self, identifier):
+        self.approve_calls += 1
+        self._inner.approve_pool_payment(identifier)  # gerçekten approve
+        return ProviderOperationResult(
+            outcome=ProviderOperationOutcome.UNKNOWN,
+            identifier=identifier,
+            provider_code="TRANSPORT_TIMEOUT",
+        )
+
+    def undo_pool_approval(self, identifier):
+        return self._inner.undo_pool_approval(identifier)
+
+    def get_payment_detail(self, query):
+        return self._inner.get_payment_detail(query)
+
+
+def test_single_unit_approval_unknown_not_locked_and_recovers(tmp_path) -> None:
+    conn, tx_id, _ = _seed_funded_account(tmp_path)
+    gateway = _UnknownFirstApproveGateway(FakePaymentGateway(SQLitePaymentStore(conn)))
+
+    first = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path), gateway=gateway)
+    assert first is not None and first["settled"] is False
+    assert [u["status"] for u in funding_units_repo.list_for_transaction(conn, tx_id)] == ["approval_unknown"]
+    assert gateway.approve_calls == 1
+
+    # Blocker: tek approval_unknown unit readiness'i None'a kilitlememeli.
+    second = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path), gateway=gateway)
+    assert second is not None
+    assert second["settled"] is True
+    assert [u["status"] for u in funding_units_repo.list_for_transaction(conn, tx_id)] == ["approved"]
+    # İkinci approve yalnız detail(pool) reconcile'ından SONRA (kontrollü retry).
+    assert gateway.approve_calls == 2
+    conn.close()
+
+
+def test_approval_unknown_detail_approved_reconciles_without_reapprove(tmp_path) -> None:
+    conn, tx_id, _ = _seed_funded_account(tmp_path)
+    gateway = _UnknownButApprovedGateway(FakePaymentGateway(SQLitePaymentStore(conn)))
+
+    result = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path), gateway=gateway)
+    # Unknown ama detail approved -> aynı değerlendirmede reconcile, kör re-approve YOK.
+    assert result["settled"] is True
+    assert gateway.approve_calls == 1
+    assert [u["status"] for u in funding_units_repo.list_for_transaction(conn, tx_id)] == ["approved"]
+    conn.close()
+
+
+def test_multi_unit_approval_unknown_reconciles_on_retry(tmp_path) -> None:
+    conn, tx_id, _ = _seed_fixed_tranche_account(tmp_path, tranche_count=4)
+    _submit_verified_irsaliye(conn, tx_id, 100, "irsaliye-full")  # 4 unit eligible
+    gateway = _UnknownFirstApproveGateway(FakePaymentGateway(SQLitePaymentStore(conn)))
+
+    first = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path), gateway=gateway)
+    statuses = sorted(u["status"] for u in funding_units_repo.list_for_transaction(conn, tx_id))
+    # İlk unit unknown (pool), diğer üçü approved; milestone partially_released.
+    assert statuses == ["approval_unknown", "approved", "approved", "approved"]
+    assert first["settled"] is False
+
+    second = settlement.evaluate_settlement(conn, tx_id, _settings(tmp_path), gateway=gateway)
+    assert second["settled"] is True
+    assert all(u["status"] == "approved" for u in funding_units_repo.list_for_transaction(conn, tx_id))
+    conn.close()
+
+
+# --- Blocker 1: gerçek video endpoint -> settlement -> blocking review ---
+
+
+def test_video_endpoint_damage_opens_blocking_review_and_holds(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "6c.db"))
+    conn, tx_id, _ = _seed_funded_account(tmp_path)
+    # Video kanalını canlı policy'de aç (package snapshot locked kalır; readiness bozulmaz).
+    conn.execute(
+        "UPDATE tracking_policies SET tracking_mode = 'document_and_video' WHERE transaction_id = ?",
+        (tx_id,),
+    )
+    session = create_real_session(conn, user_id="u-seller")
+    conn.commit()
+    conn.close()
+
+    from fastapi.testclient import TestClient
+
+    from backend.app.main import create_app
+
+    with TestClient(create_app()) as client:
+        client.cookies.set("m4t_session", session.raw_token)
+        resp = client.post(
+            f"/api/transactions/{tx_id}/evidence/video",
+            files={"file": ("teslimat_hasarli.mp4", b"fake-video-bytes", "video/mp4")},
+            headers={
+                "X-CSRF-Token": session.raw_csrf_token,
+                "X-Acting-Entity-ID": "entity-seller",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+    conn = make_db(tmp_path / "6c.db")
+    try:
+        # Yüksek güvenli hasar -> video review_required; settlement onu OKUR
+        # (matched_box) ve blocking review açar; hiçbir unit approve edilmez.
+        assert conn.execute(
+            "SELECT COUNT(*) FROM review_cases WHERE transaction_id = ? "
+            "AND source_type = 'video' AND status = 'open'",
+            (tx_id,),
+        ).fetchone()[0] == 1
+        assert [
+            u["status"] for u in funding_units_repo.list_for_transaction(conn, tx_id)
+        ] == ["pool_created"]
+        assert conn.execute(
+            "SELECT state FROM transactions WHERE id = ?", (tx_id,)
+        ).fetchone()[0] == "active"
+    finally:
+        conn.close()
