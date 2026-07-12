@@ -31,12 +31,12 @@ def get_transaction_milestones(
 
     transaction = load_transaction(conn, transaction_id)
     if transaction is None:
-        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="Ä°ÅŸlem bulunamadÄ±.")
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="İşlem bulunamadı.")
     if transaction["lifecycle_version"] != "account_v2":
         raise ApiError(
             status_code=409,
             code="LEGACY_FULFILLMENT_PROJECTION_FORBIDDEN",
-            message="Milestone projection yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
+            message="Milestone projection yalnız account_v2 işlemler için kullanılabilir.",
         )
     if actor.user_id is None or not participants_service.has_transaction_access(
         conn, transaction_id, actor.user_id
@@ -44,6 +44,6 @@ def get_transaction_milestones(
         raise ApiError(
             status_code=403,
             code="TRANSACTION_ACCESS_DENIED",
-            message="Bu iÅŸlemde eriÅŸiminiz yok.",
+            message="Bu işlemde erişiminiz yok.",
         )
     return fulfillment_projection.project_transaction_milestones(conn, transaction_id)
