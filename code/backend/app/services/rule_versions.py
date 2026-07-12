@@ -1,28 +1,4 @@
-"""Frozen `RuleVersionService` (Plan 04 / Faz 4A, v2 §8.2).
-
-```python
-create_initial_from_extraction(conn, *, transaction_id, extraction_run_id, rules_payload,
-                                created_by_actor_type="system", created_by_user_id=None) -> RuleSetVersion
-create_revision(conn, *, transaction_id, parent_version_id, rules_payload, actor_context) -> RuleSetVersion
-validate_version(conn, *, version_id, confidence_threshold) -> RuleSetVersion
-get_current(conn, transaction_id) -> CurrentRuleSet | None
-supersede(conn, *, version_id, reason_code) -> RuleSetVersion
-```
-
-Bu beş imza PR sonunda donar. Servis kendi commit'ini atmaz; transaction
-sınırı çağıranındır (router/pipeline). `get_current` burada saf
-`rule_set_versions` okuyucusudur (legacy `extracted_rules` fallback'i
-BİLMEZ) — lifecycle-bağımsız merkezi okuma kapısı
-`repositories/rule_sets.py::get_current`'tadır (v2 §11); bu iki fonksiyon
-aynı satır->`CurrentRuleSet` dönüştürücüsünü (`rule_set_version_row_to_current`)
-paylaşır.
-
-Canonical hash (v2 §2.15): `rules_json`, `ExtractionJSON` ile birebir
-doğrulanmış payload'ın `sort_keys=True, separators=(",", ":"),
-ensure_ascii=False` ile üretilmiş UTF-8 string'idir; `rules_hash` bu saklanan
-string'in byte'larından SHA-256'dır. Hash her okumada yeniden üretilmez —
-saklanan string üzerinden hesaplanıp bir kez yazılır.
-"""
+"""Immutable rule-set version service and deterministic validation seam."""
 
 from __future__ import annotations
 
@@ -40,11 +16,14 @@ from backend.app.services.validator import validate
 
 
 class RuleSetVersionNotFoundError(Exception):
-    """Beklenen `rule_set_versions` satırı yok (tutarsız çağrı sırası)."""
+    """Expected rule-set version row is missing."""
+
+
+class RuleRevisionPayloadError(ValueError):
+    """Revision payload parent quote reconstruction failed safely."""
 
 
 def canonical_rules_json(payload: dict) -> str:
-    """v2 §2.15 kanonik JSON string'i — dict key sırasından bağımsız, deterministik."""
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -93,7 +72,6 @@ def create_initial_from_extraction(
     created_by_actor_type: str = "system",
     created_by_user_id: str | None = None,
 ) -> RuleSetVersion:
-    """Bir extraction run'dan transaction'ın 1 numaralı (ilk) rule-set version'ını üretir."""
     extraction = ExtractionJSON.model_validate(rules_payload)
     canonical = canonical_rules_json(extraction.model_dump(mode="json"))
     rules_hash = compute_rules_hash(canonical)
@@ -117,6 +95,51 @@ def create_initial_from_extraction(
     return _row_to_rule_set_version(_get_or_raise(conn, version_id))
 
 
+def _reconstruct_revision_extraction(
+    conn: Connection, *, parent_version_id: str, rules_payload: dict
+) -> ExtractionJSON:
+    """Merge omitted quotes from the current parent, then validate all fields."""
+
+    parent = _get_or_raise(conn, parent_version_id)
+    parent_extraction = ExtractionJSON.model_validate(json.loads(parent["rules_json"]))
+    reconstructed_payload = dict(rules_payload)
+
+    submitted_parties = reconstructed_payload.get("parties")
+    if not isinstance(submitted_parties, dict):
+        raise RuleRevisionPayloadError("parties revision payload must be an object.")
+    merged_parties: dict[str, dict] = {}
+    for role in ("buyer", "seller"):
+        submitted_party = submitted_parties.get(role)
+        if not isinstance(submitted_party, dict):
+            raise RuleRevisionPayloadError(f"parties.{role} must be an object.")
+        party = dict(submitted_party)
+        if party.get("tax_id") is None:
+            party["tax_id"] = getattr(parent_extraction.parties, role).tax_id
+        merged_parties[role] = party
+    reconstructed_payload["parties"] = merged_parties
+    submitted_rules = reconstructed_payload.get("payment_rules")
+    if not isinstance(submitted_rules, list):
+        raise RuleRevisionPayloadError("payment_rules revision payload must be a list.")
+
+    merged_rules: list[dict] = []
+    for index, submitted_rule in enumerate(submitted_rules):
+        if not isinstance(submitted_rule, dict):
+            raise RuleRevisionPayloadError(f"payment_rules[{index}] must be an object.")
+        rule = dict(submitted_rule)
+        if rule.get("source_quote") is None:
+            if index >= len(parent_extraction.payment_rules):
+                raise RuleRevisionPayloadError(
+                    f"payment_rules[{index}].source_quote is required for a new rule index."
+                )
+            # Rule index is the validated identity used for safe quote merging.
+            rule["source_quote"] = parent_extraction.payment_rules[index].source_quote
+        merged_rules.append(rule)
+
+    reconstructed_payload["payment_rules"] = merged_rules
+    # The frozen ExtractionJSON is the final validation gate for immutable data.
+    return ExtractionJSON.model_validate(reconstructed_payload)
+
+
 def create_revision(
     conn: Connection,
     *,
@@ -125,8 +148,9 @@ def create_revision(
     rules_payload: dict,
     actor_context: ActorContext,
 ) -> RuleSetVersion:
-    """Eski içeriği DEĞİŞTİRMEDEN yeni, immutable bir revizyon satırı üretir."""
-    extraction = ExtractionJSON.model_validate(rules_payload)
+    extraction = _reconstruct_revision_extraction(
+        conn, parent_version_id=parent_version_id, rules_payload=rules_payload
+    )
     canonical = canonical_rules_json(extraction.model_dump(mode="json"))
     rules_hash = compute_rules_hash(canonical)
     version_id = uuid4().hex
@@ -153,7 +177,6 @@ def create_revision(
 def validate_version(
     conn: Connection, *, version_id: str, confidence_threshold: float
 ) -> RuleSetVersion:
-    """Mevcut deterministik validator'ı bu version üzerinde çalıştırır ve sonucu yazar."""
     row = _get_or_raise(conn, version_id)
     extraction = ExtractionJSON.model_validate(json.loads(row["rules_json"]))
     report = validate(extraction, confidence_threshold=confidence_threshold)
@@ -173,17 +196,16 @@ def validate_version(
 
 
 def get_current(conn: Connection, transaction_id: str) -> CurrentRuleSet | None:
-    """Saf `rule_set_versions` okuyucusu — en yeni non-superseded version (legacy fallback YOK)."""
     row = rule_sets_repo.get_latest_non_superseded(conn, transaction_id)
     return None if row is None else rule_sets_repo.rule_set_version_row_to_current(row)
 
 
-def supersede(conn: Connection, *, version_id: str, reason_code: str) -> RuleSetVersion:
-    """Version'ı `superseded` yapar; içerik alanları değişmez (DB trigger'ı garanti eder).
+def list_versions(conn: Connection, transaction_id: str) -> list[RuleSetVersion]:
+    return [_row_to_rule_set_version(row) for row in rule_sets_repo.list_for_transaction(conn, transaction_id)]
 
-    `reason_code` bu fazda kalıcı bir alana yazılmaz (şema kapsamında yer
-    almıyor) — çağıranın kendi audit/event kaydı için taşıdığı bağlamdır.
-    """
+
+def supersede(conn: Connection, *, version_id: str, reason_code: str) -> RuleSetVersion:
+    del reason_code
     _get_or_raise(conn, version_id)
     rule_sets_repo.mark_superseded(conn, version_id=version_id)
     return _row_to_rule_set_version(_get_or_raise(conn, version_id))

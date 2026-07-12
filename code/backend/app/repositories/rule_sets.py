@@ -83,6 +83,16 @@ def get_latest_non_superseded(conn: Connection, transaction_id: str) -> Row | No
     ).fetchone()
 
 
+def list_for_transaction(conn: Connection, transaction_id: str) -> list[Row]:
+    """Return the complete immutable version history in version order."""
+
+    return conn.execute(
+        "SELECT * FROM rule_set_versions WHERE transaction_id = ? "
+        "ORDER BY version ASC, id ASC",
+        (transaction_id,),
+    ).fetchall()
+
+
 def update_validation(
     conn: Connection,
     *,

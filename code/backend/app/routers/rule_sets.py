@@ -22,13 +22,18 @@ from backend.app.eventbus import emit
 from backend.app.repositories import participants as participants_repo
 from backend.app.repositories import rule_sets as rule_sets_repo
 from backend.app.repositories.transactions import load_transaction
-from backend.app.schemas.extraction import ExtractionJSON
+from backend.app.schemas.rule_revisions import ExtractionRevisionRequest
 from backend.app.schemas.payments import FundingScheduleSpec
-from backend.app.schemas.rule_sets import RuleSetVersion, RuleSetVersionPublicView
+from backend.app.schemas.rule_sets import (
+    RuleSetVersion,
+    RuleSetVersionHistoryPublicView,
+    RuleSetVersionPublicView,
+)
 from backend.app.services import audit
 from backend.app.services import ratification_package as package_service
 from backend.app.services import review as review_service
 from backend.app.services import rule_versions
+from backend.app.services import participants as participants_service
 from backend.app.services.access_control import ActorContext, require_authenticated_user
 from backend.app.services.auth import require_csrf_protection
 from backend.app.services.extraction_projection import redacted_extraction_projection
@@ -308,7 +313,7 @@ def _revision(
     *,
     transaction_id: str,
     version_id: str,
-    payload: ExtractionJSON,
+    payload: ExtractionRevisionRequest,
     actor: ActorContext,
 ) -> RuleSetVersion:
     _transaction, parent = _load_revision_context(
@@ -338,6 +343,12 @@ def _revision(
             rules_payload=payload.model_dump(mode="json"),
             actor_context=actor,
         )
+    except rule_versions.RuleRevisionPayloadError as exc:
+        raise ApiError(
+            status_code=422,
+            code="RULE_REVISION_SOURCE_QUOTE_REQUIRED",
+            message="Omitted source_quote parent rule index'inden yeniden kurulamadÄ±.",
+        ) from exc
     except sqlite3.IntegrityError as exc:
         raise ApiError(
             status_code=409,
@@ -369,6 +380,50 @@ def _revision(
     return validated
 
 
+@router.get(
+    "/api/transactions/{transaction_id}/rule-sets",
+    response_model=RuleSetVersionHistoryPublicView,
+)
+def list_rule_set_versions(
+    transaction_id: str,
+    actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    conn: sqlite3.Connection = Depends(get_db),
+) -> RuleSetVersionHistoryPublicView:
+    """Assignment-scoped current rule and immutable version history."""
+
+    transaction = load_transaction(conn, transaction_id)
+    if transaction is None:
+        raise ApiError(status_code=404, code="TRANSACTION_NOT_FOUND", message="Ä°ÅŸlem bulunamadÄ±.")
+    if transaction["lifecycle_version"] != "account_v2":
+        raise ApiError(
+            status_code=409,
+            code="LEGACY_RULE_SET_READ_FORBIDDEN",
+            message="Rule-set version history yalnÄ±z account_v2 iÅŸlemler iÃ§in kullanÄ±labilir.",
+        )
+    if actor.user_id is None or not participants_service.has_transaction_access(
+        conn, transaction_id, actor.user_id
+    ):
+        raise ApiError(
+            status_code=403,
+            code="TRANSACTION_ACCESS_DENIED",
+            message="Bu iÅŸlemde eriÅŸiminiz yok.",
+        )
+
+    versions = rule_versions.list_versions(conn, transaction_id)
+    current_row = rule_sets_repo.get_latest_non_superseded(conn, transaction_id)
+    public_versions = [_to_public_view(version) for version in versions]
+    current_version = next(
+        (version for version in public_versions if current_row and version.id == current_row["id"]),
+        None,
+    )
+    return RuleSetVersionHistoryPublicView(
+        transaction_id=transaction_id,
+        current_version_id=current_row["id"] if current_row is not None else None,
+        current_version=current_version,
+        versions=public_versions,
+    )
+
+
 @router.post(
     "/api/transactions/{transaction_id}/rule-sets/{version_id}/revisions",
     response_model=RuleSetVersionPublicView,
@@ -376,7 +431,7 @@ def _revision(
 def create_rule_set_revision(
     transaction_id: str,
     version_id: str,
-    payload: ExtractionJSON,
+    payload: ExtractionRevisionRequest,
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
     _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: sqlite3.Connection = Depends(get_db),

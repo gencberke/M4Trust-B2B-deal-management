@@ -68,3 +68,37 @@ class FundingScheduleSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     overrides: tuple[MilestoneReleaseOverride, ...] = ()
+
+
+class PaymentResolutionApprovalPublic(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    participant_role: str
+    user_id: str
+    acting_entity_id: str
+    created_at: str
+
+
+class PaymentResolutionPublic(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    transaction_id: str
+    funding_unit_id: str
+    review_case_id: str
+    operation_type: str
+    status: str
+    idempotency_key: str
+    requested_by_user_id: str
+    requested_by_entity_id: str
+    executed_by_user_id: str | None
+    created_at: str
+    updated_at: str
+    approvals: list[PaymentResolutionApprovalPublic]
+
+
+class PaymentResolutionListPublic(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    transaction_id: str
+    resolutions: list[PaymentResolutionPublic]
