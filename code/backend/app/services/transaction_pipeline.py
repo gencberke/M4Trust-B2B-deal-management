@@ -50,6 +50,7 @@ from backend.app.repositories import documents as documents_repo  # noqa: E402
 from backend.app.repositories import extraction_runs as extraction_runs_repo  # noqa: E402
 from backend.app.schemas.extraction import ExtractionJSON  # noqa: E402
 from backend.app.services import review as review_service  # noqa: E402
+from backend.app.services import processing_jobs  # noqa: E402
 from backend.app.services import rule_versions  # noqa: E402
 from backend.app.services.access_control import ActorContext  # noqa: E402
 from backend.app.services.context_builder import ContextBuilder, ContextPack  # noqa: E402
@@ -472,7 +473,16 @@ def run_pipeline(
         file_path = mode_input.file_path
 
     conn = open_background_connection(settings)
+    extraction_job = None
     try:
+        extraction_job = processing_jobs.ensure_job(
+            conn,
+            kind="extraction",
+            source_id=transaction_id,
+            transaction_id=transaction_id,
+            idempotency_key=f"extraction:transaction:{transaction_id}",
+        )
+        processing_jobs.start_attempt(conn, extraction_job["id"])
         conn.execute(
             "UPDATE transactions SET state = 'extracting' WHERE id = ?", (transaction_id,)
         )
@@ -523,6 +533,13 @@ def run_pipeline(
                     failure_reason=_SAFE_FAILURE_REASON["pipeline_error"],
                     now=_utc_now_iso(),
                 )
+            if extraction_job is not None:
+                processing_jobs.mark_failed(
+                    conn, extraction_job["id"], reason_code="PIPELINE_ERROR"
+                )
+        else:
+            if extraction_job is not None:
+                processing_jobs.mark_succeeded(conn, extraction_job["id"])
 
         conn.commit()
     finally:

@@ -11,6 +11,7 @@
 > **Plan 05 kapanışı (2026-07-11):** `integration/plan-05-close` üzerinde migration `013-014` registry, evidence/dispute app wiring, first-class account evidence settlement adapter'ı, video→review hook'u, review/dispute release guard'ı ve 5C read-only bundle/explicit snapshot semantiği tamamlandı. 015-017 erken 6A persistence kodu Plan 06 app cutover'ını bekler; sıradaki child plan 06'dır.
 > **Plan 05 post-merge remediation (2026-07-12):** Account evidence yalnız `active` işlemde kabul edilir; Plan 05 settlement adapter'ı account state'ini `active` tutar. Video upload hash-first/deterministic storage ve analyzer hata temizliği kullanır. Dispute action yetkileri opener/karşı taraf/platform reviewer matrisine göre kapatıldı; review `escalate_dispute` yeni dispute'u yalnız yetkili insan aksiyonuyla açar. Corrective migration `023_plan05_remediation_constraints` provenance immutability ve yeni review action sözleşmesini ekler. 015-017 Plan 06 app cutover'ında registry'ye alınmıştır.
 > **Plan 06 + 06X kapanışı (2026-07-12):** 015-017 registry'de ve account funding/settlement runtime'dadır. 06X milestone-scoped evidence, settlement review/dispute re-trigger, legacy approval kill-switch ve provider reconciliation binding'ini kapatır; Plan 06/06X `done/` altına taşınmadan Plan 07 başlamaz.
+> **Plan 07 kapanışı (2026-07-12):** Berke'nin 7A'sı (PR [#61](https://github.com/gencberke/M4Trust-B2B-deal-management/pull/61): reconciliation, retry, undo/refund, processing_jobs, trace) ve Yusuf'un 7B'si (PR [#60](https://github.com/gencberke/M4Trust-B2B-deal-management/pull/60): review reason-code/resolution-code kontratı + mock fault matrix) paralel merge edildi; Yusuf'un takip PR'ı (`integration/plan07-review-action-wiring`, PR [#62](https://github.com/gencberke/M4Trust-B2B-deal-management/pull/62)) `resolve_continue`'u payment operation execution sonucuna bağladı. `integration/plan-07-close`'da doc-sync + migration `024` rezervasyonunun haritaya işlenmesi tamamlandı. Plan 07 `done/` altındadır; sıradaki child planlar 08/09'dur.
 
 ## 1. Uygulama sırası ve bağımlılık zinciri
 
@@ -26,7 +27,7 @@ DEMO SONRASI (program/domain-evolution-v2 integration branch'i):
   04_rule_versioning_ratification_manual_review   ← tamamlandı: Wave A + Wave B + kapanış entegrasyonu
   05_evidence_dispute_lifecycle                   ← tamamlandı: 013-014 + evidence/dispute/release integration gate
   06_milestone_funding_units_settlement + 06X_kapanis_remediation ← Moka M2+M3 ve kapanış gate'i (package-tabanlı cutover)
-  07_payment_lifecycle_operational_hardening
+  07_payment_lifecycle_operational_hardening      ← uygulandı: `plans/done/07_payment_lifecycle_operational_hardening.md`
   08_frontend_vertical_slices           ← 03'ten itibaren kısmen paralel yürüyebilir
   09_privacy_provenance_production_readiness
 ```
@@ -94,6 +95,7 @@ v2 §10.4 rezervasyonu, Moka planının supersede'leriyle şu şekilde güncelle
 021_auth_verification_reset_tokens    Yusuf  (09)
 022_extraction_provenance_extensions  Yusuf  (09)
 023_plan05_remediation_constraints    Berke (05 post-merge corrective migration; 013/010 dosyaları değiştirilmez)
+024_payment_lifecycle_operational_extensions  Berke  (07)  ← plan finalize edildikten sonra seven.md faz prompt'unda şartlı rezerve edildi (bu tablo Plan 07 kapanışında güncellendi); 016/017 dosyalarını değiştirmeden additive CHECK genişlemesi için rebuild-and-copy yapar
 ```
 
 `payment_attempts` tablosu **yoktur**: Moka planındaki `provider_operations` (attempt_no'lu) aynı işi görür; v2 §5.20 bu kararla supersede edilir.

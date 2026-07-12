@@ -41,6 +41,10 @@ release_instructions = import_module(
 plan05_remediation_constraints = import_module(
     "backend.app.db.migrations.023_plan05_remediation_constraints"
 )
+processing_jobs = import_module("backend.app.db.migrations.018_processing_jobs")
+payment_lifecycle_operational_extensions = import_module(
+    "backend.app.db.migrations.024_payment_lifecycle_operational_extensions"
+)
 
 __all__ = [
     "baseline_current_schema",
@@ -60,4 +64,6 @@ __all__ = [
     "funding_units_provider_payments",
     "release_instructions",
     "plan05_remediation_constraints",
+    "processing_jobs",
+    "payment_lifecycle_operational_extensions",
 ]

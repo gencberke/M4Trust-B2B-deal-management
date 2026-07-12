@@ -22,6 +22,7 @@ from backend.app.repositories import funding_units as funding_units_repo
 from backend.app.repositories import milestones as milestones_repo
 from backend.app.repositories import provider_payments as provider_payments_repo
 from backend.app.services import audit
+from backend.app.services import processing_jobs
 from backend.app.services import review as review_service
 from backend.app.services.access_control import ActorContext
 from backend.app.services.account_lifecycle import (
@@ -323,15 +324,30 @@ def _safe_provider_result(result, *, code: str | None = None):
 
 
 def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
-    detail = gateway.get_payment_detail(
-        query=PaymentDetailQuery(
-            identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
-        )
+    job = processing_jobs.ensure_job(
+        conn,
+        kind="reconcile",
+        source_id=unit["id"],
+        transaction_id=unit["transaction_id"],
+        idempotency_key=f"reconcile:funding-unit:{unit['id']}",
     )
+    processing_jobs.start_attempt(conn, job["id"], allow_succeeded=True)
+    try:
+        detail = gateway.get_payment_detail(
+            query=PaymentDetailQuery(
+                identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
+            )
+        )
+    except Exception:
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_DETAIL_UNKNOWN")
+        funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
+        return "unknown"
     if detail.outcome is not ProviderOperationOutcome.SUCCESS or detail.payment is None:
-        if detail.provider_code == "PROVIDER_PAYMENT_NOT_FOUND":
+        if detail.provider_code in {"PROVIDER_PAYMENT_NOT_FOUND", "PAYMENT_NOT_FOUND"}:
+            processing_jobs.mark_succeeded(conn, job["id"])
             funding_units_repo.update_status(conn, unit["id"], "planned")
             return "retry"
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_DETAIL_UNKNOWN")
         funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
         return "unknown"
 
@@ -352,6 +368,7 @@ def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
         # Provider detail'i stored package ile bağlanamıyorsa unit kesinlikle
         # approved/pool_created sayılamaz. 07 reconciliation bunu daha sonra
         # ürünleştirir; 06X seam'i yalnız fail-closed unknown bırakır.
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PAYMENT_RECONCILE_AMBIGUOUS")
         funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
         return "unknown"
     if payment.status is ProviderPaymentStatus.POOL:
@@ -367,6 +384,7 @@ def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
             internal_status="pool_waiting",
         )
         funding_units_repo.update_status(conn, unit["id"], "pool_created")
+        processing_jobs.mark_succeeded(conn, job["id"])
         return "pool_created"
     provider_payments_repo.upsert_payment(
         conn,
@@ -380,15 +398,28 @@ def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
         internal_status="approved",
     )
     funding_units_repo.update_status(conn, unit["id"], "approved")
+    processing_jobs.mark_succeeded(conn, job["id"])
     return "approved"
 
 
 def _create_unit_pool_payment(conn: Connection, *, unit, gateway: PaymentGateway) -> str:
     if unit["status"] == "pool_created":
         return "pool_created"
+    job = processing_jobs.ensure_job(
+        conn,
+        kind="funding",
+        source_id=unit["id"],
+        transaction_id=unit["transaction_id"],
+        idempotency_key=f"funding:unit:{unit['id']}",
+    )
+    processing_jobs.start_attempt(conn, job["id"])
     if unit["status"] == "pool_creation_unknown":
         reconciliation = _reconcile_unknown_unit(conn, unit=unit, gateway=gateway)
         if reconciliation != "retry":
+            if reconciliation in {"pool_created", "approved"}:
+                processing_jobs.mark_succeeded(conn, job["id"])
+            else:
+                processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_CREATE_UNKNOWN")
             return reconciliation
 
     funding_units_repo.update_status(conn, unit["id"], "pool_creation_pending")
@@ -456,11 +487,14 @@ def _create_unit_pool_payment(conn: Connection, *, unit, gateway: PaymentGateway
 
     if result.outcome is ProviderOperationOutcome.SUCCESS and result.payment is not None:
         funding_units_repo.update_status(conn, unit["id"], "pool_created")
+        processing_jobs.mark_succeeded(conn, job["id"])
         return "pool_created"
     if result.outcome is ProviderOperationOutcome.UNKNOWN:
         funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_CREATE_UNKNOWN")
         return "pool_creation_unknown"
     funding_units_repo.update_status(conn, unit["id"], "pool_creation_failed")
+    processing_jobs.mark_failed(conn, job["id"], reason_code="PAYMENT_POOL_CREATION_FAILED")
     return "pool_creation_failed"
 
 

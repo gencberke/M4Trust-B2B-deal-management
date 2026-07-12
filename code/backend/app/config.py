@@ -66,6 +66,7 @@ class Settings:
     session_cookie_secure: bool = False                # prod'da true; local http demo'da false
     session_ttl_seconds: float = 604800.0              # 7 gün — oturum süresi
     legacy_capability_access_enabled: bool = False      # Plan 06 closure: default off (env ile açılır)
+    processing_job_stale_seconds: float = 300.0         # Plan 07 startup recovery eşiği
     document_storage_dir: Path = _DEFAULT_DOCUMENT_STORAGE_DIR  # LocalDocumentStorageProvider kökü (§2.11)
 
     @classmethod
@@ -110,6 +111,9 @@ class Settings:
             legacy_capability_access_enabled=_env_bool(
                 "LEGACY_CAPABILITY_ACCESS_ENABLED", False
             ),
+            processing_job_stale_seconds=float(
+                _env("PROCESSING_JOB_STALE_SECONDS", "300")
+            ),
             document_storage_dir=(
                 Path(document_storage_dir).resolve()
                 if document_storage_dir
@@ -152,5 +156,6 @@ class Settings:
             f"session_ttl_seconds={self.session_ttl_seconds!r}, "
             f"legacy_capability_access_enabled="
             f"{self.legacy_capability_access_enabled!r}, "
+            f"processing_job_stale_seconds={self.processing_job_stale_seconds!r}, "
             f"document_storage_dir={str(self.document_storage_dir)!r})"
         )
