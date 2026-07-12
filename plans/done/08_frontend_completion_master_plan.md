@@ -1,6 +1,6 @@
 # 08 — Frontend Completion Master Plan (Program 6, Phases 8B1 / 8B2 / 8C)
 
-> **Durum:** Ready — 2026-07-12 · **Master ref:** v2 §2.13, Program 6 · `plans/ready/08_frontend_vertical_slices.md` (superseded slicing: 5 slices → 3 PRs, bkz. §12)
+> **Durum:** Uygulandı — 2026-07-12 · Üç frontend PR tamamlandı; PR 3 live projection reads ile eski ID limitations'larını kaldırdı. · **Master ref:** v2 §2.13, Program 6
 > **Scope:** Shared architecture for the three remaining frontend PRs. Child execution plans:
 > `08b1_frontend_deal_core.md` · `08b2_frontend_rules_ratification.md` · `08c_frontend_fulfillment_operations.md`
 > **Language note:** planning text is English for implementation-model determinism; **all user-facing UI strings must be Turkish** (AGENTS.md binding rule). Existing Turkish strings in `code/frontend/src` show the expected tone.

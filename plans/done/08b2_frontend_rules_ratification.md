@@ -1,6 +1,6 @@
 # 08B2 — Frontend Slice B2: Rules and Ratification (PR 2)
 
-> **Durum:** Ready (plan) / **backend blockers resolved** — 2026-07-12 · **Master:** `plans/ready/08_frontend_completion_master_plan.md` (§14.7)
+> **Durum:** Uygulandı — 2026-07-12 · Sapmalar: redacted tax-id parent-preservation uyumluluk düzeltmesi eklendi; browser smoke kısmi yapıldı. · **Master:** `plans/done/08_frontend_completion_master_plan.md`
 > **Readiness:** `READY_TO_IMPLEMENT` (frontend PR 1 base still required). The backend contract gap closure is complete; the frontend plan itself remains ready, not done.
 
 ## A. Phase identity

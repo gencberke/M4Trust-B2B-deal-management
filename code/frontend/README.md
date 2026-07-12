@@ -1,12 +1,16 @@
 # M4Trust Frontend — Faz 8A + 8B1/8B2
 
-React + Vite + TypeScript + Tailwind + React Router tabanı. Faz 8A auth/session ve tüzel kişi temelini; Faz 8B1 authenticated `account_v2` işlem çekirdeğini; Faz 8B2 ise kural inceleme/revizyonu, takip politikası, değişmez onay paketi ve çift taraflı ratifikasyonu sağlar. Teslimat/ödeme (8C) ekranları sonraki PR'dadır.
+React + Vite + TypeScript + Tailwind + React Router tabanı. Faz 8A auth/session ve tüzel kişi temelini; Faz 8B1/8B2 işlem, kural ve ratifikasyon akışlarını; Faz 8C teslimat kanıtı, snapshot, itiraz ve ödeme operasyonlarını sağlar.
 
 ## Faz 8B rotaları
 
 - `/transactions` — yalnız taraf/yönetici olduğunuz işlemlerin listesi.
 - `/transactions/new` — sözleşme yükleme + `account_v2` işlem oluşturma (multipart; başarıda tek seferlik davet bağlantısı).
-- `/transactions/:id` — detay kabuğu; `overview`'e yönlenir. Bölümler: `overview` (durum, redacted extraction özeti, validator, event timeline, takılı extraction retry), `parties` (katılımcılar, davet paneli, kendi profil/onay), `rules` (taraf karşılaştırma, validator/review kayıtları, değişmez sürüm/diff, revizyon ve revalidation) ve `ratification` (takip politikası, paket hash'i/takvim, taraf onay ilerlemesi ve ratify).
+- `/transactions/:id` — detay kabuğu; `overview`'e yönlenir. Bölümler: `overview`, `parties`, `rules`, `ratification`, `fulfillment` (backend milestone/funding-unit projeksiyonu, e-irsaliye/video, bundle/snapshot), `disputes` ve `payments` (mutabakat, release retry, bilateral undo/refund, redacted trace).
+
+## Demo senaryosu
+
+`code/.env` güvenlik anahtarlarını ayarlayın, `scripts/seed_demo_users.py` ile Berke/Yusuf kullanıcılarını seed edin. HTTP Moka demosu için bir terminalde `backend.mock_moka.app:app --port 8001`, diğerinde ana backend'i `PAYMENT_PROVIDER=moka_http` ve `MOKA_BASE_URL=http://127.0.0.1:8001` ile çalıştırın; frontend `npm run dev` ile açılır. Belirsiz create senaryosunda yalnız demo mock ortamında `DEMO-TOKEN-TIMEOUT-AFTER-CREATE` kullanılır. Akış: işlem oluştur → tarafları onayla → politika kilitle → paket oluştur/iki taraf ratify → fulfillment kanıtı → gerekirse itiraz → payments mutabakat/çözüm. `unknown` provider sonucu başarı veya hata sayılmaz; önce yenileme ve mutabakat gerekir.
 - `/invitations/:token` — public davet önizlemesi + giriş yapılınca kabul. Davet token'ı yalnız bu rotada taşınır; başka hiçbir yere yazılmaz/loglanmaz.
 
 ## Gereksinimler
