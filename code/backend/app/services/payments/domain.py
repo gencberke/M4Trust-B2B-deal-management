@@ -27,6 +27,7 @@ class ProviderPaymentStatus(str, Enum):
 
     POOL = "pool"
     APPROVED = "approved"
+    REFUNDED = "refunded"
 
 
 def _require_non_empty(value: str | None, *, field_name: str) -> None:

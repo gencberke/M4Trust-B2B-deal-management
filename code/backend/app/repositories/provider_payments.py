@@ -111,6 +111,7 @@ def insert_operation(
     is_successful: bool | None,
     outcome: str,
     attempt_no: int,
+    http_status: int | None = None,
 ) -> sqlite3.Row:
     operation_id = uuid4().hex
     conn.execute(
@@ -119,7 +120,7 @@ def insert_operation(
             idempotency_key, request_fingerprint, redacted_request_json,
             response_json, http_status, result_code, is_successful, outcome,
             attempt_no, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)""",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             operation_id,
             provider_payment_id,
@@ -130,6 +131,7 @@ def insert_operation(
             request_fingerprint,
             redacted_request_json,
             response_json,
+            http_status,
             result_code,
             None if is_successful is None else int(is_successful),
             outcome,
@@ -138,6 +140,22 @@ def insert_operation(
         ),
     )
     return conn.execute("SELECT * FROM provider_operations WHERE id = ?", (operation_id,)).fetchone()
+
+
+def list_operations_for_transaction(
+    conn: sqlite3.Connection, transaction_id: str
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT po.*, pp.provider_profile, pp.other_trx_code,
+            pp.virtual_pos_order_id, pp.amount_minor, pp.currency,
+            fu.transaction_id
+        FROM provider_operations po
+        JOIN funding_units fu ON fu.id = po.funding_unit_id
+        LEFT JOIN provider_payments pp ON pp.id = po.provider_payment_id
+        WHERE fu.transaction_id = ?
+        ORDER BY po.created_at ASC, po.attempt_no ASC, po.id ASC""",
+        (transaction_id,),
+    ).fetchall()
 
 
 class SQLitePaymentStore:

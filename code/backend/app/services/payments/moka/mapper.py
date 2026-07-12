@@ -177,6 +177,8 @@ def _map_payment_status(detail: PaymentTrxDetail) -> ProviderPaymentStatus:
         return ProviderPaymentStatus.POOL
     if status_pair == (2, 1):
         return ProviderPaymentStatus.APPROVED
+    if status_pair == (4, 1):
+        return ProviderPaymentStatus.REFUNDED
     raise _contract_violation(
         f"Dokümante edilmemiş Moka ödeme durumu: {status_pair[0]}/{status_pair[1]}"
     )

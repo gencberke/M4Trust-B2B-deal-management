@@ -41,6 +41,20 @@ class PaymentGateway(Protocol):
         """Reconciliation için provider ödeme detayını getirir."""
 
 
+@runtime_checkable
+class RefundCapableGateway(Protocol):
+    """Refund contract'ı frozen gateway'e girmeden önceki opsiyonel seam.
+
+    Exact Moka refund endpoint'i mevcut değilse production adapter bunu
+    sağlamaz; payment operations fail-closed unsupported sonucu üretir.
+    """
+
+    def refund_payment(
+        self, identifier: ProviderPaymentIdentifier
+    ) -> ProviderOperationResult:
+        """Bir funding unit'in tamamını provider'da refund eder."""
+
+
 class FakePaymentStore(Protocol):
     """Fake gateway state'inin değiştirilebilir persistence sınırı.
 
@@ -148,6 +162,24 @@ class FakePaymentGateway:
         return ProviderOperationResult(
             outcome=ProviderOperationOutcome.SUCCESS,
             identifier=restored.identifier,
+        )
+
+    def refund_payment(
+        self, identifier: ProviderPaymentIdentifier
+    ) -> ProviderOperationResult:
+        payment = self._store.get(identifier)
+        if payment is None:
+            return self._failed(identifier, "PAYMENT_NOT_FOUND", "Provider ödemesi bulunamadı.")
+        if not payment.is_pool_payment:
+            return self._failed(identifier, "PAYMENT_NOT_POOL", "Ödeme pool türünde değil.")
+        if payment.status is not ProviderPaymentStatus.APPROVED:
+            return self._failed(identifier, "PAYMENT_NOT_APPROVED", "Ödeme approve edilmedi.")
+
+        refunded = replace(payment, status=ProviderPaymentStatus.REFUNDED)
+        self._store.save(refunded)
+        return ProviderOperationResult(
+            outcome=ProviderOperationOutcome.SUCCESS,
+            identifier=refunded.identifier,
         )
 
     def get_payment_detail(self, query: PaymentDetailQuery) -> PaymentDetailResult:
