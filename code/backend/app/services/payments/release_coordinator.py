@@ -28,6 +28,8 @@ from backend.app.repositories import milestones as milestones_repo
 from backend.app.repositories import provider_payments as provider_payments_repo
 from backend.app.repositories import release_instructions as release_instructions_repo
 from backend.app.services import audit
+from backend.app.services import processing_jobs
+from backend.app.services import review as review_service
 from backend.app.services.access_control import ActorContext
 from backend.app.services.account_lifecycle import (
     AccountLifecycleError,
@@ -113,11 +115,14 @@ def _mark_unit_approved(conn: Connection, *, unit, provider_payment, instruction
 
 
 def _detail_shows_approved(gateway: PaymentGateway, *, unit) -> bool:
-    detail = gateway.get_payment_detail(
-        query=PaymentDetailQuery(
-            identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
+    try:
+        detail = gateway.get_payment_detail(
+            query=PaymentDetailQuery(
+                identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
+            )
         )
-    )
+    except Exception:
+        return False
     return (
         detail.outcome is ProviderOperationOutcome.SUCCESS
         and detail.payment is not None
@@ -135,18 +140,33 @@ def _reconcile_unknown_approval(
     çağrılmaz.
     """
 
-    detail = gateway.get_payment_detail(
-        query=PaymentDetailQuery(
-            identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
-        )
+    job = processing_jobs.ensure_job(
+        conn,
+        kind="reconcile",
+        source_id=unit["id"],
+        transaction_id=unit["transaction_id"],
+        idempotency_key=f"reconcile:funding-unit:{unit['id']}",
     )
+    processing_jobs.start_attempt(conn, job["id"], allow_succeeded=True)
+    try:
+        detail = gateway.get_payment_detail(
+            query=PaymentDetailQuery(
+                identifier=ProviderPaymentIdentifier(other_trx_code=unit["other_trx_code"])
+            )
+        )
+    except Exception:
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_DETAIL_UNKNOWN")
+        return "unknown"
     if detail.outcome is ProviderOperationOutcome.SUCCESS and detail.payment is not None:
         if detail.payment.status is ProviderPaymentStatus.APPROVED:
             _mark_unit_approved(
                 conn, unit=unit, provider_payment=provider_payment, instruction=instruction
             )
+            processing_jobs.mark_succeeded(conn, job["id"])
             return "approved"
+        processing_jobs.mark_succeeded(conn, job["id"])
         return "retry"
+    processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_DETAIL_UNKNOWN")
     return "unknown"
 
 
@@ -163,6 +183,15 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
         raise ReleaseCoordinatorError(
             f"Funding unit {unit_id} approve öncesi pool payment sahibi olmalı."
         )
+
+    job = processing_jobs.ensure_job(
+        conn,
+        kind="release",
+        source_id=unit_id,
+        transaction_id=unit["transaction_id"],
+        idempotency_key=f"release:funding-unit:{unit_id}",
+    )
+    processing_jobs.start_attempt(conn, job["id"])
 
     instruction = release_instructions_repo.get_by_unit_and_operation(
         conn, funding_unit_id=unit_id, operation_type=_APPROVE_OPERATION
@@ -181,6 +210,7 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
     if instruction["status"] == "confirmed":
         # Duplicate evaluation: ikinci approve çağrısı yok, idempotent tamamla.
         _mark_unit_approved(conn, unit=unit, provider_payment=provider_payment, instruction=instruction)
+        processing_jobs.mark_succeeded(conn, job["id"])
         return "already"
 
     # approval_unknown (approve timeout): önce reconcile, kör re-approve YOK.
@@ -190,6 +220,10 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
             instruction=instruction, gateway=gateway,
         )
         if reconciled != "retry":
+            if reconciled == "approved":
+                processing_jobs.mark_succeeded(conn, job["id"])
+            else:
+                processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_APPROVE_UNKNOWN")
             return reconciled
         # detail hâlâ pool: kontrollü retry -- approve tekrar denenebilir.
 
@@ -225,6 +259,7 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
             conn, unit=unit, provider_payment=provider_payment, result=result,
             outcome="approved", attempt_no=attempt_no,
         )
+        processing_jobs.mark_succeeded(conn, job["id"])
         return "approved"
 
     unknown = result is None or result.outcome is ProviderOperationOutcome.UNKNOWN
@@ -237,6 +272,7 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
                 conn, unit=unit, provider_payment=provider_payment, result=result,
                 outcome="approved", attempt_no=attempt_no,
             )
+            processing_jobs.mark_succeeded(conn, job["id"])
             return "approved"
         release_instructions_repo.update_status(conn, instruction["id"], "unknown")
         provider_payments_repo.upsert_payment(
@@ -255,6 +291,7 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
             conn, unit=unit, provider_payment=provider_payment, result=result,
             outcome="unknown", attempt_no=attempt_no,
         )
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_APPROVE_UNKNOWN")
         return "unknown"
 
     # Definitive failure (unknown DEĞİL): instruction failed, unit pool_created'a döner.
@@ -264,6 +301,7 @@ def _release_one_unit(conn: Connection, *, unit_id: str, gateway: PaymentGateway
         conn, unit=unit, provider_payment=provider_payment, result=result,
         outcome="failed", attempt_no=attempt_no,
     )
+    processing_jobs.mark_failed(conn, job["id"], reason_code="PAYMENT_APPROVE_FAILED")
     return "failed"
 
 
@@ -356,6 +394,19 @@ def release_units(
             metadata_allowlist=frozenset({"funding_unit_count"}),
             metadata={"funding_unit_count": len(approved)},
             transaction_id=transaction_id,
+        )
+    for failed_unit_id in failed:
+        review_service.open_case(
+            conn,
+            transaction_id=transaction_id,
+            phase="payment",
+            source_type="payment",
+            source_id=failed_unit_id,
+            reason_code="PAYMENT_APPROVE_FAILED",
+            title="Funding unit approve başarısız",
+            description="Provider approve işlemi kesin başarısızlıkla sonuçlandı.",
+            severity="blocking",
+            actor_context=actor_context,
         )
 
     return ReleaseResult(

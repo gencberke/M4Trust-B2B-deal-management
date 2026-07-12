@@ -37,7 +37,9 @@ _MIGRATION_MODULES = (
     "backend.app.db.migrations.015_milestones",
     "backend.app.db.migrations.016_funding_units_provider_payments",
     "backend.app.db.migrations.017_release_instructions",
+    "backend.app.db.migrations.018_processing_jobs",
     "backend.app.db.migrations.023_plan05_remediation_constraints",
+    "backend.app.db.migrations.024_payment_lifecycle_operational_extensions",
 )
 
 _LEGACY_COLUMNS = {
