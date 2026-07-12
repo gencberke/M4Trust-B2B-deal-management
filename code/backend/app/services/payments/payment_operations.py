@@ -424,16 +424,16 @@ def _open_blocked_case(
     actor_context: ActorContext,
     reason_code: str,
 ) -> None:
-    review_service.open_case(
+    # Yusuf'un 7B frozen kontratı: TEK açılış kapısı `open_payment_review_case`
+    # (phase/source_type/severity sabit, source_id=funding_unit_id, reason_code
+    # dondurulmuş `PAYMENT_REASON_CODES` kümesiyle fail-closed sınırlı).
+    review_service.open_payment_review_case(
         conn,
         transaction_id=unit["transaction_id"],
-        phase="payment",
-        source_type="payment",
-        source_id=resolution["id"],
+        funding_unit_id=unit["id"],
         reason_code=reason_code,
         title="Payment reversal provider tarafından engellendi",
         description="Provider reversal işlemi güvenli biçimde tamamlanamadı.",
-        severity="blocking",
         actor_context=actor_context,
     )
 
@@ -508,7 +508,7 @@ def execute_resolution(
             resolution=resolution,
             unit=unit,
             actor_context=actor_context,
-            reason_code="PAYMENT_REFUND_UNSUPPORTED",
+            reason_code=review_service.PAYMENT_REFUND_FAILED,
         )
         resolutions_repo.update_status(conn, resolution_id, status="failed")
         processing_jobs.mark_failed(conn, job["id"], reason_code="PAYMENT_REFUND_UNSUPPORTED")

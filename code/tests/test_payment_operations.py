@@ -411,6 +411,6 @@ def test_refund_without_gateway_capability_is_unsupported_and_opens_review(conn)
     ).fetchone()[0] == "approved"
     assert conn.execute(
         "SELECT COUNT(*) FROM review_cases WHERE transaction_id = ? "
-        "AND reason_code = 'PAYMENT_REFUND_UNSUPPORTED'",
+        "AND reason_code = 'PAYMENT_REFUND_FAILED'",
         (transaction_id,),
     ).fetchone()[0] == 1
