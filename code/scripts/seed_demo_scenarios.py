@@ -32,11 +32,7 @@ import seed_demo_users  # noqa: E402
 
 from backend.app.config import Settings  # noqa: E402
 from backend.app.db import connect, init_db  # noqa: E402
-from backend.app.repositories import entities as entities_repo  # noqa: E402
-from backend.app.repositories import users as users_repo  # noqa: E402
-from backend.app.services import auth as auth_service  # noqa: E402
 from backend.app.services import demo_scenarios  # noqa: E402
-from backend.app.services.demo_scenarios import DemoEntityRef, DemoParties  # noqa: E402
 
 # (scenario, deterministik transaction_id, sözleşme başlığı)
 # NOT: transaction_id'nin tire-siz ilk 8 karakteri OtherTrxCode türetiminin
@@ -52,26 +48,6 @@ _SCENARIO_MATRIX = (
 )
 
 
-def _lookup_party(
-    conn, settings: Settings, *, email: str, legal_name: str, tax_id: str
-) -> DemoEntityRef:
-    normalized = auth_service.normalize_email(email)
-    user = users_repo.get_user_by_email(conn, normalized)
-    if user is None:
-        raise SystemExit(f"[hata] demo user bulunamadı: {normalized} (seed_demo_users çalıştı mı?)")
-    entities = entities_repo.list_entities_for_user(conn, user["id"])
-    entity = next((row for row in entities if row["legal_name"] == legal_name), None)
-    if entity is None:
-        raise SystemExit(f"[hata] demo entity bulunamadı: {legal_name}")
-    return DemoEntityRef(
-        user_id=user["id"],
-        entity_id=entity["id"],
-        email=normalized,
-        display_name=legal_name,
-        tax_id=tax_id,
-    )
-
-
 def main() -> None:
     # 1) Kullanıcı/entity fixture'ları (idempotent).
     seed_demo_users.main()
@@ -81,19 +57,7 @@ def main() -> None:
     try:
         init_db(conn)
 
-        buyer = _lookup_party(
-            conn, settings,
-            email="berke@m4trust.demo",
-            legal_name="ABC Sanayi ve Ticaret A.Ş.",
-            tax_id="1111111111",
-        )
-        seller = _lookup_party(
-            conn, settings,
-            email="yusuf@m4trust.demo",
-            legal_name="XYZ Lojistik Ltd. Şti.",
-            tax_id="2222222222",
-        )
-        parties = DemoParties(buyer=buyer, seller=seller)
+        parties = demo_scenarios.resolve_seeded_demo_parties(conn)
 
         for scenario, transaction_id, title in _SCENARIO_MATRIX:
             result = demo_scenarios.create_scenario(

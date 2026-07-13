@@ -11,6 +11,8 @@ app-factory wiring'ine eklendi.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 
 from backend.app.api.errors import ApiError, api_error_handler, unhandled_exception_handler
@@ -23,6 +25,7 @@ from backend.app.routers import (
     approvals,
     auth,
     delivery,
+    demo_tools,
     disputes,
     entities,
     evidence,
@@ -37,6 +40,8 @@ from backend.app.routers import (
     rule_sets,
     transactions,
 )
+
+_logger = logging.getLogger("backend.main")
 
 
 def create_app() -> FastAPI:
@@ -77,7 +82,32 @@ def create_app() -> FastAPI:
     app.include_router(payment_ops.router)
     app.include_router(extraction_ops.router)
 
+    _mount_demo_tools_if_enabled(app)
+
     return app
+
+
+def _mount_demo_tools_if_enabled(app: FastAPI) -> None:
+    """Demo router'ını YALNIZ `DEMO_TOOLS_ENABLED=true` iken ve prod değilken mount eder.
+
+    Tripwire (§Plan 14 / D3): secure session cookie prod proxy'sinin işaretidir;
+    demo araçları açıkken secure cookie görülürse mount REDDEDİLİR + structured
+    warning yazılır (yanlışlıkla prod'da demo yüzeyi açılmasını engeller).
+    """
+    settings = Settings.from_env()
+    if not settings.demo_tools_enabled:
+        return
+    if settings.session_cookie_secure:
+        _logger.warning(
+            "demo tools mount rejected",
+            extra={
+                "action": "demo_tools.mount_rejected",
+                "outcome": "rejected",
+                "reason_code": "SESSION_COOKIE_SECURE",
+            },
+        )
+        return
+    app.include_router(demo_tools.router)
 
 
 app = create_app()

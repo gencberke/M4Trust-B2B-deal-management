@@ -221,6 +221,100 @@ def test_revoke_invitation_by_manager(conn) -> None:
     assert revoke_resp.json()["status"] == "revoked"
 
 
+# --- Plan 14 / P2: invitation list + reissue --------------------------------
+
+
+def _create_seller_invitation(conn, client, tx_id: str, email: str = "party@example.com") -> str:
+    resp = client.post(
+        f"/api/transactions/{tx_id}/invitations",
+        json={"participant_role": "seller", "invited_email": email},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["invite_link"].split("/api/invitations/")[1].split("/accept")[0]
+
+
+def test_list_invitations_manager_scoped(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    manager = TestClient(build_isolated_app(conn, actor("u1"), notification_provider=FakeNotificationProvider()))
+    _create_seller_invitation(conn, manager, tx_id)
+
+    resp = manager.get(f"/api/transactions/{tx_id}/invitations")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["participant_role"] == "seller"
+    assert body[0]["invited_email"] == "party@example.com"
+    assert body[0]["status"] == "pending"
+
+
+def test_list_invitations_forbidden_for_non_manager(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    outsider = TestClient(build_isolated_app(conn, actor("intruder", "entity-x")))
+    resp = outsider.get(f"/api/transactions/{tx_id}/invitations")
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "INVITATION_FORBIDDEN"
+
+
+def test_reissue_supersedes_old_token(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    manager = TestClient(build_isolated_app(conn, actor("u1"), notification_provider=FakeNotificationProvider()))
+    old_token = _create_seller_invitation(conn, manager, tx_id)
+    old_invitation_id = conn.execute(
+        "SELECT id FROM transaction_invitations WHERE transaction_id = ?", (tx_id,)
+    ).fetchone()["id"]
+
+    reissue_resp = manager.post(
+        f"/api/transactions/{tx_id}/invitations/{old_invitation_id}/reissue"
+    )
+    assert reissue_resp.status_code == 200
+    new_token = reissue_resp.json()["invite_link"].split("/api/invitations/")[1].split("/accept")[0]
+    assert new_token != old_token
+
+    # Eski davet supersede edildi (revoked); yeni davet pending.
+    statuses = {
+        row["id"]: row["status"]
+        for row in conn.execute(
+            "SELECT id, status FROM transaction_invitations WHERE transaction_id = ?", (tx_id,)
+        ).fetchall()
+    }
+    assert statuses[old_invitation_id] == "revoked"
+
+    create_test_user(conn, email_normalized="party@example.com", user_id="u2")
+    create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
+    conn.commit()  # başarısız accept isteği conn'u rollback etmesin (isolated app get_db)
+    acceptor = TestClient(build_isolated_app(conn, actor("u2", "entity-2")))
+
+    # Eski token artık accept edilemez; taze token bağlanır.
+    old_accept = acceptor.post(f"/api/invitations/{old_token}/accept", json={"legal_entity_id": "entity-2"})
+    assert old_accept.status_code == 409
+    new_accept = acceptor.post(f"/api/invitations/{new_token}/accept", json={"legal_entity_id": "entity-2"})
+    assert new_accept.status_code == 200
+    assert new_accept.json()["legal_entity_id"] == "entity-2"
+
+
+def test_reissue_after_bind_conflicts(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+    manager = TestClient(build_isolated_app(conn, actor("u1"), notification_provider=FakeNotificationProvider()))
+    token = _create_seller_invitation(conn, manager, tx_id)
+    invitation_id = conn.execute(
+        "SELECT id FROM transaction_invitations WHERE transaction_id = ?", (tx_id,)
+    ).fetchone()["id"]
+    create_test_user(conn, email_normalized="party@example.com", user_id="u2")
+    create_test_membership(conn, user_id="u2", legal_entity_id="entity-2")
+    TestClient(build_isolated_app(conn, actor("u2", "entity-2"))).post(
+        f"/api/invitations/{token}/accept", json={"legal_entity_id": "entity-2"}
+    )
+
+    # Seller rolü bağlandıktan sonra reissue reddedilir (role already bound).
+    resp = manager.post(f"/api/transactions/{tx_id}/invitations/{invitation_id}/reissue")
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "INVITATION_ROLE_ALREADY_BOUND"
+
+
 def test_revoke_invitation_by_unrelated_user_returns_403(conn) -> None:
     tx_id = create_test_transaction(conn)
     participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")

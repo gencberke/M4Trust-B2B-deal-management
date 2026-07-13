@@ -79,6 +79,7 @@ class Settings:
     video_provider: str = "fake"                      # "fake" (demo-güvenli) | "roboflow" (canlı)
     roboflow_api_key: str = ""
     demo_public_dashboard: bool = False                # demo günü açık liste görünümü
+    demo_tools_enabled: bool = False                   # gizli demo araçları (router flag arkasında)
     app_encryption_key: str = ""                       # base64, 32 byte (AES-256-GCM) — legal_entities tax ID
     app_hmac_key: str = ""                             # base64 — tax identifier lookup HMAC-SHA256
     session_cookie_secure: bool = False                # prod'da true; local http demo'da false
@@ -147,6 +148,7 @@ class Settings:
             video_provider=_env("VIDEO_PROVIDER", "fake", dotenv),
             roboflow_api_key=_env("ROBOFLOW_API_KEY", "", dotenv),
             demo_public_dashboard=_env_bool("DEMO_PUBLIC_DASHBOARD", False, dotenv),
+            demo_tools_enabled=_env_bool("DEMO_TOOLS_ENABLED", False, dotenv),
             app_encryption_key=_env("APP_ENCRYPTION_KEY", "", dotenv),
             app_hmac_key=_env("APP_HMAC_KEY", "", dotenv),
             session_cookie_secure=_env_bool("SESSION_COOKIE_SECURE", False, dotenv),
@@ -232,6 +234,7 @@ class Settings:
             f"moka_contract_profile={self.moka_contract_profile!r}, "
             f"video_provider={self.video_provider!r}, roboflow_api_key={roboflow_masked!r}, "
             f"demo_public_dashboard={self.demo_public_dashboard!r}, "
+            f"demo_tools_enabled={self.demo_tools_enabled!r}, "
             f"db_path={str(self.db_path)!r}, "
             f"validator_confidence_threshold={self.validator_confidence_threshold!r}, "
             f"video_advisory_confidence_threshold="

@@ -22,8 +22,10 @@ from uuid import uuid4
 
 from backend.app.config import Settings
 from backend.app.repositories import documents as documents_repo
+from backend.app.repositories import entities as entities_repo
 from backend.app.repositories import milestones as milestones_repo
 from backend.app.repositories import participants as participants_repo
+from backend.app.repositories import users as users_repo
 from backend.app.schemas.extraction import ExtractionJSON, RequiredEvidence
 from backend.app.schemas.payments import FundingScheduleSpec
 from backend.app.schemas.tracking import TrackingMode
@@ -84,6 +86,48 @@ class DemoParties:
 
     buyer: DemoEntityRef
     seller: DemoEntityRef
+
+
+# Seed'li demo kimlikleri — `scripts/seed_demo_users.py` ile e-posta/legal_name
+# olarak eşleşir; buyer=işlemi başlatan/manager, seller=karşı taraf.
+_SEED_BUYER = {
+    "email": "berke@m4trust.demo",
+    "legal_name": "ABC Sanayi ve Ticaret A.Ş.",
+    "tax_id": "1111111111",
+}
+_SEED_SELLER = {
+    "email": "yusuf@m4trust.demo",
+    "legal_name": "XYZ Lojistik Ltd. Şti.",
+    "tax_id": "2222222222",
+}
+
+
+def _resolve_seed_ref(conn: Connection, spec: dict) -> DemoEntityRef:
+    normalized = normalize_email(spec["email"])
+    user = users_repo.get_user_by_email(conn, normalized)
+    if user is None:
+        raise DemoScenarioError(
+            f"Seed'li demo user bulunamadı: {normalized} (önce seed_demo_users çalıştırın)."
+        )
+    entities = entities_repo.list_entities_for_user(conn, user["id"])
+    entity = next((row for row in entities if row["legal_name"] == spec["legal_name"]), None)
+    if entity is None:
+        raise DemoScenarioError(f"Seed'li demo entity bulunamadı: {spec['legal_name']}.")
+    return DemoEntityRef(
+        user_id=user["id"],
+        entity_id=entity["id"],
+        email=normalized,
+        display_name=spec["legal_name"],
+        tax_id=spec["tax_id"],
+    )
+
+
+def resolve_seeded_demo_parties(conn: Connection) -> DemoParties:
+    """Seed'li Berke/Yusuf + ABC/XYZ'den `DemoParties` çözer (CLI + demo router paylaşır)."""
+    return DemoParties(
+        buyer=_resolve_seed_ref(conn, _SEED_BUYER),
+        seller=_resolve_seed_ref(conn, _SEED_SELLER),
+    )
 
 
 def _actor(ref: DemoEntityRef) -> ActorContext:
