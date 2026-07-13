@@ -6,7 +6,7 @@ import { SectionNav, type SectionNavItem } from "./SectionNav";
 import { StatusBadge } from "./StatusBadge";
 import { LifecycleStepper } from "./LifecycleStepper";
 import { formatDateTime, shortId } from "../lib/format";
-import { inferLifecycleRole, lifecycleFor, transactionStateMap, type LifecycleDescriptor, type LifecycleRole } from "../lib/lifecycle";
+import { inferLifecycleRole, lifecycleFor, lifecycleSectionState, transactionStateMap, type LifecycleDescriptor, type LifecycleRole } from "../lib/lifecycle";
 import { useAsyncData } from "../lib/useAsyncData";
 import { useEntities } from "../entities/EntityContext";
 import type { ApiClientError } from "../api/client";
@@ -116,7 +116,7 @@ export function TransactionShell() {
       <div className="mb-6 space-y-4">
         <LifecycleStepper lifecycle={lifecycle} />
       </div>
-      <SectionNav sections={SECTIONS} basePath={`/transactions/${data.id}`} />
+      <SectionNav sections={SECTIONS.map((section) => ({ ...section, ...lifecycleSectionState(section.slug, lifecycle) }))} basePath={`/transactions/${data.id}`} />
       <div className="mt-6">
         <Outlet key={selectedEntityId} context={context} />
       </div>

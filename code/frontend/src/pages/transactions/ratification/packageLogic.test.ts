@@ -3,11 +3,26 @@ import { describe, expect, it } from "vitest";
 import type { CanonicalPackagePayload } from "../../../types/ratification";
 import {
   buildSpecFromForm,
+  packageReadinessItems,
   RATIFY_NETWORK_WARNING,
   ratifyErrorMessage,
   readinessChecklist,
   scheduleRows,
 } from "./packageLogic";
+
+describe("packageReadinessItems", () => {
+  it("backend hazırlık kapılarını mevcut projection'lardan aynalar", () => {
+    const detail = { state: "awaiting_ratification", extraction: {}, validator: { status: "PASS" } } as never;
+    const policy = { tracking_policy: { status: "locked" } } as never;
+    const pkg = { status: "open", canonical_payload: { funding_schedule: { milestones: [{}] } } } as never;
+    expect(packageReadinessItems(detail, policy, pkg).every((item) => item.ready)).toBe(true);
+  });
+
+  it("awaiting_review durumunda blocking review satırını hazır göstermez", () => {
+    const items = packageReadinessItems({ state: "awaiting_review", extraction: null, validator: null } as never, null, null);
+    expect(items.find((item) => item.key === "reviews")?.ready).toBe(false);
+  });
+});
 
 describe("readinessChecklist", () => {
   it("bilinen kodları Türkçe satıra çevirir", () => {

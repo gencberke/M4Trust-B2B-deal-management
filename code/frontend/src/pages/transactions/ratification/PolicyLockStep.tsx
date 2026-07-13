@@ -1,0 +1,8 @@
+import { LoadingPanel, Notice, RetryPanel } from "../../../components/Feedback";
+import type { ApiClientError } from "../../../api/client";
+import type { TrackingMode, TrackingPolicyView } from "../../../types/tracking";
+import { PolicyPanel } from "./PolicyPanel";
+
+export function PolicyLockStep({ view, loading, loadError, busy, error, onRefresh, onSave, onLock }: { view: TrackingPolicyView | null; loading: boolean; loadError: ApiClientError | null; busy: boolean; error: string | null; onRefresh: () => void; onSave: (confirmed: boolean, mode: TrackingMode) => void; onLock: () => void; }) {
+  return <section className="card-surface space-y-4 p-5 sm:p-6"><header className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-primary text-sm font-bold text-white">1</span><div><h2 className="text-lg font-bold text-heading">Politikayı kilitle</h2><p className="text-sm text-muted">Teslimat takibini seçin ve onay paketinden önce değişmez hale getirin.</p></div></header>{loading && !view ? <LoadingPanel label="Takip politikası yükleniyor…" /> : loadError && !view ? loadError.kind === "permission_denied" ? <Notice tone="danger">Takip politikasını görme veya yönetme yetkiniz yok.</Notice> : <RetryPanel title="Takip politikası yüklenemedi" message={loadError.userMessage} retrying={loading} onRetry={onRefresh} /> : view ? <PolicyPanel key={`${view.tracking_policy.configured_at}-${view.tracking_policy.locked_at}`} view={view} busy={busy} error={error} onSave={onSave} onLock={onLock} /> : <Notice tone="info">Takip politikası henüz oluşturulmadı.</Notice>}</section>;
+}

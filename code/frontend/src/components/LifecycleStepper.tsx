@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { LIFECYCLE_STEPS, type LifecycleDescriptor, type LifecycleRole } from "../lib/lifecycle";
 
 export function LifecycleStepper({ lifecycle }: { lifecycle: LifecycleDescriptor }) {
-  return <section aria-label="İşlem yaşam döngüsü" className="card-surface overflow-x-auto p-5 sm:p-6"><ol className="flex min-w-[44rem] items-start" data-testid="lifecycle-stepper">
+  return <section aria-label="İşlem yaşam döngüsü" className="card-surface max-w-full overflow-x-auto p-5 [scrollbar-width:thin] sm:p-6"><ol className="flex min-w-[44rem] items-start" data-testid="lifecycle-stepper">
     {LIFECYCLE_STEPS.map((label, index) => { const complete = index < lifecycle.stepIndex || Boolean(lifecycle.terminal && lifecycle.tone === "success"); const active = index === lifecycle.stepIndex && !complete; return <li key={label} className="flex min-w-24 flex-1 items-start last:min-w-20"><div className="flex flex-col items-center text-center"><span aria-current={active ? "step" : undefined} className={["grid size-8 place-items-center rounded-full text-xs font-bold", complete ? "bg-positive text-white" : active ? "bg-primary text-white shadow-sm" : "bg-subtle text-muted"].join(" ")}>{complete ? "✓" : index + 1}</span><span className={active ? "mt-2 text-xs font-semibold text-primary" : "mt-2 text-xs font-medium text-muted"}>{label}</span></div>{index < LIFECYCLE_STEPS.length - 1 ? <span className={complete ? "mt-4 h-0.5 min-w-5 flex-1 bg-positive" : "mt-4 h-0.5 min-w-5 flex-1 bg-border"} /> : null}</li>; })}
   </ol></section>;
 }

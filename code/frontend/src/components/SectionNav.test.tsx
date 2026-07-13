@@ -33,4 +33,11 @@ describe("SectionNav", () => {
     );
     expect(screen.getByRole("navigation", { name: "İşlem bölümleri" })).toBeTruthy();
   });
+
+  it("badge ve muted sekmeyi gösterirken linki tıklanabilir bırakır", () => {
+    render(<MemoryRouter initialEntries={["/transactions/tx-1/overview"]}><SectionNav sections={[{ slug: "fulfillment", label: "Teslimat", badge: "waiting", muted: true }]} basePath="/transactions/tx-1" /></MemoryRouter>);
+    const link = screen.getByRole("link", { name: /Teslimat/ });
+    expect(link.getAttribute("href")).toBe("/transactions/tx-1/fulfillment");
+    expect(screen.getByText("Bekliyor")).toBeTruthy();
+  });
 });

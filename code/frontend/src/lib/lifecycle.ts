@@ -4,6 +4,7 @@ import type { AccountState, RedactedExtraction } from "../types/transactions";
 export const LIFECYCLE_STEPS = ["Yükleme", "Taraflar", "Politika", "Onay", "Fonlama", "Teslimat", "Kapanış"] as const;
 export type LifecycleRole = "buyer" | "seller" | "manager" | "reviewer" | "unknown";
 export type LifecycleSection = "overview" | "parties" | "rules" | "ratification" | "fulfillment" | "payments";
+export type LifecycleNavBadge = "action" | "waiting" | "done";
 export interface LifecycleNextAction { label: string; targetSection: LifecycleSection; role: LifecycleRole | "counterparty" | "system" | "none"; blockedReason?: string; }
 export interface LifecycleDescriptor extends StatusDescriptor { stepIndex: number; stepLabel: (typeof LIFECYCLE_STEPS)[number]; description: string; nextAction: LifecycleNextAction; terminal?: boolean; }
 
@@ -48,4 +49,14 @@ export function inferLifecycleRole(entityName: string | null | undefined, extrac
   if (extraction.parties.buyer.name?.trim().toLocaleLowerCase("tr-TR") === normalized) return "buyer";
   if (extraction.parties.seller.name?.trim().toLocaleLowerCase("tr-TR") === normalized) return "seller";
   return "manager";
+}
+
+const SECTION_STEP: Record<string, number> = { overview: 0, parties: 1, rules: 2, ratification: 3, payments: 4, fulfillment: 5, disputes: 5 };
+export function lifecycleSectionState(section: string, lifecycle: LifecycleDescriptor): { badge?: LifecycleNavBadge; muted: boolean } {
+  const step = SECTION_STEP[section];
+  if (step === undefined) return { muted: true };
+  if (section === lifecycle.nextAction.targetSection) return { badge: lifecycle.nextAction.role === "counterparty" ? "waiting" : "action", muted: false };
+  if (step < lifecycle.stepIndex || lifecycle.terminal) return { badge: "done", muted: false };
+  if (step > lifecycle.stepIndex) return { badge: "waiting", muted: true };
+  return { muted: false };
 }

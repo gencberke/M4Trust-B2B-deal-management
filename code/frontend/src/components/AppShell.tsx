@@ -33,7 +33,7 @@ export function AppShell() {
             </span>
           </NavLink>
 
-          <nav className="flex items-center gap-1">
+          <nav className="flex w-full flex-wrap items-center justify-between gap-1 sm:w-auto sm:justify-start">
             <NavLink to="/" className={navClass}>Ana sayfa</NavLink>
             {user ? <NavLink to="/transactions" className={navClass}>İşlemler</NavLink> : null}
             {user ? <NavLink to="/me" className={navClass}>Hesabım</NavLink> : null}
