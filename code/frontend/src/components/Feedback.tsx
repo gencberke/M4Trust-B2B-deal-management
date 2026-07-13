@@ -83,6 +83,22 @@ export function LoadingPanel({ label = "Yükleniyor…" }: { label?: string }) {
   );
 }
 
+export function Skeleton({ className = "h-4 w-full" }: { className?: string }) {
+  return <span aria-hidden="true" className={`block animate-pulse rounded-xl bg-slate-200 ${className}`} />;
+}
+
+export function SkeletonRows({ rows = 4 }: { rows?: number }) {
+  return <div className="card-surface space-y-3 p-5" role="status" aria-label="İçerik yükleniyor">{Array.from({ length: rows }, (_, index) => <div key={index} className="grid grid-cols-[5rem_1fr_7rem] gap-4"><Skeleton /><Skeleton /><Skeleton /></div>)}</div>;
+}
+
+export function SkeletonCards({ cards = 3 }: { cards?: number }) {
+  return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" role="status" aria-label="Kartlar yükleniyor">{Array.from({ length: cards }, (_, index) => <div key={index} className="card-surface space-y-4 p-5"><Skeleton className="h-3 w-24" /><Skeleton className="h-8 w-2/3" /><Skeleton /></div>)}</div>;
+}
+
+export function TransactionShellSkeleton() {
+  return <div className="space-y-6" role="status" aria-label="İşlem yükleniyor"><Skeleton className="h-4 w-28" /><Skeleton className="h-10 w-64" /><Skeleton className="h-20 w-full" /><SkeletonRows rows={3} /></div>;
+}
+
 export function RetryPanel({
   title,
   message,
