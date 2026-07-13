@@ -3,6 +3,7 @@ import type {
   InvitationAcceptRequest,
   InvitationCreateRequest,
   InvitationCreateResult,
+  InvitationListItem,
   InvitationPreview,
   Participant,
 } from "../types/participants";
@@ -43,6 +44,25 @@ export function revokeInvitation(
 ): Promise<{ status: string }> {
   return apiRequest<{ status: string }>(
     `/transactions/${encodeURIComponent(transactionId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
+    { method: "POST", csrf: true, redirectOnError: false },
+  );
+}
+
+// Creator-scoped davet listesi (Plan 14 / P2) — token/hash içermez.
+export function listInvitations(transactionId: string): Promise<InvitationListItem[]> {
+  return apiRequest<InvitationListItem[]>(
+    `/transactions/${encodeURIComponent(transactionId)}/invitations`,
+    { redirectOnError: false },
+  );
+}
+
+// Daveti supersede ederek taze bir davet linkini bir kez döndürür (Plan 14 / P2).
+export function reissueInvitation(
+  transactionId: string,
+  invitationId: string,
+): Promise<InvitationCreateResult> {
+  return apiRequest<InvitationCreateResult>(
+    `/transactions/${encodeURIComponent(transactionId)}/invitations/${encodeURIComponent(invitationId)}/reissue`,
     { method: "POST", csrf: true, redirectOnError: false },
   );
 }
