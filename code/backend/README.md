@@ -16,6 +16,10 @@ Generate independent 32-byte base64 values for `APP_ENCRYPTION_KEY` and `APP_HMA
 
 Startup applies migrations `001, 003–025` in registry order (`002` is intentionally unused), marks stale operational jobs recoverable without calling providers, and exposes `GET /health`. Use one application worker while SQLite is the runtime database.
 
+## Local demo tools
+
+Demo router production yüzeyinden ayrıdır ve varsayılan olarak kapalıdır. Yerel gösterim için `code/.env` içinde `DEMO_TOOLS_ENABLED=true` ve `SESSION_COOKIE_SECURE=false` kullanın, ardından `python scripts/seed_demo_scenarios.py` çalıştırın. Bu script demo kullanıcı/entity fixture'larını ve altı adlandırılmış transaction state'ini idempotent üretir. `SESSION_COOKIE_SECURE=true` ile demo router mount edilmez; flag kapalıyken `/api/demo/*` OpenAPI'de de bulunmaz. Demo araçları business state'i ham SQL ile zorlamaz ve yalnız gerçek servis orkestrasyonunu kullanır.
+
 ## Verification
 
 ```powershell

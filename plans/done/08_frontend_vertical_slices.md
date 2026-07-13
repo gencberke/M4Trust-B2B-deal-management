@@ -1,6 +1,6 @@
 # 08 — Frontend Vertical Slices (Program 6)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.13, Program 6 · Moka §20 (trace panel)
+> **Durum:** Uygulandı — 2026-07-12 · Sapmalar: Bu ilk dikey dilim planı, Faz 8A foundation ve `08_frontend_completion_master_plan.md` altındaki 8B1/8B2/8C uygulama planlarıyla ayrıntılandırılıp tamamlandı; dosyadaki “frontend boş” başlangıç bağlamı tarihsel snapshot olarak korunur. · **Master ref:** v2 §2.13, Program 6 · Moka §20 (trace panel)
 > **Bağımlılık:** Slice 1 için 03; sonraki slice'lar ilgili backend programı bittikçe. **03'ten itibaren backend programlarıyla PARALEL yürüyebilir** (contract frozen olduğu sürece) — Yusuf'un Wave'lerdeki "frontend consumer" opsiyonu budur.
 > **Branch'ler:** Yusuf lead — `feat/frontend-foundation`, sonra `feat/ui-slice-N-*` · Berke: yalnız backend static-serve kararı + PR review (frontend dosyalarına commit atmaz)
 > **Tahmin:** slice başına 1-2 gün

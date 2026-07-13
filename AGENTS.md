@@ -25,7 +25,8 @@ diagram/          akış diyagramları (PNG)
 code/scripts/     offline RAG hazırlığı (chunk + embed — çalışır durumda)
 code/data/        mevzuat korpusu (Chroma index hazır) + 31 ham sözleşme PDF'i
 code/backend/     FastAPI servisi (kuruldu: app + db + eventbus + router'lar + servisler)
-code/frontend/    React + Vite + Tailwind (ARCHITECTURE §1'e göre kurulacak)
+code/frontend/    React + Vite + TypeScript + Tailwind SPA (Faz 8A-8C + Plan 14 tamamlandı)
+local-llm-benchmark/  BERTurk/Qwen/DeepSeek/Llama extraction benchmark notebook'u (Ar-Ge eki)
 ```
 
 ## Değişmez ilkeler (tam liste: ARCHITECTURE.md §6)
@@ -59,7 +60,8 @@ Dokümantasyonu eskiten bir iş, doc-sync yapılmadan "bitti" sayılmaz.
 - **Plan 14 frontend F1 (2026-07-13):** account işlem yaşam döngüsünün UI etiketi, stepper adımı ve rol-farkındalıklı sıradaki aksiyonu `code/frontend/src/lib/lifecycle.ts` saf haritasından türetilir; arayüz self-host Urbanist, açık `#f1f3f7` zemin, beyaz kart, `#3e30d9` primary ve `#51b206` positive token temasındadır.
 
 - Chroma index: `code/data/processed/embeddings/chroma/` — iki embed'li koleksiyon: `legal_articles` (891 vektör: TBK, 6493, 5549, KVKK, Yönetmelik, Tebliğ) ve `contract_examples` (395 vektör, 31 örnek sözleşme, few-shot yapısal referans). Üçüncü koleksiyon **`security_controls`** (PCI DSS kontrol haritası) için chunk'lar hazır (`data/processed/chunks/security/pci_dss_control_map.json`, 6 kontrol + 1 intro) ama **henüz embed edilmedi** (ağır RAG deps yoktu; `build_rag.py` çalıştırıldığında oluşur). Sorgular da BGE-M3 ile encode edilmelidir.
-- İki TCMB metni (Yönetmelik + Tebliğ) `code/data/raw/legal/` altına eklendi, chunk'landı ve embed edildi — bkz. [plans/ready/regulasyon_rag_genisletmesi.md](plans/done/regulasyon_rag_genisletmesi.md).
+- İki TCMB metni (Yönetmelik + Tebliğ) `code/data/raw/legal/` altına eklendi, chunk'landı ve embed edildi — bkz. [plans/done/regulasyon_rag_genisletmesi.md](plans/done/regulasyon_rag_genisletmesi.md).
+- **Açık kaynak LLM benchmark eki:** `local-llm-benchmark/m4trust_open_source_llm_benchmark.ipynb`, M4Trust extraction şemasını BERTurk ve opsiyonel Qwen/DeepSeek/Llama runner'larıyla karşılaştırır; runtime backend akışının parçası değildir ve ödeme kararı üretmez.
 - `code/scripts/convert_documents.py` dolduruldu (`code/scripts/document_parser/`: PyMuPDF/python-docx/Tesseract, Clean Architecture, testli). İş sıralaması için [YOL_HARITASI.md](YOL_HARITASI.md).
 - **AI extraction hattı uygulandı** (2026-07-08, [plans/done/ai_extraction_hatti.md](plans/done/ai_extraction_hatti.md)): `code/backend/app/` altında `config.py`, `schemas/extraction.py` (§4.2 donmuş Pydantic ikili sözleşme), `services/rag.py` (BGE-M3+Chroma, lazy), `services/privacy.py` (minimal PII mask/restore, §6.7), `services/extraction.py` (Fake + canlı OpenAI-uyumlu). `scripts/extract_contract.py` artık dolu (CLI: convert→mask→retrieve→extract→restore). LLM `gpt-5.4-mini`, `LLM_PROVIDER=fake|openai` (default `fake`); canlı çağrı için `code/backend/.env.example`'ı `code/.env`'e kopyalayıp `LLM_*` doldur.
 - **RAG ContextBuilder + kart-verisi guardrail uygulandı** (2026-07-09, [plans/done/rag_context_builder_ve_guvenlik_katmani.md](plans/done/rag_context_builder_ve_guvenlik_katmani.md)): `services/context_builder.py` (çoklu-query/çoklu-koleksiyon orkestrasyon → `ContextPack`, §3.2); `ExtractionService.extract()` imzası `context: ContextPack | None`'a geçti (§3.1); `services/privacy.py`'ye `analyze()/PrivacyReport` (PAN+Luhn/CVV/track/PIN, kart placeholder'ı restore edilmez, SAD → blocking, §3.5); `config.security_collection`; `build_rag.py` `security/` → `security_controls` dalı; `scripts/extract_contract.py` CLI: convert→**analyze**→ContextBuilder→extract→restore + blocking'de canlı LLM atlanır + "dayanaklar" özeti (stderr). `--collection` **deprecated** (verilirse tek-koleksiyon debug bypass). §4.2 şeması **değişmedi**.

@@ -1,17 +1,22 @@
-# M4Trust Frontend — Faz 8A + 8B1/8B2
+# M4Trust Frontend — Faz 8A-8C + Plan 14
 
 React + Vite + TypeScript + Tailwind + React Router tabanı. Faz 8A auth/session ve tüzel kişi temelini; Faz 8B1/8B2 işlem, kural ve ratifikasyon akışlarını; Faz 8C teslimat kanıtı, snapshot, itiraz ve ödeme operasyonlarını sağlar.
 
-## Faz 8B rotaları
+## Uygulama rotaları
 
 - `/transactions` — yalnız taraf/yönetici olduğunuz işlemlerin listesi.
 - `/transactions/new` — sözleşme yükleme + `account_v2` işlem oluşturma (multipart; başarıda tek seferlik davet bağlantısı).
 - `/transactions/:id` — detay kabuğu; `overview`'e yönlenir. Bölümler: `overview`, `parties`, `rules`, `ratification`, `fulfillment` (backend milestone/funding-unit projeksiyonu, e-irsaliye/video, bundle/snapshot), `disputes` ve `payments` (mutabakat, release retry, bilateral undo/refund, redacted trace).
+- `/demo` — `DEMO_TOOLS_ENABLED=true` ve authenticated session olduğunda görünen senaryo matrisi; işlem detayındaki DemoPanel ile aynı `/api/demo/status` probe gate'ini kullanır.
+- `/invitations/:token` — public davet önizlemesi + giriş yapıldığında kabul. Davet token'ı yalnız bu rotada taşınır; başka hiçbir yere yazılmaz veya loglanmaz.
 
-## Demo senaryosu
+## Demo senaryoları (Plan 14)
 
-`code/.env` güvenlik anahtarlarını ayarlayın, `scripts/seed_demo_users.py` ile Berke/Yusuf kullanıcılarını seed edin. HTTP Moka demosu için bir terminalde `backend.mock_moka.app:app --port 8001`, diğerinde ana backend'i `PAYMENT_PROVIDER=moka_http` ve `MOKA_BASE_URL=http://127.0.0.1:8001` ile çalıştırın; frontend `npm run dev` ile açılır. Belirsiz create senaryosunda yalnız demo mock ortamında `DEMO-TOKEN-TIMEOUT-AFTER-CREATE` kullanılır. Akış: işlem oluştur → tarafları onayla → politika kilitle → paket oluştur/iki taraf ratify → fulfillment kanıtı → gerekirse itiraz → payments mutabakat/çözüm. `unknown` provider sonucu başarı veya hata sayılmaz; önce yenileme ve mutabakat gerekir.
-- `/invitations/:token` — public davet önizlemesi + giriş yapılınca kabul. Davet token'ı yalnız bu rotada taşınır; başka hiçbir yere yazılmaz/loglanmaz.
+`code/.env` içinde `APP_ENCRYPTION_KEY`, `APP_HMAC_KEY`, `SESSION_COOKIE_SECURE=false` ve `DEMO_TOOLS_ENABLED=true` ayarlanır. Ardından `code/` içinden `python scripts/seed_demo_scenarios.py` çalıştırılır; script Berke/Yusuf kullanıcılarını ve ABC/XYZ entity'lerini idempotent seed eder, `awaiting_review`, `awaiting_ratification`, `active`, `active_partial`, `settled` ve `disputed` işlemlerini gerçek servis katmanlarıyla hazırlar. Frontend `npm run dev` ile açıldığında `/demo` senaryo matrisi ve işlem detayında `DemoPanel` görünür. Flag kapalıyken demo rotası, paneli ve ek demo network çağrıları görünmez.
+
+Demo hesapları: `berke@m4trust.demo` / `yusuf@m4trust.demo`; yerel seed parolası `Demo12345!`. Davet listesi normal ürün özelliğidir ve demo flag'inden bağımsızdır; reissue cevabındaki taze bağlantı yalnız bir kez gösterilir.
+
+HTTP Moka sözleşme demosu ayrıdır: bir terminalde `backend.mock_moka.app:app --port 8001`, diğerinde ana backend `PAYMENT_PROVIDER=moka_http` ve `MOKA_BASE_URL=http://127.0.0.1:8001` ile çalıştırılır. `unknown` provider sonucu başarı veya hata sayılmaz; önce yenileme ve mutabakat gerekir.
 
 ## Gereksinimler
 

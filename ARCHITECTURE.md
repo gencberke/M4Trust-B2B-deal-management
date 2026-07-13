@@ -39,13 +39,14 @@ code/
 │   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
 │   ├── schemas/      # extraction.py (ikili sözleşme) · tracking/identity/participants · rule_sets/reviews/ratification
 │   ├── routers/      # transactions (+ manager/policy uçları) · approvals · delivery · evidence · evidence_submit · disputes ·
-│   │                 # auth · entities · participants · invitations (Plan 03) · reviews · rule_sets · ratifications (Plan 04)
+│   │                 # auth · entities · participants · invitations · reviews · rule_sets · ratifications · demo_tools (env-gated)
 │   └── services/
 │       ├── documents/         # DocumentExtractor: pdf_digital · docx · ocr · normalizer
 │       ├── rag.py             # Chroma retrieval (BGE-M3 lazy singleton, düşük seviye)
 │       ├── context_builder.py # ContextBuilder: çoklu-query/çoklu-koleksiyon RAG orkestrasyonu → ContextPack
 │       ├── privacy.py         # maskeleme (mask/restore) + kart-verisi guardrail (analyze/PrivacyReport)
 │       ├── extraction.py      # ExtractionService: LLMClient + FakeExtractionService
+│       ├── demo_scenarios.py  # gerçek servislerle adlandırılmış demo state/senaryo orkestrasyonu
 │       ├── document_storage.py# DocumentStorageProvider + local immutable storage adapter'ı
 │       ├── transaction_pipeline.py # account/legacy extraction pipeline orkestrasyonu
 │       ├── rule_versions.py   # frozen RuleVersionService: immutable version + validator sonucu
@@ -74,10 +75,10 @@ code/
 │       ├── payment_provider.py# PaymentProvider: MockMokaProvider + RealMokaProvider(v1)
 │       └── evidence.py        # zaman damgalı JSON bundle (tracking policy snapshot'ı dahil)
 ├── backend/mock_moka/         # ayrı FastAPI process'i: contract-faithful local Moka simulator
-└── frontend/src/     # api/ · auth/ · entities/ · pages/ (+ pages/transactions/) · components/ (AppShell · TransactionShell · SectionNav · StatusBadge · Timeline · ConfirmDialog · ResponsiveTable · Feedback) · lib/ (useAsyncData · usePolling · format · statusMaps · eventLabels · inviteLink) · types/ · routes/
+└── frontend/src/     # api/ · auth/ · demo/ · entities/ · pages/ (+ transactions + /demo) · components/ (AppShell · TransactionShell · DemoPanel · LifecycleStepper · SectionNav · Feedback/skeleton) · lib/ · types/ · routes/
 ```
 
-> **Uygulama notu (2026-07-09):** `DocumentExtractor` şu an `services/documents/` altında değil — mevcut kod `code/scripts/document_parser/` içinde (Clean Architecture, testli); backend pipeline onu bir `sys.path` köprüsüyle import eder (bkz. `routers/transactions.py`). Yukarıdaki `services/documents/` hedef yapısı korunur; relokasyon ayrı bir iştir. Backend omurgası (`main`/`db`/`eventbus`/`routers`/`validator`/`decision`/`payment_provider`/`video`/`evidence`) kuruldu — [plans/done/backend_iskeleti_ve_islem_akisi.md](plans/done/backend_iskeleti_ve_islem_akisi.md).
+> **Uygulama notu (güncel):** `DocumentExtractor` mevcut kodda `code/scripts/document_parser/` içindedir (Clean Architecture); backend pipeline onu normal `scripts.document_parser` paket importuyla kullanır. Runtime'da test-only `sys.path` köprüsü yoktur. `services/documents/` hedef relokasyonu ayrı bir iştir. Backend omurgası için bkz. [plans/done/backend_iskeleti_ve_islem_akisi.md](plans/done/backend_iskeleti_ve_islem_akisi.md).
 
 > **Uygulama notu (2026-07-11, Plan 03):** Identity/session/legal-entity/membership + participant/invitation/audit + transaction ownership cutover kuruldu — [plans/done/03_identity_legal_entity_party_onboarding.md](plans/done/03_identity_legal_entity_party_onboarding.md). İki paralel `lifecycle_version` sistemi bir arada yaşıyor: **`legacy_v1`** (anonim capability-link, tüm mevcut davranış değişmedi) ve **`account_v2`** (authenticated session + legal entity + participant/invitation, capability token üretmez). `POST /api/transactions` iki modu da aynı uçta additive olarak sunar (§4.1). `main.py`'ye `auth`/`entities`/`participants`/`invitations` router'ları bu entegrasyon checkpoint'inde eklendi.
 
@@ -93,7 +94,7 @@ code/
 
 Frontend route'ları (legacy_v1, capability-token demo — değişmedi): `/t/:id` (işlem detayı, demo aksiyonları) · `/t/:id/party?token=…` (taraf görünümü: diff + kural özeti + takip özeti + onay) · `/t/:id/manager?token=…` (yönetici: fiziksel teslimat doğrulaması + takip modu + policy kilidi).
 
-Frontend route'ları (account_v2, authenticated session — Program 6): **Faz 8A** `/` · `/register` · `/login` · `/logout` · `/me` · `/entities/new` · `/entities/:entityId` · `/session-required` · `/permission-denied` · `/conflict`. **Faz 8B1/8B2:** `/transactions` · `/transactions/new` · `/transactions/:transactionId/{overview,parties,rules,ratification}` · `/invitations/:token`. **Faz 8C (2026-07-12):** `/transactions/:transactionId/fulfillment` (milestone/funding-unit read, evidence, bundle/snapshot) · `/transactions/:transactionId/disputes` · `/transactions/:transactionId/payments` (reconcile, release retry, payment resolutions, redacted trace).
+Frontend route'ları (account_v2, authenticated session — Program 6): **Faz 8A** `/` · `/register` · `/login` · `/logout` · `/me` · `/entities/new` · `/entities/:entityId` · `/session-required` · `/permission-denied` · `/conflict`. **Faz 8B1/8B2:** `/transactions` · `/transactions/new` · `/transactions/:transactionId/{overview,parties,rules,ratification}` · `/invitations/:token`. **Faz 8C (2026-07-12):** `/transactions/:transactionId/fulfillment` (milestone/funding-unit read, evidence, bundle/snapshot) · `/transactions/:transactionId/disputes` · `/transactions/:transactionId/payments` (reconcile, release retry, payment resolutions, redacted trace). **Plan 14:** `/demo` yalnız authenticated kullanıcı ve başarılı `GET /api/demo/status` probe'u ile görünür; `TransactionShell` içindeki DemoPanel de aynı gate'i kullanır.
 
 ## 2. Tech stack
 
@@ -169,7 +170,7 @@ PaymentProvider
 
 ### 3.5 Dış LLM'e giden içeriğin sınırlandırılması
 
-`privacy.py`, markdown dönüşümünden sonra kişisel/hassas alanları (TCKN/vergi no, IBAN, telefon, adres…) tespit edip maskeler; maskeleme haritası lokalde kalır. Regülatif dayanak: TCMB Tebliğ md.9/21, Yönetmelik md.21(7)/62 (bkz. `plans/ready/regulasyon_rag_genisletmesi.md`).
+`privacy.py`, markdown dönüşümünden sonra kişisel/hassas alanları (TCKN/vergi no, IBAN, telefon, adres…) tespit edip maskeler; maskeleme haritası lokalde kalır. Regülatif dayanak: TCMB Tebliğ md.9/21, Yönetmelik md.21(7)/62 (bkz. `plans/done/regulasyon_rag_genisletmesi.md`).
 
 **Uygulama durumu (2026-07-08):** `privacy.py` **minimal** implement edildi — regex tabanlı PII: TCKN (11 hane), VKN (10 hane), IBAN (`TR`+24, boşluk/tire ayraçlı formlar dahil), telefon, e-posta. `mask(text) → (masked_text, mapping)` + recursive `restore(obj, mapping)` (LLM çıktısındaki placeholder'lar lokalde orijinaline döndürülür). Kapsam bilinçli olarak dar: isim/adres gibi bağlam-bağımlı alanların NER'i ve bare-local telefon/VKN ayrımı sonraya bırakıldı. CLI hattında (`scripts/extract_contract.py`) mask, canlı LLM çağrısından **önce** çalışır (§6.7 sırası garanti).
 
