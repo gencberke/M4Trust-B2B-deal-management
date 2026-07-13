@@ -7,17 +7,19 @@ const DemoContext = createContext<DemoContextValue>({ enabled: false, loading: f
 
 export function DemoProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
-  const [enabled, setEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<{ userId: string; enabled: boolean } | null>(null);
   useEffect(() => {
     let active = true;
-    setEnabled(false);
     if (authLoading || !user) return () => { active = false; };
-    setLoading(true);
-    void probeDemoStatus().then((status) => { if (active) setEnabled(status?.demo_tools_enabled === true); })
-      .catch(() => { if (active) setEnabled(false); }).finally(() => { if (active) setLoading(false); });
+    void probeDemoStatus().then((result) => {
+      if (active) setStatus({ userId: user.id, enabled: result?.demo_tools_enabled === true });
+    }).catch(() => {
+      if (active) setStatus({ userId: user.id, enabled: false });
+    });
     return () => { active = false; };
   }, [authLoading, user]);
+  const enabled = Boolean(user && status?.userId === user.id && status.enabled);
+  const loading = Boolean(authLoading || (user && status?.userId !== user.id));
   const value = useMemo(() => ({ enabled, loading }), [enabled, loading]);
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;
 }
