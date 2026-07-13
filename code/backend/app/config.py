@@ -54,6 +54,7 @@ class Settings:
     """Tüm runtime ayarları. `Settings.from_env()` ile env'den kurulur."""
 
     llm_provider: str = "fake"                       # "fake" (demo-güvenli) | "openai" (canlı)
+    llm_fake_profile: str = "approval"               # "approval" (default, bit-bit korunur) | "delivery"
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-5.4-mini"                  # ekip kararı; env ile override edilebilir
     llm_api_key: str = ""
@@ -115,6 +116,7 @@ class Settings:
         document_storage_dir = _env("DOCUMENT_STORAGE_DIR", "", dotenv)
         return cls(
             llm_provider=_env("LLM_PROVIDER", "fake", dotenv),
+            llm_fake_profile=_env("LLM_FAKE_PROFILE", "approval", dotenv),
             llm_base_url=_env("LLM_BASE_URL", "https://api.openai.com/v1", dotenv),
             llm_model=_env("LLM_MODEL", "gpt-5.4-mini", dotenv),
             llm_api_key=_env("LLM_API_KEY", "", dotenv),
@@ -213,7 +215,8 @@ class Settings:
         hmac_key_masked = "***" if self.app_hmac_key else ""
         smtp_password_masked = "***" if self.smtp_password else ""
         return (
-            f"Settings(llm_provider={self.llm_provider!r}, llm_base_url={self.llm_base_url!r}, "
+            f"Settings(llm_provider={self.llm_provider!r}, "
+            f"llm_fake_profile={self.llm_fake_profile!r}, llm_base_url={self.llm_base_url!r}, "
             f"llm_model={self.llm_model!r}, llm_api_key={llm_masked!r}, "
             f"llm_timeout={self.llm_timeout!r}, chroma_dir={str(self.chroma_dir)!r}, "
             f"rag_model_name={self.rag_model_name!r}, legal_collection={self.legal_collection!r}, "
