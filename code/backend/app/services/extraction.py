@@ -64,14 +64,23 @@ class ExtractionService(ABC):
 # fixture seçilir (env `LLM_FAKE_PROFILE`'ı override eder). Marker maskeleme kapsamı
 # dışıdır (PII değildir), bu yüzden masked_markdown'da korunur.
 _FAKE_PROFILE_MARKER = re.compile(r"\[\[m4trust-fake-profile:\s*(\w+)\s*\]\]")
-_KNOWN_FAKE_PROFILES = frozenset({"approval", "delivery"})
+# Env `LLM_FAKE_PROFILE` yalnız bu ikisini kabul eder (mevcut davranış korunur);
+# `review` gibi ek fixture'lar YALNIZ marker'la seçilebilir (demo senaryo motoru).
+_ENV_FAKE_PROFILES = frozenset({"approval", "delivery"})
 
 
 def _resolve_fake_profile(masked_markdown: str, default: str) -> str:
-    """Marker > env default; bilinmeyen profil güvenli biçimde approval'a düşer."""
+    """Marker > env default; bilinmeyen değer güvenli biçimde approval'a düşer.
+
+    Marker herhangi bir kayıtlı fixture profilini seçebilir; env default ise
+    yalnız approval|delivery vocabulary'siyle sınırlıdır.
+    """
     match = _FAKE_PROFILE_MARKER.search(masked_markdown or "")
-    candidate = match.group(1).lower() if match else (default or "approval").lower()
-    return candidate if candidate in _KNOWN_FAKE_PROFILES else "approval"
+    if match is not None:
+        candidate = match.group(1).lower()
+        return candidate if candidate in _FAKE_FIXTURES else "approval"
+    fallback = (default or "approval").lower()
+    return fallback if fallback in _ENV_FAKE_PROFILES else "approval"
 
 
 def _fake_fixture() -> ExtractionJSON:
@@ -154,9 +163,46 @@ def _fake_fixture_delivery() -> ExtractionJSON:
     )
 
 
+def _fake_fixture_review() -> ExtractionJSON:
+    """NEEDS_REVIEW üreten demo fixture'ı — `needs_manual_review=True`.
+
+    Yalnız `[[m4trust-fake-profile: review]]` marker'ıyla erişilir (env default
+    profil vocabulary'si approval|delivery'dir); demo senaryo motorunun
+    `awaiting_review` çıkmazını gerçek validator yoluyla kurmasına yarar.
+    """
+    return ExtractionJSON.model_validate(
+        {
+            "contract_id": "demo-sozlesme-review-001",
+            "parties": {
+                "buyer": {"name": "Örnek Alıcı A.Ş.", "tax_id": "1234567890"},
+                "seller": {"name": "Örnek Satıcı Ltd. Şti.", "tax_id": "9876543210"},
+            },
+            "commercial_terms": {
+                "currency": "TRY",
+                "total_amount": 100000.0,
+                "goods": [{"name": "Endüstriyel Pompa", "quantity": 10, "unit": "adet"}],
+                "delivery_deadline": "2026-09-01",
+            },
+            "payment_rules": [
+                {
+                    "milestone": "Sipariş onayı",
+                    "trigger": "approval",
+                    "percentage": 100.0,
+                    "required_evidence": ["contract"],
+                    "source_quote": "Tarafların onayıyla tutarın tamamı ödenir.",
+                    "confidence": 0.9,
+                },
+            ],
+            "risk_flags": [],
+            "needs_manual_review": True,
+        }
+    )
+
+
 _FAKE_FIXTURES = {
     "approval": _fake_fixture,
     "delivery": _fake_fixture_delivery,
+    "review": _fake_fixture_review,
 }
 
 
