@@ -7,6 +7,12 @@ export function LifecycleStepper({ lifecycle }: { lifecycle: LifecycleDescriptor
   </ol></section>;
 }
 
+export function MiniLifecycleStepper({ lifecycle }: { lifecycle: LifecycleDescriptor }) {
+  return <div aria-label={`${lifecycle.stepLabel}: ${lifecycle.label}`} className="flex items-center gap-1.5">
+    {LIFECYCLE_STEPS.map((step, index) => { const complete = index < lifecycle.stepIndex || Boolean(lifecycle.terminal && lifecycle.tone === "success"); const active = index === lifecycle.stepIndex && !complete; return <span key={step} title={step} className={["h-1.5 flex-1 rounded-full", complete ? "bg-positive" : active ? "bg-primary" : "bg-subtle"].join(" ")} />; })}
+  </div>;
+}
+
 export function NextActionCard({ transactionId, lifecycle, role }: { transactionId: string; lifecycle: LifecycleDescriptor; role: LifecycleRole }) {
   const waiting = lifecycle.nextAction.role === "counterparty"; const noAction = lifecycle.nextAction.role === "none" || lifecycle.nextAction.role === "system"; const prefix = waiting ? "Karşı taraf bekleniyor" : noAction ? "Durum" : "Senin aksiyonun";
   return <aside className="card-surface flex flex-col gap-4 border-l-4 border-l-primary p-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Sıradaki adım</p><h2 className="mt-2 text-lg font-semibold text-heading">{prefix}: {lifecycle.nextAction.label}</h2><p className="mt-1 text-sm leading-6 text-muted">{lifecycle.nextAction.blockedReason ?? lifecycle.description}</p></div>{!waiting && !noAction ? <Link className="button-primary shrink-0" to={`/transactions/${transactionId}/${lifecycle.nextAction.targetSection}`}>{lifecycle.nextAction.label}</Link> : null}<span className="sr-only">Aktör rolü: {role}</span></aside>;

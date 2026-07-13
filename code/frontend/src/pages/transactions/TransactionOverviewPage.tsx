@@ -3,20 +3,21 @@ import { useState } from "react";
 import { retryExtraction } from "../../api/transactions";
 import { ApiClientError, toApiClientError } from "../../api/client";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { NextActionCard } from "../../components/LifecycleStepper";
 import { KeyValueGrid, Notice } from "../../components/Feedback";
 import { ResponsiveTable } from "../../components/ResponsiveTable";
 import { StatusBadge } from "../../components/StatusBadge";
 import { Timeline } from "../../components/Timeline";
 import { useTransactionShell } from "../../components/TransactionShell";
-import { formatAmountMajor, formatDateTime, formatRatioPercent } from "../../lib/format";
+import { formatAmountMajor, formatRatioPercent } from "../../lib/format";
 import { validatorStatusMap } from "../../lib/statusMaps";
 import { usePolling } from "../../lib/usePolling";
 import type { ExtractionRetryResponse } from "../../types/transactions";
 import { FormError } from "../shared";
-import { safeEventItems, shouldPoll, stateNotice } from "./overviewProjection";
+import { safeEventItems, shouldPoll } from "./overviewProjection";
 
 export function TransactionOverviewPage() {
-  const { detail, refresh } = useTransactionShell();
+  const { detail, refresh, lifecycle, lifecycleRole } = useTransactionShell();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<ApiClientError | null>(null);
@@ -28,7 +29,6 @@ export function TransactionOverviewPage() {
     intervalMs: 4000,
   });
 
-  const notice = stateNotice(detail.state);
   const extraction = detail.extraction;
   const validator = detail.validator;
   const events = safeEventItems(detail.events);
@@ -55,7 +55,24 @@ export function TransactionOverviewPage() {
 
   return (
     <div className="space-y-8">
-      <Notice tone={notice.tone}>{notice.message}</Notice>
+      <NextActionCard transactionId={detail.id} lifecycle={lifecycle} role={lifecycleRole} />
+
+      <section className="space-y-4">
+        <h2 className="text-base font-semibold text-heading">İşlem özeti</h2>
+        <KeyValueGrid items={[
+          { label: "Durum", value: lifecycle.label },
+          { label: "Aktif adım", value: lifecycle.stepLabel },
+          { label: "Sözleşme No", value: extraction?.contract_id ?? "—" },
+          { label: "Alıcı", value: extraction?.parties.buyer.name ?? "—" },
+          { label: "Satıcı", value: extraction?.parties.seller.name ?? "—" },
+          { label: "Toplam tutar", value: extraction ? formatAmountMajor(extraction.commercial_terms.total_amount, extraction.commercial_terms.currency) : "—" },
+        ]} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold text-heading">Olay zaman çizelgesi</h2>
+        <Timeline emptyLabel="Henüz olay yok." items={events.map((item) => ({ id: item.id, title: item.title, tone: item.tone, timestamp: item.timestamp, children: item.details.length > 0 ? <ul className="space-y-0.5">{item.details.map((d) => <li key={d.label}><span className="text-muted">{d.label}:</span> {d.value}</li>)}</ul> : undefined }))} />
+      </section>
 
       {showRetry ? (
         <section className="rounded-3xl border border-border bg-card shadow-card p-6">
@@ -100,27 +117,7 @@ export function TransactionOverviewPage() {
 
       {extraction ? (
         <section className="space-y-4">
-          <h2 className="text-base font-semibold text-heading">Sözleşme özeti</h2>
-          <KeyValueGrid
-            items={[
-              { label: "Sözleşme No", value: extraction.contract_id },
-              { label: "Alıcı", value: extraction.parties.buyer.name ?? "—" },
-              { label: "Satıcı", value: extraction.parties.seller.name ?? "—" },
-              {
-                label: "Toplam tutar",
-                value: formatAmountMajor(
-                  extraction.commercial_terms.total_amount,
-                  extraction.commercial_terms.currency,
-                ),
-              },
-              {
-                label: "Teslim tarihi",
-                value: extraction.commercial_terms.delivery_deadline
-                  ? formatDateTime(extraction.commercial_terms.delivery_deadline)
-                  : "—",
-              },
-            ]}
-          />
+          <h2 className="text-base font-semibold text-heading">Sözleşme ayrıntıları</h2>
 
           <div>
             <h3 className="mb-2 text-sm font-medium text-body">Mal / hizmet kalemleri</h3>
@@ -195,29 +192,6 @@ export function TransactionOverviewPage() {
           )}
         </section>
       ) : null}
-
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold text-heading">Olay zaman çizelgesi</h2>
-        <Timeline
-          emptyLabel="Henüz olay yok."
-          items={events.map((item) => ({
-            id: item.id,
-            title: item.title,
-            tone: item.tone,
-            timestamp: item.timestamp,
-            children:
-              item.details.length > 0 ? (
-                <ul className="space-y-0.5">
-                  {item.details.map((d) => (
-                    <li key={d.label}>
-                      <span className="text-muted">{d.label}:</span> {d.value}
-                    </li>
-                  ))}
-                </ul>
-              ) : undefined,
-          }))}
-        />
-      </section>
 
       <ConfirmDialog
         open={dialogOpen}

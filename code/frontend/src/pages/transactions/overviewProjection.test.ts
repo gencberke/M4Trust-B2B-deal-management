@@ -1,37 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TransactionEvent } from "../../types/transactions";
-import { safeEventItems, shouldPoll, stateNotice } from "./overviewProjection";
-
-describe("stateNotice", () => {
-  const states = [
-    "preparation",
-    "uploaded",
-    "extracting",
-    "awaiting_review",
-    "awaiting_approval",
-    "awaiting_ratification",
-    "funding_pending",
-    "active",
-    "settled",
-    "rejected",
-    "cancelled",
-    "totally_unknown_state",
-  ] as const;
-
-  it("her state (bilinmeyen dahil) için metin döner", () => {
-    for (const state of states) {
-      const notice = stateNotice(state);
-      expect(notice.message.length).toBeGreaterThan(0);
-      expect(["info", "success", "warning", "danger"]).toContain(notice.tone);
-    }
-  });
-
-  it("rejected için danger, settled için success döner", () => {
-    expect(stateNotice("rejected").tone).toBe("danger");
-    expect(stateNotice("settled").tone).toBe("success");
-  });
-});
+import { safeEventItems, shouldPoll } from "./overviewProjection";
 
 describe("shouldPoll", () => {
   it("yalnız uploaded/extracting'te poll yapar", () => {

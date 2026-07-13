@@ -4,9 +4,9 @@ import { getTransaction } from "../api/transactions";
 import { EmptyState, LoadingPanel, Notice, PageHeading } from "./Feedback";
 import { SectionNav, type SectionNavItem } from "./SectionNav";
 import { StatusBadge } from "./StatusBadge";
-import { LifecycleStepper, NextActionCard } from "./LifecycleStepper";
+import { LifecycleStepper } from "./LifecycleStepper";
 import { formatDateTime, shortId } from "../lib/format";
-import { inferLifecycleRole, lifecycleFor, transactionStateMap } from "../lib/lifecycle";
+import { inferLifecycleRole, lifecycleFor, transactionStateMap, type LifecycleDescriptor, type LifecycleRole } from "../lib/lifecycle";
 import { useAsyncData } from "../lib/useAsyncData";
 import { useEntities } from "../entities/EntityContext";
 import type { ApiClientError } from "../api/client";
@@ -28,6 +28,8 @@ export interface TransactionShellContext {
   refresh: () => Promise<void>;
   loading: boolean;
   error: ApiClientError | null;
+  lifecycle: LifecycleDescriptor;
+  lifecycleRole: LifecycleRole;
 }
 
 /** Section sayfaları bu tiplenmiş yardımcıyla shell context'ine erişir. */
@@ -93,9 +95,9 @@ export function TransactionShell() {
     return <Notice tone="danger">İşlem yüklenemedi.</Notice>;
   }
 
-  const context: TransactionShellContext = { detail: data, refresh, loading, error };
   const lifecycleRole = inferLifecycleRole(selectedEntity.legal_name, data.extraction);
   const lifecycle = lifecycleFor(data.canonical_state ?? data.state, lifecycleRole);
+  const context: TransactionShellContext = { detail: data, refresh, loading, error, lifecycle, lifecycleRole };
 
   return (
     <>
@@ -113,7 +115,6 @@ export function TransactionShell() {
       </div>
       <div className="mb-6 space-y-4">
         <LifecycleStepper lifecycle={lifecycle} />
-        <NextActionCard transactionId={data.id} lifecycle={lifecycle} role={lifecycleRole} />
       </div>
       <SectionNav sections={SECTIONS} basePath={`/transactions/${data.id}`} />
       <div className="mt-6">
