@@ -22,14 +22,14 @@ export function ResponsiveTable({
   emptyLabel: string;
 }) {
   if (rows.length === 0) {
-    return <p className="text-sm text-slate-400">{emptyLabel}</p>;
+    return <p className="text-sm text-muted">{emptyLabel}</p>;
   }
   return (
-    <div className="overflow-x-auto rounded-2xl border border-white/10">
+    <div className="overflow-x-auto rounded-2xl border border-border">
       <table className="w-full min-w-[32rem] border-collapse text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b border-white/10 bg-white/5 text-left text-xs uppercase tracking-wide text-slate-400">
+          <tr className="border-b border-border bg-card shadow-card text-left text-xs uppercase tracking-wide text-muted">
             {head.map((label) => (
               <th key={label} scope="col" className="px-4 py-3 font-medium">
                 {label}
@@ -39,9 +39,9 @@ export function ResponsiveTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.key} className="border-b border-white/5 last:border-0">
+            <tr key={row.key} className="border-b border-border last:border-0">
               {row.cells.map((cell, index) => (
-                <td key={index} className="px-4 py-3 align-top text-slate-200">
+                <td key={index} className="px-4 py-3 align-top text-body">
                   {cell}
                 </td>
               ))}

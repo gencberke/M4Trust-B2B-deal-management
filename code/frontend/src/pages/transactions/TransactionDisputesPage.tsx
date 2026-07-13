@@ -48,8 +48,8 @@ function DisputeActionForm({
   }
 
   return (
-    <div className="grid gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 sm:grid-cols-2">
-      <label className="text-xs text-slate-400">
+    <div className="grid gap-3 rounded-2xl border border-border bg-surface/40 p-4 sm:grid-cols-2">
+      <label className="text-xs text-muted">
         Aksiyon
         <select
           className={`mt-1 ${inputClass}`}
@@ -64,7 +64,7 @@ function DisputeActionForm({
       </label>
 
       {action === "comment" ? (
-        <label className="text-xs text-slate-400">
+        <label className="text-xs text-muted">
           Yorum
           <textarea
             className={`mt-1 ${inputClass}`}
@@ -75,7 +75,7 @@ function DisputeActionForm({
         </label>
       ) : null}
       {action === "attach_evidence" ? (
-        <label className="text-xs text-slate-400">
+        <label className="text-xs text-muted">
           Kanıt
           <select
             className={`mt-1 ${inputClass}`}
@@ -88,7 +88,7 @@ function DisputeActionForm({
         </label>
       ) : null}
       {action === "escalate_dispute" ? (
-        <label className="text-xs text-slate-400">
+        <label className="text-xs text-muted">
           Review case ID
           <input
             className={`mt-1 ${inputClass}`}
@@ -98,7 +98,7 @@ function DisputeActionForm({
         </label>
       ) : null}
       {action === "resolve" ? (
-        <label className="text-xs text-slate-400">
+        <label className="text-xs text-muted">
           Çözüm kodu
           <input
             className={`mt-1 ${inputClass}`}
@@ -178,7 +178,7 @@ export function TransactionDisputesPage() {
   return (
     <div className="space-y-8">
       <section className="space-y-3">
-        <h2 className="font-semibold text-white">İtiraz aç</h2>
+        <h2 className="font-semibold text-heading">İtiraz aç</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <input
             className={inputClass}
@@ -218,10 +218,10 @@ export function TransactionDisputesPage() {
 
       {disputes.data?.length ? (
         disputes.data.map((dispute) => (
-          <article key={dispute.id} className="space-y-4 rounded-2xl border border-white/10 p-4">
+          <article key={dispute.id} className="space-y-4 rounded-2xl border border-border p-4">
             <div>
-              <h3 className="font-semibold text-white">{dispute.reason_code} · {dispute.status}</h3>
-              <p className="mt-2 text-sm text-slate-300">{dispute.description}</p>
+              <h3 className="font-semibold text-heading">{dispute.reason_code} · {dispute.status}</h3>
+              <p className="mt-2 text-sm text-body">{dispute.description}</p>
             </div>
             <DisputeActionForm
               dispute={dispute}

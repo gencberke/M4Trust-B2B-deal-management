@@ -58,15 +58,15 @@ export function TransactionOverviewPage() {
       <Notice tone={notice.tone}>{notice.message}</Notice>
 
       {showRetry ? (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <h2 className="text-base font-semibold text-white">Çıkarımı yeniden dene</h2>
-          <p className="mt-2 text-sm text-slate-400">
+        <section className="rounded-3xl border border-border bg-card shadow-card p-6">
+          <h2 className="text-base font-semibold text-heading">Çıkarımı yeniden dene</h2>
+          <p className="mt-2 text-sm text-muted">
             Çıkarım takılı görünüyorsa yeniden tetikleyebilirsiniz. Yalnız işlem yöneticisi
             tetikleyebilir; yetkiniz yoksa aşağıda açıklama görürsünüz.
           </p>
           <button
             type="button"
-            className="mt-4 rounded-2xl border border-white/15 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+            className="mt-4 rounded-2xl border border-border px-4 py-2 text-sm font-semibold text-heading transition hover:bg-primary-soft"
             onClick={() => setDialogOpen(true)}
             disabled={retrying}
           >
@@ -100,7 +100,7 @@ export function TransactionOverviewPage() {
 
       {extraction ? (
         <section className="space-y-4">
-          <h2 className="text-base font-semibold text-white">Sözleşme özeti</h2>
+          <h2 className="text-base font-semibold text-heading">Sözleşme özeti</h2>
           <KeyValueGrid
             items={[
               { label: "Sözleşme No", value: extraction.contract_id },
@@ -123,7 +123,7 @@ export function TransactionOverviewPage() {
           />
 
           <div>
-            <h3 className="mb-2 text-sm font-medium text-slate-300">Mal / hizmet kalemleri</h3>
+            <h3 className="mb-2 text-sm font-medium text-body">Mal / hizmet kalemleri</h3>
             <ResponsiveTable
               caption="Mal kalemleri"
               head={["Kalem", "Miktar", "Birim"]}
@@ -136,7 +136,7 @@ export function TransactionOverviewPage() {
           </div>
 
           <div>
-            <h3 className="mb-2 text-sm font-medium text-slate-300">Ödeme kuralları</h3>
+            <h3 className="mb-2 text-sm font-medium text-body">Ödeme kuralları</h3>
             <ResponsiveTable
               caption="Ödeme kuralları"
               head={["Aşama", "Tetikleyici", "Yüzde", "Gerekli kanıt", "Güven"]}
@@ -156,8 +156,8 @@ export function TransactionOverviewPage() {
 
           {extraction.risk_flags.length > 0 ? (
             <div>
-              <h3 className="mb-2 text-sm font-medium text-slate-300">Risk işaretleri</h3>
-              <ul className="list-disc space-y-1 pl-5 text-sm text-amber-100">
+              <h3 className="mb-2 text-sm font-medium text-body">Risk işaretleri</h3>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-amber-800">
                 {extraction.risk_flags.map((flag) => (
                   <li key={flag}>{flag}</li>
                 ))}
@@ -174,7 +174,7 @@ export function TransactionOverviewPage() {
       {validator ? (
         <section className="space-y-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold text-white">Doğrulama</h2>
+            <h2 className="text-base font-semibold text-heading">Doğrulama</h2>
             <StatusBadge value={validator.status} map={validatorStatusMap} />
           </div>
           {validator.findings && validator.findings.length > 0 ? (
@@ -182,22 +182,22 @@ export function TransactionOverviewPage() {
               {validator.findings.map((finding, i) => (
                 <li
                   key={`${finding.code}-${i}`}
-                  className="rounded-2xl border border-white/10 bg-slate-950/50 p-3 text-sm"
+                  className="rounded-2xl border border-border bg-subtle/60 p-3 text-sm"
                 >
-                  <span className="font-mono text-xs text-slate-400">{finding.code}</span>
-                  <span className="ml-2 text-slate-300">({finding.severity})</span>
-                  {finding.message ? <p className="mt-1 text-slate-200">{finding.message}</p> : null}
+                  <span className="font-mono text-xs text-muted">{finding.code}</span>
+                  <span className="ml-2 text-body">({finding.severity})</span>
+                  {finding.message ? <p className="mt-1 text-body">{finding.message}</p> : null}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-slate-400">Bulgu yok.</p>
+            <p className="text-sm text-muted">Bulgu yok.</p>
           )}
         </section>
       ) : null}
 
       <section className="space-y-3">
-        <h2 className="text-base font-semibold text-white">Olay zaman çizelgesi</h2>
+        <h2 className="text-base font-semibold text-heading">Olay zaman çizelgesi</h2>
         <Timeline
           emptyLabel="Henüz olay yok."
           items={events.map((item) => ({
@@ -210,7 +210,7 @@ export function TransactionOverviewPage() {
                 <ul className="space-y-0.5">
                   {item.details.map((d) => (
                     <li key={d.label}>
-                      <span className="text-slate-500">{d.label}:</span> {d.value}
+                      <span className="text-muted">{d.label}:</span> {d.value}
                     </li>
                   ))}
                 </ul>

@@ -32,8 +32,8 @@ export function OperableUnitsPanel({
       {units.map((unit) => {
         const unitResolutions = resolutions.filter((item) => item.funding_unit_id === unit.id);
         return (
-          <article key={unit.id} className="rounded-2xl border border-white/10 p-4">
-            <h3 className="text-white">Birim #{unit.sequence} · {unit.status}</h3>
+          <article key={unit.id} className="rounded-2xl border border-border p-4">
+            <h3 className="text-heading">Birim #{unit.sequence} · {unit.status}</h3>
             <div className="mt-3 flex flex-wrap gap-2">
               <button className={secondaryButtonClass} disabled={busy} onClick={() => setRequest({ unitId: unit.id, operation: "undo" })}>
                 Geri alma talebi
@@ -43,7 +43,7 @@ export function OperableUnitsPanel({
               </button>
             </div>
             {unitResolutions.map((resolution) => (
-              <div key={resolution.id} className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-300">
+              <div key={resolution.id} className="mt-3 flex flex-wrap items-center gap-2 text-sm text-body">
                 <span>{resolution.operation_type} · {resolution.status} · {resolution.approvals.length}/2 onay</span>
                 <button className={buttonClass} disabled={busy} onClick={() => onApprove(resolution.id)}>Taraf onayı</button>
                 <button className={buttonClass} disabled={busy} onClick={() => setExecution(resolution)}>Uygula</button>

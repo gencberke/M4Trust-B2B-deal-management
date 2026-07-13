@@ -65,7 +65,7 @@ export function InvitationPage() {
           title="Davet açılamadı"
           description={previewUnavailableMessage()}
           action={
-            <Link className="text-sm font-medium text-cyan-300 hover:text-cyan-200" to="/transactions">
+            <Link className="text-sm font-medium text-primary hover:text-primary" to="/transactions">
               İşlemlere git
             </Link>
           }
@@ -78,19 +78,19 @@ export function InvitationPage() {
     <>
       <PageHeading eyebrow="Davet" title="İşleme davet edildiniz" />
       <div className="max-w-xl space-y-4">
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <p className="text-sm text-slate-400">Rol</p>
-          <p className="mt-1 text-lg font-semibold text-white">{roleLabel(data.participant_role)}</p>
-          <p className="mt-4 text-sm text-slate-400">İşlem referansı</p>
-          <p className="mt-1 font-mono text-sm text-cyan-200">{data.transaction_reference}</p>
+        <div className="rounded-3xl border border-border bg-card shadow-card p-6">
+          <p className="text-sm text-muted">Rol</p>
+          <p className="mt-1 text-lg font-semibold text-heading">{roleLabel(data.participant_role)}</p>
+          <p className="mt-4 text-sm text-muted">İşlem referansı</p>
+          <p className="mt-1 font-mono text-sm text-primary">{data.transaction_reference}</p>
         </div>
 
         {!user ? (
-          <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="space-y-3 rounded-3xl border border-border bg-card shadow-card p-6">
             <Notice tone="info">
               Bu daveti kabul etmek için giriş yapmanız gerekiyor.
             </Notice>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-body">
               Giriş yaptıktan sonra bu davet bağlantısını yeniden açın.
             </p>
             <Link className={buttonClass} to="/login">
@@ -98,16 +98,16 @@ export function InvitationPage() {
             </Link>
           </div>
         ) : (
-          <div className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="space-y-3 rounded-3xl border border-border bg-card shadow-card p-6">
             {entities.length === 0 ? (
               <Notice tone="warning">
                 Daveti kabul etmek için önce bir tüzel/gerçek kişi profili oluşturun.{" "}
-                <Link className="font-medium text-cyan-300 hover:text-cyan-200" to="/entities/new">
+                <Link className="font-medium text-primary hover:text-primary" to="/entities/new">
                   Şirket ekle
                 </Link>
               </Notice>
             ) : (
-              <label className="block text-sm text-slate-300">
+              <label className="block text-sm text-body">
                 Hangi kişi/şirket adına kabul ediyorsunuz?
                 <select
                   className={`mt-1 block ${inputClass}`}

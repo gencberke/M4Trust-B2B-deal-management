@@ -32,8 +32,8 @@ export function PackagePanel({ pkg, extraction, busy, error, onBuild }: {
     <div className="space-y-4">
       <EmptyState title="Henüz onay paketi yok" description="Hazırlık şartları tamamlandığında güncel kurallardan değişmez bir paket oluşturun." />
       {rows.map((row, index) => (
-        <div key={row.rule_index} className="grid gap-3 rounded-2xl border border-white/10 p-4 sm:grid-cols-3">
-          <span className="text-sm text-slate-300">{extraction?.payment_rules[index]?.milestone ?? `Kural ${index + 1}`}</span>
+        <div key={row.rule_index} className="grid gap-3 rounded-2xl border border-border p-4 sm:grid-cols-3">
+          <span className="text-sm text-body">{extraction?.payment_rules[index]?.milestone ?? `Kural ${index + 1}`}</span>
           <select className={inputClass} value={row.release_mode} onChange={(e) => setRows((old) => old.map((item, i) => i === index ? { ...item, release_mode: e.target.value as BuildSpecFormRow["release_mode"] } : item))}>
             <option value="all_or_nothing">Tek seferde</option><option value="fixed_tranches">Sabit dilimler</option>
           </select>
@@ -55,12 +55,12 @@ export function PackagePanel({ pkg, extraction, busy, error, onBuild }: {
       { label: "Toplam", value: summary ? formatAmountMinor(summary.total_amount_minor, summary.currency) : "—" },
       { label: "Teslim tarihi", value: summary?.delivery_deadline ?? "—" },
     ]} />
-    <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4">
-      <p className="text-xs uppercase tracking-wide text-cyan-200">Paket hash'i</p><p className="mt-2 break-all font-mono text-sm text-white">{pkg.package_hash}</p>
-      <p className="mt-2 text-xs text-slate-400">İki taraf da aynı hash'i görmelidir.</p>
+    <div className="rounded-2xl border border-primary/20 bg-primary-soft p-4">
+      <p className="text-xs uppercase tracking-wide text-primary">Paket hash'i</p><p className="mt-2 break-all font-mono text-sm text-heading">{pkg.package_hash}</p>
+      <p className="mt-2 text-xs text-muted">İki taraf da aynı hash'i görmelidir.</p>
       <button className={`${secondaryButtonClass} mt-3`} type="button" onClick={() => void navigator.clipboard?.writeText(pkg.package_hash)}>Hash'i kopyala</button>
     </div>
-    <ResponsiveTable caption="Fonlama takvimi" head={["Aşama", "Tetikleyici", "Oran", "Tutar", "Serbest bırakma", "Kanıt / birimler"]} emptyLabel="Takvim satırı yok" rows={schedule.map((row) => ({ key: String(row.rule_index), cells: [row.title, row.trigger_type, formatPercentBps(row.basis_points), formatAmountMinor(row.amount_minor, row.currency), row.release_mode, <div key="units"><div>{row.required_evidence.join(", ") || "—"}</div>{row.units.map((unit) => <div key={unit.sequence} className="mt-1 text-xs text-slate-400">#{unit.sequence} · {formatAmountMinor(unit.amount_minor, row.currency)} · {unit.eligibility_type}</div>)}</div>] }))} />
+    <ResponsiveTable caption="Fonlama takvimi" head={["Aşama", "Tetikleyici", "Oran", "Tutar", "Serbest bırakma", "Kanıt / birimler"]} emptyLabel="Takvim satırı yok" rows={schedule.map((row) => ({ key: String(row.rule_index), cells: [row.title, row.trigger_type, formatPercentBps(row.basis_points), formatAmountMinor(row.amount_minor, row.currency), row.release_mode, <div key="units"><div>{row.required_evidence.join(", ") || "—"}</div>{row.units.map((unit) => <div key={unit.sequence} className="mt-1 text-xs text-muted">#{unit.sequence} · {formatAmountMinor(unit.amount_minor, row.currency)} · {unit.eligibility_type}</div>)}</div>] }))} />
     {error ? <Notice tone="danger">{error}</Notice> : null}
   </div>;
 }

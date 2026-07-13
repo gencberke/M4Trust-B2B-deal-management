@@ -31,7 +31,7 @@ export function RegisterPage() {
   return (
     <div className="mx-auto max-w-xl">
       <PageHeading title="Hesap oluştur" description="Kayıt işlemi oturum açmaz; tamamlandıktan sonra giriş ekranına yönlendirilirsiniz." />
-      <form className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6" onSubmit={submit}>
+      <form className="space-y-4 rounded-3xl border border-border bg-card shadow-card p-6" onSubmit={submit}>
         <div className="grid gap-4 sm:grid-cols-2">
           <input className={inputClass} required placeholder="Ad" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
           <input className={inputClass} required placeholder="Soyad" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
@@ -71,7 +71,7 @@ export function LoginPage() {
   return (
     <div className="mx-auto max-w-xl">
       <PageHeading title="Oturum aç" description="Session HttpOnly cookie ile, CSRF doğrulaması ayrı JS-okunabilir cookie ile yürütülür." />
-      <form className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6" onSubmit={submit}>
+      <form className="space-y-4 rounded-3xl border border-border bg-card shadow-card p-6" onSubmit={submit}>
         {registered ? <Notice tone="success">Hesabınız oluşturuldu. Şimdi giriş yapabilirsiniz.</Notice> : null}
         <input className={inputClass} required type="email" placeholder="E-posta" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         <input className={inputClass} required type="password" placeholder="Parola" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
@@ -104,7 +104,7 @@ export function LogoutPage() {
   return (
     <div className="mx-auto max-w-xl">
       <PageHeading title="Oturumu kapat" description="Mevcut session backend’de revoke edilir ve session/CSRF cookie’leri temizlenir." />
-      <div className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6">
+      <div className="space-y-4 rounded-3xl border border-border bg-card shadow-card p-6">
         <FormError error={error} />
         <button className={buttonClass} disabled={submitting} onClick={() => void handleLogout()}>{submitting ? "Çıkış yapılıyor…" : "Güvenli çıkış yap"}</button>
       </div>
@@ -119,7 +119,7 @@ export function MePage() {
   return (
     <>
       <PageHeading title="Hesabım" description="Bu alan yalnız `/api/auth/me` yanıtındaki projection’ı gösterir." />
-      <dl className="grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 sm:grid-cols-2">
+      <dl className="grid gap-4 rounded-3xl border border-border bg-card shadow-card p-6 sm:grid-cols-2">
         <Info label="Ad soyad" value={`${user.first_name} ${user.last_name}`} />
         <Info label="E-posta" value={user.email} />
         <Info label="Durum" value={user.status} />

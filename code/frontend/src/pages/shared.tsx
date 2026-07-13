@@ -4,11 +4,11 @@ import { ApiClientError } from "../api/client";
 import { Notice } from "../components/Feedback";
 
 export const inputClass =
-  "w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300";
+  "w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-heading shadow-sm outline-none transition placeholder:text-muted focus:border-primary focus:ring-3 focus:ring-primary-soft";
 export const buttonClass =
-  "inline-flex items-center justify-center rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50";
+  "button-primary";
 export const secondaryButtonClass =
-  "inline-flex items-center justify-center rounded-2xl border border-white/15 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10";
+  "button-secondary";
 
 export function FormError({ error }: { error: ApiClientError | null }) {
   return error ? <Notice tone="danger">{error.userMessage}</Notice> : null;
@@ -25,9 +25,9 @@ export function parseAddress(value: string): Record<string, unknown> | null {
 
 export function Info({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-2 break-words text-sm text-white">{value}</dd>
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="mt-2 break-words text-sm text-heading">{value}</dd>
     </div>
   );
 }

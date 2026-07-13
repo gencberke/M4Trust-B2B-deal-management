@@ -17,7 +17,7 @@ export function SectionNav({
   basePath: string;
 }) {
   return (
-    <nav aria-label="İşlem bölümleri" className="flex flex-wrap gap-1 border-b border-white/10 pb-3">
+    <nav aria-label="İşlem bölümleri" className="flex flex-wrap gap-1 border-b border-border pb-3">
       {sections.map((section) => (
         <NavLink
           key={section.slug}
@@ -26,8 +26,8 @@ export function SectionNav({
             [
               "rounded-full px-4 py-2 text-sm transition",
               isActive
-                ? "bg-white text-slate-950"
-                : "text-slate-300 hover:bg-white/10 hover:text-white",
+                ? "bg-primary text-white shadow-sm"
+                : "text-body hover:bg-primary-soft hover:text-heading",
             ].join(" ")
           }
         >

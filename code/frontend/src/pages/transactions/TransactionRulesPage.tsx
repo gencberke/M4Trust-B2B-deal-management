@@ -99,7 +99,7 @@ export function TransactionRulesPage() {
   return (
     <div className="space-y-10">
       <section className="space-y-3">
-        <h2 className="text-base font-semibold text-white">Taraf karşılaştırması</h2>
+        <h2 className="text-base font-semibold text-heading">Taraf karşılaştırması</h2>
         {participants.loading && !participants.data ? (
           <LoadingPanel label="Taraflar yükleniyor…" />
         ) : participants.error && !participants.data ? (
@@ -119,16 +119,16 @@ export function TransactionRulesPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-base font-semibold text-white">Doğrulama bulguları</h2>
+        <h2 className="text-base font-semibold text-heading">Doğrulama bulguları</h2>
         <ValidatorFindingsPanel validator={detail.validator} />
       </section>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">Kural sürümleri</h2>
+          <h2 className="text-base font-semibold text-heading">Kural sürümleri</h2>
           <button
             type="button"
-            className="text-sm font-medium text-cyan-300 hover:text-cyan-200 disabled:opacity-50"
+            className="text-sm font-medium text-primary hover:text-primary disabled:opacity-50"
             onClick={() => void versions.refresh()}
             disabled={versions.loading}
           >
@@ -158,10 +158,10 @@ export function TransactionRulesPage() {
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">İnceleme kayıtları</h2>
+          <h2 className="text-base font-semibold text-heading">İnceleme kayıtları</h2>
           <button
             type="button"
-            className="text-sm font-medium text-cyan-300 hover:text-cyan-200 disabled:opacity-50"
+            className="text-sm font-medium text-primary hover:text-primary disabled:opacity-50"
             onClick={() => void reviews.refresh()}
             disabled={reviews.loading}
           >

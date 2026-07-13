@@ -6,7 +6,7 @@ import { ResponsiveTable } from "../../components/ResponsiveTable";
 import { StatusBadge } from "../../components/StatusBadge";
 import { useEntities } from "../../entities/EntityContext";
 import { formatDateTime, shortId } from "../../lib/format";
-import { transactionStateMap } from "../../lib/statusMaps";
+import { transactionStateMap } from "../../lib/lifecycle";
 import { useAsyncData } from "../../lib/useAsyncData";
 import { buttonClass } from "../shared";
 
@@ -31,7 +31,7 @@ export function TransactionListPage() {
         </Link>
         <button
           type="button"
-          className="text-sm font-medium text-cyan-300 hover:text-cyan-200 disabled:opacity-50"
+          className="text-sm font-medium text-primary hover:text-primary disabled:opacity-50"
           onClick={() => void refresh()}
           disabled={loading}
         >
@@ -77,7 +77,7 @@ export function TransactionListPage() {
                 cells: [
                   <Link
                     key="id"
-                    className="font-mono text-cyan-300 hover:text-cyan-200"
+                    className="font-mono text-primary hover:text-primary"
                     to={`/transactions/${tx.id}/overview`}
                   >
                     {shortId(tx.id)}
@@ -96,16 +96,16 @@ export function TransactionListPage() {
               <li key={tx.id}>
                 <Link
                   to={`/transactions/${tx.id}/overview`}
-                  className="block rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10"
+                  className="block rounded-2xl border border-border bg-card shadow-card p-4 transition hover:bg-primary-soft"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-sm text-cyan-300">{shortId(tx.id)}</span>
+                    <span className="font-mono text-sm text-primary">{shortId(tx.id)}</span>
                     <StatusBadge value={tx.state} map={transactionStateMap} />
                   </div>
-                  <p className="mt-2 text-sm text-white">
+                  <p className="mt-2 text-sm text-heading">
                     {tx.buyer_name ?? "—"} → {tx.seller_name ?? "—"}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">{formatDateTime(tx.created_at)}</p>
+                  <p className="mt-1 text-xs text-muted">{formatDateTime(tx.created_at)}</p>
                 </Link>
               </li>
             ))}

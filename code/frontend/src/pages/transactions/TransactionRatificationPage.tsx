@@ -63,12 +63,12 @@ export function TransactionRatificationPage() {
   }
 
   return <div className="space-y-10">
-    <section className="space-y-3"><h2 className="text-base font-semibold text-white">Takip politikası</h2>
+    <section className="space-y-3"><h2 className="text-base font-semibold text-heading">Takip politikası</h2>
       {policy.loading && !policy.data ? <LoadingPanel label="Takip politikası yükleniyor…" /> : policy.error && !policy.data ? policy.error.kind === "permission_denied" ? <Notice tone="danger">Takip politikasını görme veya yönetme yetkiniz yok.</Notice> : <RetryPanel title="Takip politikası yüklenemedi" message={policy.error.userMessage} retrying={policy.loading} onRetry={() => void policy.refresh()} /> : policy.data ? <PolicyPanel key={`${policy.data.tracking_policy.configured_at}-${policy.data.tracking_policy.locked_at}`} view={policy.data} busy={policyBusy} error={policyError} onSave={(confirmed, mode) => void savePolicy(confirmed, mode)} onLock={() => void lockPolicy()} /> : <Notice tone="info">Takip politikası henüz oluşturulmadı.</Notice>}
     </section>
-    <section className="space-y-3"><div className="flex items-center justify-between"><h2 className="text-base font-semibold text-white">Onay paketi</h2><button type="button" className="text-sm text-cyan-300 disabled:opacity-50" disabled={pkg.loading} onClick={() => void pkg.refresh()}>Yenile</button></div>
+    <section className="space-y-3"><div className="flex items-center justify-between"><h2 className="text-base font-semibold text-heading">Onay paketi</h2><button type="button" className="text-sm text-primary disabled:opacity-50" disabled={pkg.loading} onClick={() => void pkg.refresh()}>Yenile</button></div>
       {pkg.loading && !pkg.data ? <LoadingPanel label="Onay paketi yükleniyor…" /> : pkg.error ? pkg.error.kind === "permission_denied" ? <Notice tone="danger">Onay paketine erişim yetkiniz yok.</Notice> : <RetryPanel title="Onay paketi yüklenemedi" message={pkg.error.userMessage} retrying={pkg.loading} onRetry={() => void pkg.refresh()} /> : <PackagePanel pkg={pkg.data ?? null} extraction={detail.extraction} busy={packageBusy} error={packageError} onBuild={(spec) => void build(spec)} />}
     </section>
-    <section className="space-y-3"><h2 className="text-base font-semibold text-white">Taraf onayı</h2><RatifyPanel pkg={pkg.data ?? null} actingEntityName={selectedEntity?.legal_name ?? ""} busy={ratifyBusy} error={ratifyError} resultMessage={resultMessage} onRatify={() => void ratify()} /></section>
+    <section className="space-y-3"><h2 className="text-base font-semibold text-heading">Taraf onayı</h2><RatifyPanel pkg={pkg.data ?? null} actingEntityName={selectedEntity?.legal_name ?? ""} busy={ratifyBusy} error={ratifyError} resultMessage={resultMessage} onRatify={() => void ratify()} /></section>
   </div>;
 }

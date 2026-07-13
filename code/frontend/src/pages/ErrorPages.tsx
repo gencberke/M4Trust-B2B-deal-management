@@ -42,10 +42,10 @@ function ErrorPage({ kind }: { kind: "session" | "permission" | "conflict" | "no
   }[kind];
 
   return (
-    <div className="mx-auto max-w-2xl rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
+    <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card shadow-card p-8 text-center">
       <PageHeading title={content.title} description={content.body} />
       {(state.code || state.requestId) ? (
-        <p className="mb-6 text-xs text-slate-500">Kod: {state.code ?? "—"} · İstek: {state.requestId ?? "—"}</p>
+        <p className="mb-6 text-xs text-muted">Kod: {state.code ?? "—"} · İstek: {state.requestId ?? "—"}</p>
       ) : null}
       {content.action}
     </div>
