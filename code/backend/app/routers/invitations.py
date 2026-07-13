@@ -26,24 +26,23 @@ from backend.app.schemas.participants import (
     InvitationAcceptRequest,
     InvitationCreateRequest,
     InvitationCreateResult,
+    InvitationListItem,
     InvitationPreview,
     Participant,
+    ParticipantRole,
 )
 from backend.app.services import invitations as invitations_service
 from backend.app.services import participants as participants_service
 from backend.app.services.access_control import ActorContext, require_authenticated_user
 from backend.app.services.auth import require_csrf_protection
-from backend.app.services.notifications import FakeNotificationProvider, NotificationProvider
+from backend.app.services.notifications import NotificationProvider, make_notification_provider
 
 router = APIRouter(tags=["invitations"])
 
 # Gerçek NotificationProvider seçimi (env-tabanlı) main.py wiring'ine aittir;
 # bu fazda yalnız fake mevcuttur (ARCHITECTURE §3 adapter+fake ilkesi).
-_notification_provider: NotificationProvider = FakeNotificationProvider()
-
-
 def get_notification_provider() -> NotificationProvider:
-    return _notification_provider
+    return make_notification_provider()
 
 
 def _build_invite_link(request: Request, token: str) -> str:
@@ -78,6 +77,55 @@ def create_invitation(
     return InvitationCreateResult(
         invitation_id=created.invitation_id,
         participant_role=body.participant_role,
+        expires_at=created.expires_at,
+        invite_link=_build_invite_link(request, created.raw_token),
+    )
+
+
+@router.get("/api/transactions/{transaction_id}/invitations")
+def list_invitations(
+    transaction_id: str,
+    actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    conn: Connection = Depends(get_db),
+) -> list[InvitationListItem]:
+    """Manager/creator için işlemin davet listesi (id/rol/e-posta/durum/tarih)."""
+    try:
+        rows = invitations_service.list_invitations(conn, transaction_id, actor)
+    except invitations_service.InvitationAuthorizationError as exc:
+        raise ApiError(status_code=403, code="INVITATION_FORBIDDEN", message=str(exc)) from exc
+    return [InvitationListItem.model_validate(row) for row in rows]
+
+
+@router.post("/api/transactions/{transaction_id}/invitations/{invitation_id}/reissue")
+def reissue_invitation(
+    transaction_id: str,
+    invitation_id: str,
+    request: Request,
+    actor: Annotated[ActorContext, Depends(require_authenticated_user)],
+    _csrf: Annotated[None, Depends(require_csrf_protection)],
+    notification_provider: Annotated[NotificationProvider, Depends(get_notification_provider)],
+    conn: Connection = Depends(get_db),
+) -> InvitationCreateResult:
+    """Mevcut daveti supersede ederek taze bir davet linki bir kez döndürür."""
+    try:
+        created = invitations_service.reissue_invitation(
+            conn,
+            transaction_id,
+            invitation_id,
+            actor,
+            notification_provider,
+            invite_link_builder=lambda raw_token: _build_invite_link(request, raw_token),
+        )
+    except invitations_service.InvitationAuthorizationError as exc:
+        raise ApiError(status_code=403, code="INVITATION_FORBIDDEN", message=str(exc)) from exc
+    except invitations_service.InvitationNotFoundError as exc:
+        raise ApiError(status_code=404, code="INVITATION_NOT_FOUND", message=str(exc)) from exc
+    except invitations_service.InvitationRoleAlreadyBoundError as exc:
+        raise ApiError(status_code=409, code="INVITATION_ROLE_ALREADY_BOUND", message=str(exc)) from exc
+
+    return InvitationCreateResult(
+        invitation_id=created.invitation_id,
+        participant_role=ParticipantRole(created.participant_role),
         expires_at=created.expires_at,
         invite_link=_build_invite_link(request, created.raw_token),
     )

@@ -1,14 +1,18 @@
 import { Link, Outlet, useOutletContext, useParams } from "react-router-dom";
 
 import { getTransaction } from "../api/transactions";
-import { EmptyState, LoadingPanel, Notice, PageHeading } from "./Feedback";
+import { EmptyState, LoadingPanel, Notice, PageHeading, TransactionShellSkeleton } from "./Feedback";
 import { SectionNav, type SectionNavItem } from "./SectionNav";
 import { StatusBadge } from "./StatusBadge";
+import { LifecycleStepper } from "./LifecycleStepper";
 import { formatDateTime, shortId } from "../lib/format";
-import { transactionStateMap } from "../lib/statusMaps";
+import { inferLifecycleRole, lifecycleFor, lifecycleSectionState, transactionStateMap, type LifecycleDescriptor, type LifecycleRole } from "../lib/lifecycle";
 import { useAsyncData } from "../lib/useAsyncData";
+import { useEntities } from "../entities/EntityContext";
 import type { ApiClientError } from "../api/client";
 import type { TransactionDetail } from "../types/transactions";
+import { useDemo } from "../demo/DemoContext";
+import { DemoPanel } from "./DemoPanel";
 
 // Bölüm kaydı — PR 2/3 buraya yeni slug ekler; kabuk aksi hâlde değişmez.
 const SECTIONS: SectionNavItem[] = [
@@ -26,6 +30,8 @@ export interface TransactionShellContext {
   refresh: () => Promise<void>;
   loading: boolean;
   error: ApiClientError | null;
+  lifecycle: LifecycleDescriptor;
+  lifecycleRole: LifecycleRole;
 }
 
 /** Section sayfaları bu tiplenmiş yardımcıyla shell context'ine erişir. */
@@ -34,12 +40,30 @@ export function useTransactionShell(): TransactionShellContext {
 }
 
 export function TransactionShell() {
+  const { enabled: demoEnabled } = useDemo();
   const { transactionId } = useParams<{ transactionId: string }>();
+  const { selectedEntity, selectedEntityId, loading: entitiesLoading } = useEntities();
   const id = transactionId ?? "";
-  const { data, loading, error, refresh } = useAsyncData(() => getTransaction(id), [id]);
+  const { data, loading, error, refresh } = useAsyncData(
+    () => getTransaction(id),
+    [id, selectedEntityId],
+    Boolean(id && selectedEntityId),
+  );
+
+  if (entitiesLoading && !selectedEntity) {
+    return <LoadingPanel label="İşlem yapılan entity yükleniyor…" />;
+  }
+
+  if (!selectedEntity) {
+    return (
+      <Notice tone="warning">
+        İşlem ayrıntılarını görmek için üst menüden işlem yapılan entity'yi seçin.
+      </Notice>
+    );
+  }
 
   if (loading && !data) {
-    return <LoadingPanel label="İşlem yükleniyor…" />;
+    return <TransactionShellSkeleton />;
   }
 
   if (error && !data) {
@@ -49,7 +73,7 @@ export function TransactionShell() {
           title="İşlem bulunamadı"
           description="Bu işlem mevcut değil veya kaldırılmış olabilir."
           action={
-            <Link className="text-sm font-medium text-cyan-300 hover:text-cyan-200" to="/transactions">
+            <Link className="text-sm font-medium text-primary hover:text-primary" to="/transactions">
               İşlemlere dön
             </Link>
           }
@@ -60,7 +84,7 @@ export function TransactionShell() {
       return (
         <div className="space-y-4">
           <Notice tone="danger">Bu işlemde erişiminiz yok.</Notice>
-          <Link className="text-sm font-medium text-cyan-300 hover:text-cyan-200" to="/transactions">
+          <Link className="text-sm font-medium text-primary hover:text-primary" to="/transactions">
             İşlemlere dön
           </Link>
         </div>
@@ -74,7 +98,9 @@ export function TransactionShell() {
     return <Notice tone="danger">İşlem yüklenemedi.</Notice>;
   }
 
-  const context: TransactionShellContext = { detail: data, refresh, loading, error };
+  const lifecycleRole = inferLifecycleRole(selectedEntity.legal_name, data.extraction);
+  const lifecycle = lifecycleFor(data.canonical_state ?? data.state, lifecycleRole);
+  const context: TransactionShellContext = { detail: data, refresh, loading, error, lifecycle, lifecycleRole };
 
   return (
     <>
@@ -85,12 +111,19 @@ export function TransactionShell() {
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <StatusBadge value={data.state} map={transactionStateMap} />
-        <span className="font-mono text-xs text-slate-500">{data.id}</span>
+        <span className="font-mono text-xs text-muted">{data.id}</span>
+        <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs text-primary">
+          {selectedEntity.legal_name} adına
+        </span>
       </div>
-      <SectionNav sections={SECTIONS} basePath={`/transactions/${data.id}`} />
+      <div className="mb-6 space-y-4">
+        <LifecycleStepper lifecycle={lifecycle} />
+      </div>
+      <SectionNav sections={SECTIONS.map((section) => ({ ...section, ...lifecycleSectionState(section.slug, lifecycle) }))} basePath={`/transactions/${data.id}`} />
       <div className="mt-6">
-        <Outlet context={context} />
+        <Outlet key={selectedEntityId} context={context} />
       </div>
+      {demoEnabled ? <DemoPanel transactionId={data.id} onAdvanced={refresh} /> : null}
     </>
   );
 }

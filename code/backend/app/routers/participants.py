@@ -96,7 +96,7 @@ def list_participants(
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
     conn: Connection = Depends(get_db),
 ) -> list[ParticipantPublicView]:
-    if not participants_service.has_transaction_access(conn, transaction_id, actor.user_id):
+    if not participants_service.has_transaction_access_for_actor(conn, transaction_id, actor):
         raise ApiError(
             status_code=403,
             code="TRANSACTION_ACCESS_DENIED",
@@ -120,6 +120,8 @@ def update_my_profile(
         )
     except participants_service.ParticipantNotFoundError as exc:
         raise ApiError(status_code=404, code="PARTICIPANT_NOT_FOUND", message=str(exc)) from exc
+    except participants_service.ParticipantAuthorizationError as exc:
+        raise ApiError(status_code=403, code="ACTING_ENTITY_MISMATCH", message=str(exc)) from exc
     except participants_service.ParticipantConflictError as exc:
         raise ApiError(status_code=409, code="PARTICIPANT_CONFIRMED_LOCKED", message=str(exc)) from exc
 
@@ -137,5 +139,7 @@ def confirm_my_profile(
         return participant
     except participants_service.ParticipantNotFoundError as exc:
         raise ApiError(status_code=404, code="PARTICIPANT_NOT_FOUND", message=str(exc)) from exc
+    except participants_service.ParticipantAuthorizationError as exc:
+        raise ApiError(status_code=403, code="ACTING_ENTITY_MISMATCH", message=str(exc)) from exc
     except participants_service.ParticipantConflictError as exc:
         raise ApiError(status_code=409, code="PARTICIPANT_CONFIRM_CONFLICT", message=str(exc)) from exc

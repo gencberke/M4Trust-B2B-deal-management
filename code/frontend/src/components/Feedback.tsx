@@ -12,13 +12,13 @@ export function PageHeading({
   return (
     <header className="mb-8">
       {eyebrow ? (
-        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
           {eyebrow}
         </p>
       ) : null}
-      <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">{title}</h1>
+      <h1 className="text-3xl font-bold tracking-tight text-heading sm:text-4xl">{title}</h1>
       {description ? (
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{description}</p>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-body">{description}</p>
       ) : null}
     </header>
   );
@@ -32,12 +32,12 @@ export function Notice({
   tone?: "info" | "success" | "warning" | "danger";
 }) {
   const tones = {
-    info: "border-cyan-400/20 bg-cyan-400/10 text-cyan-100",
-    success: "border-emerald-400/20 bg-emerald-400/10 text-emerald-100",
-    warning: "border-amber-400/20 bg-amber-400/10 text-amber-100",
-    danger: "border-rose-400/20 bg-rose-400/10 text-rose-100",
+    info: "border-primary/20 bg-info-soft text-primary",
+    success: "border-positive/20 bg-positive-soft text-positive",
+    warning: "border-amber-300 bg-warning-soft text-amber-800",
+    danger: "border-rose-300 bg-danger-soft text-rose-700",
   };
-  return <div className={`rounded-2xl border px-4 py-3 text-sm ${tones[tone]}`}>{children}</div>;
+  return <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${tones[tone]}`}>{children}</div>;
 }
 
 export function EmptyState({
@@ -50,9 +50,9 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
-      <p className="text-base font-semibold text-white">{title}</p>
-      {description ? <p className="mt-2 text-sm text-slate-400">{description}</p> : null}
+    <div className="card-surface p-8 text-center">
+      <p className="text-base font-semibold text-heading">{title}</p>
+      {description ? <p className="mt-2 text-sm text-muted">{description}</p> : null}
       {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </div>
   );
@@ -66,9 +66,9 @@ export function KeyValueGrid({
   return (
     <dl className="grid gap-3 sm:grid-cols-2">
       {items.map((item) => (
-        <div key={item.label} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-          <dt className="text-xs uppercase tracking-wide text-slate-500">{item.label}</dt>
-          <dd className="mt-2 break-words text-sm text-white">{item.value}</dd>
+        <div key={item.label} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <dt className="text-xs uppercase tracking-wide text-muted">{item.label}</dt>
+          <dd className="mt-2 break-words text-sm text-heading">{item.value}</dd>
         </div>
       ))}
     </dl>
@@ -77,10 +77,26 @@ export function KeyValueGrid({
 
 export function LoadingPanel({ label = "Yükleniyor…" }: { label?: string }) {
   return (
-    <div className="flex min-h-48 items-center justify-center rounded-3xl border border-white/10 bg-white/5 text-sm text-slate-300">
+    <div className="card-surface flex min-h-48 items-center justify-center text-sm text-muted">
       {label}
     </div>
   );
+}
+
+export function Skeleton({ className = "h-4 w-full" }: { className?: string }) {
+  return <span aria-hidden="true" className={`block animate-pulse rounded-xl bg-slate-200 ${className}`} />;
+}
+
+export function SkeletonRows({ rows = 4 }: { rows?: number }) {
+  return <div className="card-surface space-y-3 p-5" role="status" aria-label="İçerik yükleniyor">{Array.from({ length: rows }, (_, index) => <div key={index} className="grid grid-cols-[5rem_1fr_7rem] gap-4"><Skeleton /><Skeleton /><Skeleton /></div>)}</div>;
+}
+
+export function SkeletonCards({ cards = 3 }: { cards?: number }) {
+  return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" role="status" aria-label="Kartlar yükleniyor">{Array.from({ length: cards }, (_, index) => <div key={index} className="card-surface space-y-4 p-5"><Skeleton className="h-3 w-24" /><Skeleton className="h-8 w-2/3" /><Skeleton /></div>)}</div>;
+}
+
+export function TransactionShellSkeleton() {
+  return <div className="space-y-6" role="status" aria-label="İşlem yükleniyor"><Skeleton className="h-4 w-28" /><Skeleton className="h-10 w-64" /><Skeleton className="h-20 w-full" /><SkeletonRows rows={3} /></div>;
 }
 
 export function RetryPanel({
@@ -95,11 +111,11 @@ export function RetryPanel({
   retrying?: boolean;
 }) {
   return (
-    <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 p-6">
-      <h2 className="text-lg font-semibold text-white">{title}</h2>
-      <p className="mt-2 text-sm text-rose-100">{message}</p>
+    <div className="rounded-3xl border border-rose-300 bg-danger-soft p-6">
+      <h2 className="text-lg font-semibold text-heading">{title}</h2>
+      <p className="mt-2 text-sm text-rose-700">{message}</p>
       <button
-        className="mt-4 rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
+        className="mt-4 rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         disabled={retrying}
         onClick={onRetry}
       >

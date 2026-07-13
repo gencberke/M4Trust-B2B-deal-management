@@ -104,6 +104,32 @@ describe("apiRequest", () => {
     expect((caught as ApiClientError).kind).toBe("permission_denied");
   });
 
+  it("geçiş dönemi FastAPI conflict zarfındaki güvenli kodu korur", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            detail: {
+              code: "POLICY_CONTRACT_CONFLICT",
+              message: "Sözleşmesel kanıt şartı korunmalıdır.",
+              conflicts: ["CONTRACT_REQUIRES_VIDEO"],
+            },
+          },
+          409,
+        ),
+      ),
+    );
+
+    await expect(
+      apiRequest("/transactions/tx/tracking-policy", { redirectOnError: false }),
+    ).rejects.toMatchObject({
+      kind: "conflict",
+      code: "POLICY_CONTRACT_CONFLICT",
+      detail: { conflicts: ["CONTRACT_REQUIRES_VIDEO"] },
+    });
+  });
+
   it("geçersiz JSON içeren 401 yanıtını yine session-required akışına eşler", async () => {
     const handler = vi.fn();
     setApiNavigationErrorHandler(handler);

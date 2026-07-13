@@ -52,6 +52,18 @@ export interface InvitationCreateResult {
   invite_link: string;
 }
 
+export type InvitationStatus = "pending" | "accepted" | "revoked";
+
+export interface InvitationListItem {
+  invitation_id: string;
+  participant_role: ParticipantRole;
+  invited_email: string;
+  status: InvitationStatus;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+}
+
 export interface InvitationPreview {
   participant_role: ParticipantRole;
   transaction_reference: string;

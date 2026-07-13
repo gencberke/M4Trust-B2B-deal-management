@@ -63,10 +63,10 @@ export function EntityCreatePage() {
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeading title="Legal entity oluştur" description="Vergi kimliği yalnız oluşturma isteğinde gönderilir; profil ekranına backend’in maskeli son dört hanesi gelir." />
-      <form className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6" onSubmit={submit}>
+      <form className="space-y-4 rounded-3xl border border-border bg-card shadow-card p-6" onSubmit={submit}>
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm text-slate-300">Entity türü<select className={`${inputClass} mt-2`} value={entityType} onChange={(e) => setEntityType(e.target.value as EntityType)}><option value="company">Şirket</option><option value="individual">Gerçek kişi</option></select></label>
-          <label className="text-sm text-slate-300">Vergi kimliği türü<select className={`${inputClass} mt-2`} value={taxType} onChange={(e) => setTaxType(e.target.value as TaxIdentifierType)}><option value="vkn">VKN</option><option value="tckn">TCKN</option></select></label>
+          <label className="text-sm text-body">Entity türü<select className={`${inputClass} mt-2`} value={entityType} onChange={(e) => setEntityType(e.target.value as EntityType)}><option value="company">Şirket</option><option value="individual">Gerçek kişi</option></select></label>
+          <label className="text-sm text-body">Vergi kimliği türü<select className={`${inputClass} mt-2`} value={taxType} onChange={(e) => setTaxType(e.target.value as TaxIdentifierType)}><option value="vkn">VKN</option><option value="tckn">TCKN</option></select></label>
         </div>
         <input className={inputClass} required placeholder="Yasal unvan" value={legalName} onChange={(e) => setLegalName(e.target.value)} />
         <input className={inputClass} required inputMode="numeric" placeholder={taxType === "vkn" ? "10 haneli VKN" : "11 haneli TCKN"} value={taxIdentifier} onChange={(e) => setTaxIdentifier(e.target.value)} />
@@ -160,12 +160,12 @@ export function EntityProfilePage() {
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeading title="Entity profili" description="Yetki ve doğrulama durumu yalnız backend projection’ından okunur." />
-      <form className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6" onSubmit={submit}>
+      <form className="space-y-4 rounded-3xl border border-border bg-card shadow-card p-6" onSubmit={submit}>
         {saved ? <Notice tone="success">Profil bilgileri kaydedildi.</Notice> : null}
         {!canEdit ? <Notice tone="warning">Backend membership projection’ınıza göre bu profil salt okunurdur.</Notice> : null}
-        <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Maskeli vergi kimliği</p>
-          <p className="mt-2 font-mono text-lg text-white">{maskedTaxId}</p>
+        <div className="rounded-2xl border border-border bg-surface/60 p-4">
+          <p className="text-xs uppercase tracking-wide text-muted">Maskeli vergi kimliği</p>
+          <p className="mt-2 font-mono text-lg text-heading">{maskedTaxId}</p>
         </div>
         <input className={inputClass} required disabled={!canEdit} value={legalName} onChange={(e) => setLegalName(e.target.value)} />
         <input className={inputClass} disabled={!canEdit} placeholder="Vergi dairesi" value={taxOffice} onChange={(e) => setTaxOffice(e.target.value)} />

@@ -33,6 +33,7 @@ def test_convert_returns_normalized_text(tmp_path):
     result = converter.convert(file_path)
 
     assert result == "Madde 1\n\nMadde 2"
+    assert converter.last_provenance["normalizer_version"] == "markdown-normalizer-v1"
 
 
 def test_convert_raises_for_missing_file(tmp_path):

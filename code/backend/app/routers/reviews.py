@@ -42,18 +42,30 @@ def _has_review_list_access(conn: Connection, transaction_id: str, actor: ActorC
     """List: transaction'da aktif assignment sahibi user OR platform reviewer/admin."""
     if _is_platform_reviewer_or_admin(actor):
         return True
-    return participants_service.has_transaction_access(conn, transaction_id, actor.user_id)
+    return participants_service.has_transaction_access_for_actor(conn, transaction_id, actor)
 
 
 def _can_comment(conn: Connection, transaction_id: str, actor: ActorContext) -> bool:
     """Comment: transaction manager, participant approver, platform reviewer/admin."""
     if _is_platform_reviewer_or_admin(actor):
         return True
+    if actor.user_id is None or actor.acting_entity_id is None:
+        return False
     return (
-        participants_repo.get_active_assignment(conn, transaction_id, actor.user_id, role="manager")
+        participants_repo.get_active_assignment_for_entity(
+            conn,
+            transaction_id,
+            actor.user_id,
+            actor.acting_entity_id,
+            role="manager",
+        )
         is not None
-        or participants_repo.get_active_assignment(
-            conn, transaction_id, actor.user_id, role="approver"
+        or participants_repo.get_active_assignment_for_entity(
+            conn,
+            transaction_id,
+            actor.user_id,
+            actor.acting_entity_id,
+            role="approver",
         )
         is not None
     )

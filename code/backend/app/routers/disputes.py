@@ -219,7 +219,7 @@ def list_disputes(
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
     conn: Connection = Depends(get_db),
 ) -> list[DisputePublicView]:
-    if not participants_service.has_transaction_access(conn, transaction_id, actor.user_id):
+    if not participants_service.has_transaction_access_for_actor(conn, transaction_id, actor):
         raise ApiError(
             status_code=403, code="TRANSACTION_ACCESS_DENIED", message="Bu işlemde erişiminiz yok."
         )

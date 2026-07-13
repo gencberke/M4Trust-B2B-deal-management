@@ -22,8 +22,13 @@ def conn():
         connection.close()
 
 
-def actor(user_id="u1") -> ActorContext:
-    return ActorContext(actor_type="legacy_capability", user_id=user_id, request_id="req-1")
+def actor(user_id="u1", entity_id="entity-1") -> ActorContext:
+    return ActorContext(
+        actor_type="user",
+        user_id=user_id,
+        acting_entity_id=entity_id,
+        request_id="req-1",
+    )
 
 
 ANONYMOUS = ActorContext(actor_type="anonymous")
@@ -56,6 +61,22 @@ def test_create_invitation_requires_manager_role(conn) -> None:
     with pytest.raises(svc.InvitationAuthorizationError):
         svc.create_invitation(
             conn, tx_id, "seller", "party@example.com", actor("someone-else"), provider,
+            invite_link_builder=_link_builder,
+        )
+
+
+def test_create_invitation_requires_exact_acting_entity(conn) -> None:
+    tx_id = create_test_transaction(conn)
+    participants_svc.attach_creator(conn, tx_id, actor("u1"), "buyer", "entity-1")
+
+    with pytest.raises(svc.InvitationAuthorizationError):
+        svc.create_invitation(
+            conn,
+            tx_id,
+            "seller",
+            "party@example.com",
+            actor("u1", "entity-other"),
+            FakeNotificationProvider(),
             invite_link_builder=_link_builder,
         )
 

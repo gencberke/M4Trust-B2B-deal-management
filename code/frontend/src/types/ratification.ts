@@ -76,10 +76,8 @@ export interface RatificationView {
   package_id: string;
   transaction_id: string;
   participant_id: string;
-  user_id: string;
   legal_entity_id: string;
   participant_role: string;
-  auth_method: string;
   approved_at: string;
 }
 

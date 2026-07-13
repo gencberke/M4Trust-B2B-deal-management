@@ -94,6 +94,8 @@ class EvidenceRecord:
     verification_status: VerificationStatus
     analyzer_provider: str | None
     analyzer_version: str | None
+    analyzer_model: str | None
+    analyzer_model_version: str | None
     created_at: str
     verified_at: str | None
 
@@ -122,6 +124,8 @@ def _row_to_record(row: Row) -> EvidenceRecord:
         verification_status=row["verification_status"],
         analyzer_provider=row["analyzer_provider"],
         analyzer_version=row["analyzer_version"],
+        analyzer_model=row["analyzer_model"],
+        analyzer_model_version=row["analyzer_model_version"],
         created_at=row["created_at"],
         verified_at=row["verified_at"],
     )
@@ -262,6 +266,8 @@ def submit_evidence(
     file_sha256: str | None = None,
     analyzer_provider: str | None = None,
     analyzer_version: str | None = None,
+    analyzer_model: str | None = None,
+    analyzer_model_version: str | None = None,
 ) -> EvidenceRecord:
     """Yeni bir evidence kaydı ekler; aynı identity (external_reference veya
     file_sha256) + aynı canonical payload için idempotenttir (yeni event YOK).
@@ -314,6 +320,8 @@ def submit_evidence(
             verification_status=verification_status,
             analyzer_provider=analyzer_provider,
             analyzer_version=analyzer_version,
+            analyzer_model=analyzer_model,
+            analyzer_model_version=analyzer_model_version,
             created_at=created_at,
         )
     except sqlite3.IntegrityError:

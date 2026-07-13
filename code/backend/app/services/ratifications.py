@@ -151,8 +151,8 @@ def create_ratification(
 
     package = get_package_or_raise(conn, package_id)
 
-    my_participant = participants_service.get_my_participant(
-        conn, package.transaction_id, actor_context.user_id
+    my_participant = participants_service.get_my_participant_for_actor(
+        conn, package.transaction_id, actor_context
     )
     if my_participant is None or my_participant.legal_entity_id is None:
         raise RatificationAuthorizationError(

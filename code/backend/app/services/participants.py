@@ -216,6 +216,10 @@ def accept_invitation(
     """
     if actor_context.user_id is None:
         raise ParticipantAuthorizationError("accept_invitation authenticated user gerektirir.")
+    if actor_context.acting_entity_id != legal_entity_id:
+        raise ParticipantAuthorizationError(
+            "Invitation yalnız explicit ve eşleşen acting entity adına kabul edilebilir."
+        )
 
     token_hash = _hash_invitation_token(invitation_token)
     invitation = invitations_repo.get_invitation_by_token_hash(conn, token_hash)
@@ -309,6 +313,21 @@ def has_transaction_access(conn: sqlite3.Connection, transaction_id: str, user_i
     return participants_repo.get_active_assignment(conn, transaction_id, user_id) is not None
 
 
+def has_transaction_access_for_actor(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> bool:
+    """Require an active assignment for the actor's explicit acting entity."""
+
+    if actor_context.user_id is None or actor_context.acting_entity_id is None:
+        return False
+    return participants_repo.get_active_assignment_for_entity(
+        conn,
+        transaction_id,
+        actor_context.user_id,
+        actor_context.acting_entity_id,
+    ) is not None
+
+
 def get_my_participant(
     conn: sqlite3.Connection, transaction_id: str, user_id: str
 ) -> Participant | None:
@@ -318,6 +337,27 @@ def get_my_participant(
         return None
     row = participants_repo.get_participant_by_id(conn, assignment["participant_id"])
     return _row_to_participant(row) if row is not None else None
+
+
+def get_my_participant_for_actor(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> Participant | None:
+    """Resolve only an assignment for the exact explicit acting entity."""
+
+    if actor_context.user_id is None or actor_context.acting_entity_id is None:
+        return None
+    assignment = participants_repo.get_active_assignment_for_entity(
+        conn,
+        transaction_id,
+        actor_context.user_id,
+        actor_context.acting_entity_id,
+    )
+    if assignment is None or assignment["participant_id"] is None:
+        return None
+    row = participants_repo.get_participant_by_id(conn, assignment["participant_id"])
+    if row is None or row["legal_entity_id"] != actor_context.acting_entity_id:
+        return None
+    return _row_to_participant(row)
 
 
 def list_participants(conn: sqlite3.Connection, transaction_id: str) -> list[Participant]:
@@ -333,9 +373,14 @@ def update_declared_profile(
     """`PUT .../participants/me/profile` — yalnız actor'ın KENDİ participant'ına yazar."""
     if actor_context.user_id is None:
         raise ParticipantAuthorizationError("update_declared_profile authenticated user gerektirir.")
-    my_participant = get_my_participant(conn, transaction_id, actor_context.user_id)
+    my_participant = get_my_participant_for_actor(conn, transaction_id, actor_context)
     if my_participant is None:
-        raise ParticipantNotFoundError("Actor'ın bu işlemde bir participant kaydı yok.")
+        any_assignment = participants_repo.get_active_assignment(
+            conn, transaction_id, actor_context.user_id
+        )
+        if any_assignment is None:
+            raise ParticipantNotFoundError("Actor'ın bu işlemde bir participant kaydı yok.")
+        raise ParticipantAuthorizationError("Doğru acting entity ile participant assignment gereklidir.")
     if my_participant.status == ParticipantStatus.confirmed:
         raise ParticipantConflictError(
             "Confirmed participant profili değiştirilemez (silent overwrite yasak)."
@@ -366,9 +411,14 @@ def confirm_my_profile(
     """`POST .../participants/me/confirm` — immutable confirmed snapshot + `confirmed_at` üretir."""
     if actor_context.user_id is None:
         raise ParticipantAuthorizationError("confirm_my_profile authenticated user gerektirir.")
-    my_participant = get_my_participant(conn, transaction_id, actor_context.user_id)
+    my_participant = get_my_participant_for_actor(conn, transaction_id, actor_context)
     if my_participant is None:
-        raise ParticipantNotFoundError("Actor'ın bu işlemde bir participant kaydı yok.")
+        any_assignment = participants_repo.get_active_assignment(
+            conn, transaction_id, actor_context.user_id
+        )
+        if any_assignment is None:
+            raise ParticipantNotFoundError("Actor'ın bu işlemde bir participant kaydı yok.")
+        raise ParticipantAuthorizationError("Doğru acting entity ile participant assignment gereklidir.")
     if my_participant.status == ParticipantStatus.confirmed:
         raise ParticipantConflictError(
             "Participant zaten confirmed (silent overwrite yasak)."

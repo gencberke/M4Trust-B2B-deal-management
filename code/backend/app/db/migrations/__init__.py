@@ -42,8 +42,23 @@ plan05_remediation_constraints = import_module(
     "backend.app.db.migrations.023_plan05_remediation_constraints"
 )
 processing_jobs = import_module("backend.app.db.migrations.018_processing_jobs")
+tracking_policy_versions = import_module(
+    "backend.app.db.migrations.019_tracking_policy_versions"
+)
+document_storage_references = import_module(
+    "backend.app.db.migrations.020_document_storage_references"
+)
+auth_verification_reset_tokens = import_module(
+    "backend.app.db.migrations.021_auth_verification_reset_tokens"
+)
+extraction_provenance_extensions = import_module(
+    "backend.app.db.migrations.022_extraction_provenance_extensions"
+)
 payment_lifecycle_operational_extensions = import_module(
     "backend.app.db.migrations.024_payment_lifecycle_operational_extensions"
+)
+plan09_provenance_constraints = import_module(
+    "backend.app.db.migrations.025_plan09_provenance_constraints"
 )
 
 __all__ = [
@@ -65,5 +80,10 @@ __all__ = [
     "release_instructions",
     "plan05_remediation_constraints",
     "processing_jobs",
+    "tracking_policy_versions",
+    "document_storage_references",
+    "auth_verification_reset_tokens",
+    "extraction_provenance_extensions",
     "payment_lifecycle_operational_extensions",
+    "plan09_provenance_constraints",
 ]

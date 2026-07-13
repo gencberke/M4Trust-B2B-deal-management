@@ -479,6 +479,19 @@ def test_submit_ratification_correct_csrf_accepted(tmp_path, monkeypatch) -> Non
     package_id = _setup_open_package(conn, tx_id)
     user_id = create_real_user(conn, email_normalized="buyer-session2@example.com")
     conn.execute(
+        "INSERT INTO legal_entities (id, entity_type, legal_name, tax_identifier_type, "
+        "tax_identifier_ciphertext, tax_identifier_lookup_hmac, tax_identifier_last4, "
+        "verification_status, created_by_user_id, created_at, updated_at) "
+        "VALUES ('entity-buyer', 'company', 'Buyer A.Ş.', 'vkn', 'cipher', 'lookup', "
+        "'7890', 'self_declared', ?, 'now', 'now')",
+        (user_id,),
+    )
+    conn.execute(
+        "INSERT INTO memberships (id, user_id, legal_entity_id, role, status, created_at) "
+        "VALUES ('membership-buyer-session2', ?, 'entity-buyer', 'owner', 'active', 'now')",
+        (user_id,),
+    )
+    conn.execute(
         "UPDATE transaction_assignments SET user_id = ? WHERE transaction_id = ? AND role = 'manager' "
         "AND legal_entity_id = 'entity-buyer'",
         (user_id, tx_id),
@@ -492,10 +505,18 @@ def test_submit_ratification_correct_csrf_accepted(tmp_path, monkeypatch) -> Non
     client.cookies.set("m4t_session", session.raw_token)
     response = client.post(
         f"/api/ratification-packages/{package_id}/ratifications",
-        headers={"X-CSRF-Token": session.raw_csrf_token},
+        headers={
+            "X-CSRF-Token": session.raw_csrf_token,
+            "X-Acting-Entity-ID": "entity-buyer",
+        },
     )
     assert response.status_code == 200
-    assert response.json()["funding_triggered"] is False
+    body = response.json()
+    assert body["funding_triggered"] is False
+    assert "client_ip_hash" not in response.text
+    assert "user_agent_summary" not in response.text
+    assert "auth_method" not in response.text
+    assert "user_id" not in body["ratification"]
     conn.close()
 
 

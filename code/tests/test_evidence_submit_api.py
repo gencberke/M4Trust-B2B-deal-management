@@ -209,9 +209,10 @@ def test_video_evidence_upload_happy_path(conn) -> None:
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["storage_ref"] is not None
+    assert "storage_ref" not in body
     assert len(body["file_sha256"]) == 64
     assert body["verification_status"] in {"verified", "review_required"}
+    assert body["analyzer_model"] == "fake-video-analyzer"
 
 
 def test_video_exact_replay_does_not_create_file_or_rerun_analyzer(
@@ -328,9 +329,14 @@ def test_concurrent_same_video_failure_cannot_delete_successful_upload(
 
         assert sorted(response.status_code for response in responses) == [200, 422]
         success = next(response for response in responses if response.status_code == 200)
-        storage_path = tmp_path / "documents" / success.json()["storage_ref"]
+        storage_ref = conn.execute(
+            "SELECT storage_ref FROM evidence_records "
+            "WHERE transaction_id = ? AND evidence_type = 'video'",
+            (_TX_ID,),
+        ).fetchone()[0]
+        storage_path = tmp_path / "documents" / Path(storage_ref)
         assert storage_path.is_file()
-        assert storage_path.read_bytes() == b"concurrent-video"
+        assert storage_path.read_bytes() != b"concurrent-video"
         assert conn.execute(
             "SELECT COUNT(*) FROM evidence_records WHERE transaction_id = ? AND evidence_type = 'video'",
             (_TX_ID,),

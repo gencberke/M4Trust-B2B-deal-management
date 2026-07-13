@@ -88,7 +88,7 @@ npm run build
 npm run preview
 ```
 
-`npm run preview` yalnız production build'i yerelde servis eder; backend proxy'si `npm run dev` yapılandırmasındadır.
+`npm run preview` yalnız production build'i yerelde servis eder; backend proxy'si `npm run dev` yapılandırmasındadır. `npm run typecheck`, app ve Vite/Node config'lerini ayrı ayrı gerçekten derler; project-reference üzerinde no-op değildir.
 
 ## Test stratejisi
 
@@ -107,7 +107,7 @@ Varsayılan test ortamı **node**'dur ve `src/**/*.test.ts` saf yardımcı/api t
 
 ## Hata davranışı
 
-Merkezi client standart `{code, message, request_id, detail?}` zarfını typed olarak doğrular. Standart olmayan `HTTPException`, FastAPI validation veya geçersiz JSON gövdeleri ham biçimde kullanıcıya gösterilmez.
+Merkezi client standart `{code, message, request_id, detail?}` zarfını typed olarak doğrular. Geçiş dönemindeki güvenli FastAPI `{detail:{code,message,conflicts}}` conflict zarfı da kod/detail korunarak normalize edilir; string `detail`, FastAPI validation ve geçersiz JSON gövdeleri ham biçimde kullanıcıya gösterilmez. Entity seçimi değiştiğinde transaction verisi sıfırlanıp yeni `X-Acting-Entity-ID` ile yüklenir; eski/geç yanıt yeni entity ekranına yazılamaz.
 
 - `401` → session-required ekranı
 - `403` → permission ekranı

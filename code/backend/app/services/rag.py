@@ -23,6 +23,8 @@ class Chunk:
     madde_no: str | None
     heading: str | None
     score: float
+    chunk_id: str | None = None
+    collection_version: str | None = None
 
 
 class Retriever:
@@ -61,9 +63,10 @@ class Retriever:
         documents = result["documents"][0]
         metadatas = result["metadatas"][0]
         distances = result["distances"][0]
+        identifiers = result.get("ids", [[]])[0]
 
         chunks: list[Chunk] = []
-        for text, meta, distance in zip(documents, metadatas, distances):
+        for index, (text, meta, distance) in enumerate(zip(documents, metadatas, distances)):
             chunks.append(
                 Chunk(
                     text=text,
@@ -72,6 +75,8 @@ class Retriever:
                     madde_no=meta.get("madde_no"),
                     heading=meta.get("heading"),
                     score=distance,
+                    chunk_id=identifiers[index] if index < len(identifiers) else None,
+                    collection_version=meta.get("collection_version"),
                 )
             )
         return chunks

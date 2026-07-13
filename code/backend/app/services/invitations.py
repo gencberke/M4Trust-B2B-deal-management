@@ -74,13 +74,18 @@ def _is_expired(expires_at_iso: str) -> bool:
 
 
 def actor_is_transaction_manager(
-    conn: sqlite3.Connection, transaction_id: str, user_id: str
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
 ) -> bool:
-    """Invitation create/revoke yetkisi: manager assignment sahibi olmak yeterlidir."""
-    return (
-        participants_repo.get_active_assignment(conn, transaction_id, user_id, role="manager")
-        is not None
-    )
+    """Manager assignment must match the explicit acting entity."""
+    if actor_context.user_id is None or actor_context.acting_entity_id is None:
+        return False
+    return participants_repo.get_active_assignment_for_entity(
+        conn,
+        transaction_id,
+        actor_context.user_id,
+        actor_context.acting_entity_id,
+        role="manager",
+    ) is not None
 
 
 def create_invitation(
@@ -97,7 +102,7 @@ def create_invitation(
     """`invite_link_builder(raw_token) -> str` çağrılır -- URL şekli router'ın işidir."""
     if actor_context.user_id is None:
         raise InvitationAuthorizationError("create_invitation authenticated user gerektirir.")
-    if not actor_is_transaction_manager(conn, transaction_id, actor_context.user_id):
+    if not actor_is_transaction_manager(conn, transaction_id, actor_context):
         raise InvitationAuthorizationError(
             "Yalnız transaction manager/creator davet oluşturabilir."
         )
@@ -199,7 +204,15 @@ def revoke_invitation(
         raise InvitationNotFoundError("Davet bulunamadı.")
 
     is_creator = row["created_by_user_id"] == actor_context.user_id
-    is_manager = actor_is_transaction_manager(conn, transaction_id, actor_context.user_id)
+    is_manager = actor_is_transaction_manager(conn, transaction_id, actor_context)
+    creator_assignment = participants_repo.get_active_assignment_for_entity(
+        conn,
+        transaction_id,
+        actor_context.user_id,
+        actor_context.acting_entity_id or "",
+        role="manager",
+    )
+    is_creator = is_creator and creator_assignment is not None
     if not (is_creator or is_manager):
         raise InvitationAuthorizationError("Yalnız yetkili manager/creator daveti iptal edebilir.")
 
@@ -219,4 +232,70 @@ def revoke_invitation(
         target=f"invitation:{invitation_id}",
         metadata_allowlist=frozenset(),
         transaction_id=transaction_id,
+    )
+
+
+def list_invitations(
+    conn: sqlite3.Connection, transaction_id: str, actor_context: ActorContext
+) -> list[dict]:
+    """Manager/creator için işlemin davet listesi (token/hash içermez).
+
+    Davet linki gerçek kullanıcı sorunu: token hash'li saklandığı için sonradan
+    kurtarılamaz; bu liste hangi rollerin bağlandığını/beklediğini gösterir,
+    yeni link `reissue_invitation` ile üretilir (§Plan 14 / D3).
+    """
+    if actor_context.user_id is None:
+        raise InvitationAuthorizationError("list_invitations authenticated user gerektirir.")
+    if not actor_is_transaction_manager(conn, transaction_id, actor_context):
+        raise InvitationAuthorizationError(
+            "Yalnız transaction manager/creator davetleri listeleyebilir."
+        )
+    rows = invitations_repo.list_invitations_for_transaction(conn, transaction_id)
+    return [
+        {
+            "invitation_id": row["id"],
+            "participant_role": row["participant_role"],
+            "invited_email": row["invited_email_normalized"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "expires_at": row["expires_at"],
+            "accepted_at": row["accepted_at"],
+        }
+        for row in rows
+    ]
+
+
+def reissue_invitation(
+    conn: sqlite3.Connection,
+    transaction_id: str,
+    invitation_id: str,
+    actor_context: ActorContext,
+    notification_provider: NotificationProvider,
+    *,
+    invite_link_builder,
+    ttl: timedelta = DEFAULT_INVITATION_TTL,
+) -> CreatedInvitation:
+    """Mevcut daveti supersede ederek aynı rol/e-posta için taze bir token üretir.
+
+    `create_invitation`'ın supersede semantiğini kullanır (aynı role ait eski
+    pending davet revoke edilir); rol zaten bağlandıysa
+    `InvitationRoleAlreadyBoundError` yükselir. Taze `raw_token` yalnız bu dönüşte
+    bulunur (sonradan kurtarılamaz).
+    """
+    if actor_context.user_id is None:
+        raise InvitationAuthorizationError("reissue_invitation authenticated user gerektirir.")
+
+    row = invitations_repo.get_invitation_by_id(conn, invitation_id)
+    if row is None or row["transaction_id"] != transaction_id:
+        raise InvitationNotFoundError("Davet bulunamadı.")
+
+    return create_invitation(
+        conn,
+        transaction_id,
+        row["participant_role"],
+        row["invited_email_normalized"],
+        actor_context,
+        notification_provider,
+        invite_link_builder=invite_link_builder,
+        ttl=ttl,
     )

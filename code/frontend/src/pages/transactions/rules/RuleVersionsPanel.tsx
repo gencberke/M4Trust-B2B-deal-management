@@ -83,10 +83,10 @@ export function RuleVersionsPanel({
       />
 
       {versions.length >= 2 ? (
-        <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-          <h4 className="text-sm font-medium text-slate-300">Sürüm karşılaştırma</h4>
+        <div className="space-y-3 rounded-2xl border border-border bg-surface/40 p-4">
+          <h4 className="text-sm font-medium text-body">Sürüm karşılaştırma</h4>
           <div className="flex flex-wrap gap-3">
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-muted">
               Önceki
               <select className={`mt-1 block ${inputClass}`} value={selectedA} onChange={(e) => setSelectedA(e.target.value)}>
                 {versions.map((v) => (
@@ -94,7 +94,7 @@ export function RuleVersionsPanel({
                 ))}
               </select>
             </label>
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-muted">
               Sonraki
               <select className={`mt-1 block ${inputClass}`} value={selectedB} onChange={(e) => setSelectedB(e.target.value)}>
                 {versions.map((v) => (
@@ -104,7 +104,7 @@ export function RuleVersionsPanel({
             </label>
           </div>
           {diffRows.length === 0 ? (
-            <p className="text-sm text-slate-400">Seçili sürümler arasında fark yok.</p>
+            <p className="text-sm text-muted">Seçili sürümler arasında fark yok.</p>
           ) : (
             <ResponsiveTable
               caption="Sürüm farkı"
@@ -144,7 +144,9 @@ export function RuleVersionsPanel({
           {editing && form ? (
             <RevisionForm
               form={form}
-              setForm={setForm}
+              setForm={(updater) =>
+                setForm((previous) => (previous ? updater(previous) : previous))
+              }
               formError={formError}
               busy={busy}
               onSubmit={submitRevision}
@@ -173,7 +175,7 @@ function RevisionForm({
   onCancel: () => void;
 }) {
   return (
-    <div className="space-y-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+    <div className="space-y-4 rounded-2xl border border-border bg-surface/40 p-4">
       <Notice tone="warning">
         Sözleşme alıntıları (source_quote) redakte okumada gösterilmez ve bu formda yer almaz;
         değiştirmediğiniz kuralların alıntıları sunucu tarafında korunur. Bu ekran yeni bir kural
@@ -181,57 +183,57 @@ function RevisionForm({
       </Notice>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-sm text-slate-300">
+        <label className="text-sm text-body">
           Sözleşme No
           <input className={`mt-1 ${inputClass}`} value={form.contract_id} onChange={(e) => setForm((p) => ({ ...p, contract_id: e.target.value }))} />
         </label>
-        <label className="text-sm text-slate-300">
+        <label className="text-sm text-body">
           Para birimi
           <select className={`mt-1 block ${inputClass}`} value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))}>
             {["TRY", "USD", "EUR", "OTHER"].map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
-        <label className="text-sm text-slate-300">
+        <label className="text-sm text-body">
           Alıcı adı
           <input className={`mt-1 ${inputClass}`} value={form.buyer_name} onChange={(e) => setForm((p) => ({ ...p, buyer_name: e.target.value }))} />
         </label>
-        <label className="text-sm text-slate-300">
+        <label className="text-sm text-body">
           Satıcı adı
           <input className={`mt-1 ${inputClass}`} value={form.seller_name} onChange={(e) => setForm((p) => ({ ...p, seller_name: e.target.value }))} />
         </label>
-        <label className="text-sm text-slate-300">
+        <label className="text-sm text-body">
           Toplam tutar
           <input className={`mt-1 ${inputClass}`} value={form.total_amount} onChange={(e) => setForm((p) => ({ ...p, total_amount: e.target.value }))} />
         </label>
-        <label className="text-sm text-slate-300">
+        <label className="text-sm text-body">
           Teslim tarihi (YYYY-AA-GG)
           <input className={`mt-1 ${inputClass}`} value={form.delivery_deadline} onChange={(e) => setForm((p) => ({ ...p, delivery_deadline: e.target.value }))} />
         </label>
       </div>
 
       <div className="space-y-2">
-        <h5 className="text-xs uppercase tracking-wide text-slate-500">Ödeme kuralları</h5>
+        <h5 className="text-xs uppercase tracking-wide text-muted">Ödeme kuralları</h5>
         {form.payment_rules.map((rule, i) => (
-          <div key={i} className="grid gap-2 rounded-xl border border-white/10 p-3 sm:grid-cols-2">
-            <label className="text-xs text-slate-400">
+          <div key={i} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-2">
+            <label className="text-xs text-muted">
               Aşama
               <input className={`mt-1 ${inputClass}`} value={rule.milestone} onChange={(e) => setForm((p) => updateRule(p, i, { milestone: e.target.value }))} />
             </label>
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-muted">
               Tetikleyici
               <select className={`mt-1 block ${inputClass}`} value={rule.trigger} onChange={(e) => setForm((p) => updateRule(p, i, { trigger: e.target.value }))}>
                 {["approval", "e_invoice", "delivery_video", "manual_review"].map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </label>
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-muted">
               Yüzde
               <input className={`mt-1 ${inputClass}`} value={rule.percentage} onChange={(e) => setForm((p) => updateRule(p, i, { percentage: e.target.value }))} />
             </label>
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-muted">
               Güven (0-1)
               <input className={`mt-1 ${inputClass}`} value={rule.confidence} onChange={(e) => setForm((p) => updateRule(p, i, { confidence: e.target.value }))} />
             </label>
-            <label className="text-xs text-slate-400 sm:col-span-2">
+            <label className="text-xs text-muted sm:col-span-2">
               Gerekli kanıt (virgülle: contract, e_irsaliye, video)
               <input className={`mt-1 ${inputClass}`} value={rule.required_evidence} onChange={(e) => setForm((p) => updateRule(p, i, { required_evidence: e.target.value }))} />
             </label>
@@ -239,11 +241,11 @@ function RevisionForm({
         ))}
       </div>
 
-      <label className="block text-sm text-slate-300">
+      <label className="block text-sm text-body">
         Risk işaretleri (virgülle)
         <input className={`mt-1 ${inputClass}`} value={form.risk_flags} onChange={(e) => setForm((p) => ({ ...p, risk_flags: e.target.value }))} />
       </label>
-      <label className="flex items-center gap-2 text-sm text-slate-300">
+      <label className="flex items-center gap-2 text-sm text-body">
         <input type="checkbox" checked={form.needs_manual_review} onChange={(e) => setForm((p) => ({ ...p, needs_manual_review: e.target.checked }))} />
         Manuel inceleme gereksin
       </label>

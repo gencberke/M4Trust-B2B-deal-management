@@ -47,6 +47,11 @@ def test_account_tracking_policy_is_session_scoped_idempotent_and_ae_bound(tmp_p
         from backend.app.routers import transactions
         from backend.app.services.tracking_policy import create_draft_policy
 
+        conn.execute(
+            "INSERT INTO users (id, email_normalized, password_hash, first_name, last_name, "
+            "created_at, updated_at) VALUES ('u-owner', 'owner@example.com', 'unused', "
+            "'Owner', 'User', 'now', 'now')"
+        )
         create_draft_policy(conn, "tx-4f")
         app = _router_app(conn, transactions.router, _actor())
         client = TestClient(app)

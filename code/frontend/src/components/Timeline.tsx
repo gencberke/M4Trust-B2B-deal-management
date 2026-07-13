@@ -12,11 +12,11 @@ export interface TimelineItem {
 }
 
 const DOT_CLASS: Record<StatusTone, string> = {
-  info: "bg-cyan-300",
+  info: "bg-primary",
   success: "bg-emerald-300",
   warning: "bg-amber-300",
   danger: "bg-rose-300",
-  neutral: "bg-slate-400",
+  neutral: "bg-muted",
 };
 
 /** Sıralı olay listesi (`<ol>`); ton renk + metinle taşınır (renk tek başına değil). */
@@ -28,7 +28,7 @@ export function Timeline({
   emptyLabel: string;
 }) {
   if (items.length === 0) {
-    return <p className="text-sm text-slate-400">{emptyLabel}</p>;
+    return <p className="text-sm text-muted">{emptyLabel}</p>;
   }
   return (
     <ol className="space-y-4">
@@ -40,11 +40,11 @@ export function Timeline({
           />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-sm font-medium text-white">{item.title}</p>
-              <time className="text-xs text-slate-500">{formatDateTime(item.timestamp)}</time>
+              <p className="text-sm font-medium text-heading">{item.title}</p>
+              <time className="text-xs text-muted">{formatDateTime(item.timestamp)}</time>
             </div>
             {item.children ? (
-              <div className="mt-1 text-xs text-slate-400">{item.children}</div>
+              <div className="mt-1 text-xs text-muted">{item.children}</div>
             ) : null}
           </div>
         </li>

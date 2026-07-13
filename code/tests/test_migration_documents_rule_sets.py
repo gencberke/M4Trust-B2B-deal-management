@@ -37,7 +37,7 @@ def test_empty_db_gets_full_migration_chain(tmp_path: Path) -> None:
     conn = connect(_settings(tmp_path / "empty.db"))
     init_db(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "023", "024"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "019", "020", "021", "022", "023", "024", "025"]
     assert {
         "contract_documents",
         "extraction_runs",
@@ -90,7 +90,7 @@ def test_plan03_db_upgrades_additively_with_008_and_009(tmp_path: Path) -> None:
     assert conn.execute("SELECT state FROM transactions WHERE id='kept'").fetchone()[0] == "uploaded"
     assert {"contract_documents", "extraction_runs", "rule_set_versions"} <= _tables(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "023", "024"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "019", "020", "021", "022", "023", "024", "025"]
     conn.close()
 
 
@@ -107,7 +107,11 @@ def test_plan06_provider_tables_survive_024_rebuild(tmp_path: Path) -> None:
             version TEXT PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
         )"""
     )
-    pre_024 = [m for m in migrate_module._migrations() if m.version not in {"018", "023", "024"}]
+    pre_024 = [
+        m
+        for m in migrate_module._migrations()
+        if m.version not in {"018", "019", "020", "021", "022", "023", "024", "025"}
+    ]
     for migration in pre_024:
         migration.module.apply(conn)
         conn.execute(
@@ -185,7 +189,7 @@ def test_plan06_provider_tables_survive_024_rebuild(tmp_path: Path) -> None:
     init_db(conn)
 
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "023", "024"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "019", "020", "021", "022", "023", "024", "025"]
 
     provider_payment = conn.execute("SELECT * FROM provider_payments WHERE id = 'pp-p6'").fetchone()
     assert provider_payment["internal_status"] == "approved"
@@ -225,7 +229,7 @@ def test_migration_is_idempotent_across_repeated_runs(tmp_path: Path) -> None:
     init_db(conn)
     init_db(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "023", "024"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "019", "020", "021", "022", "023", "024", "025"]
     conn.close()
 
 

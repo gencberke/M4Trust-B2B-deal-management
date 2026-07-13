@@ -12,9 +12,9 @@ export function HomePage() {
   return (
     <>
       <PageHeading
-        eyebrow="Faz 8A · Frontend Foundation"
-        title="Güvenli B2B akışları için hesap temeli"
-        description="Bu sürüm oturum, CSRF ve legal entity kontratlarını görünür kılar. İşlem, davet ve ödeme ekranları sonraki dikey dilimlere aittir."
+        eyebrow="Güvenli işlem orkestrasyonu"
+        title="B2B anlaşmalarını kanıta dayalı yönetin"
+        description="Sözleşme yüklemeden taraf onayına, teslimat kanıtından kontrollü ödemeye kadar işlem yaşam döngüsünü tek yerde izleyin."
       />
       {bootstrapError ? (
         <RetryPanel
@@ -25,15 +25,15 @@ export function HomePage() {
         />
       ) : (
         <div className="grid gap-5 md:grid-cols-3">
-          <section className="rounded-3xl border border-white/10 bg-white/5 p-6 md:col-span-2">
-            <p className="text-sm font-medium text-cyan-200">Backend kaynaklı durum</p>
+          <section className="rounded-3xl border border-border bg-card shadow-card p-6 md:col-span-2">
+            <p className="text-sm font-medium text-primary">Hesap ve yetki durumu</p>
             {loading ? (
-              <p className="mt-4 text-sm text-slate-400">Oturum kontrol ediliyor…</p>
+              <p className="mt-4 text-sm text-muted">Oturum kontrol ediliyor…</p>
             ) : user ? (
               <div className="mt-4 space-y-4">
                 <div>
-                  <p className="text-2xl font-semibold text-white">Hoş geldin, {user.first_name}.</p>
-                  <p className="mt-1 text-sm text-slate-400">Aktif oturum cookie tabanlıdır; auth token tarayıcı depolamasına yazılmaz.</p>
+                  <p className="text-2xl font-semibold text-heading">Hoş geldin, {user.first_name}.</p>
+                  <p className="mt-1 text-sm text-muted">Aktif oturum cookie tabanlıdır; auth token tarayıcı depolamasına yazılmaz.</p>
                 </div>
                 {selectedEntity ? (
                   <Notice tone="success">İşlem yapılan entity: <strong>{selectedEntity.legal_name}</strong></Notice>
@@ -46,8 +46,8 @@ export function HomePage() {
               </div>
             ) : (
               <div className="mt-4">
-                <p className="text-2xl font-semibold text-white">Oturum bulunamadı.</p>
-                <p className="mt-2 text-sm text-slate-400">Hesabınızla giriş yapın veya yeni hesap oluşturun.</p>
+                <p className="text-2xl font-semibold text-heading">Oturum bulunamadı.</p>
+                <p className="mt-2 text-sm text-muted">Hesabınızla giriş yapın veya yeni hesap oluşturun.</p>
                 <div className="mt-5 flex gap-3">
                   <Link className={buttonClass} to="/login">Giriş yap</Link>
                   <Link className={secondaryButtonClass} to="/register">Kayıt ol</Link>
@@ -55,16 +55,16 @@ export function HomePage() {
               </div>
             )}
           </section>
-          <aside className="rounded-3xl border border-white/10 bg-gradient-to-b from-indigo-400/10 to-cyan-400/5 p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">Hazır seam’ler</p>
-            <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-300">
-              <li>Merkezi `/api` client</li>
-              <li>Session + CSRF koruması</li>
-              <li>Acting-entity header’ı</li>
-              <li>401 / 403 / 409 akışları</li>
-              <li>Backend projection odaklı tipler</li>
+          <aside className="rounded-3xl border border-border bg-gradient-to-b from-primary-soft to-card p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">Güvenlik temeli</p>
+            <ul className="mt-4 space-y-3 text-sm leading-6 text-body">
+              <li>HttpOnly oturum ve CSRF koruması</li>
+              <li>Entity kapsamlı erişim denetimi</li>
+              <li>Değiştirilemez onay paketi geçmişi</li>
+              <li>Şifreli sözleşme ve kanıt saklama</li>
+              <li>Tekrara dayanıklı ödeme işlemleri</li>
             </ul>
-            {user ? <p className="mt-6 text-xs text-slate-500">Backend’in döndürdüğü entity sayısı: {entities.length}</p> : null}
+            {user ? <p className="mt-6 text-xs text-muted">Hesabınıza bağlı entity sayısı: {entities.length}</p> : null}
           </aside>
         </div>
       )}

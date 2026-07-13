@@ -164,7 +164,7 @@ class RoboflowVideoAnalyzer(VideoAnalyzer):
         """
         frame_paths = extract_frames(video_path, sample_fps=sample_fps)
         if not frame_paths:
-            raise ValueError(f"{video_path} içinden hiç kare örneklenemedi")
+            raise ValueError("Video içinden hiç kare örneklenemedi")
 
         try:
             frame_results = [self._analyze_image(frame) for frame in frame_paths]
@@ -184,11 +184,13 @@ class RoboflowVideoAnalyzer(VideoAnalyzer):
         )
 
         logger.info(
-            "%s videosundan %d kare analiz edildi -> counts=%s, %d hasar sinyali",
-            video_path.name,
-            len(frame_results),
-            dict(max_counts),
-            len(all_damage_signals),
+            "video frames analyzed",
+            extra={
+                "event": "video_frames_analyzed",
+                "action": "analyze_video",
+                "outcome": "success",
+                "item_count": len(frame_results),
+            },
         )
 
         return {

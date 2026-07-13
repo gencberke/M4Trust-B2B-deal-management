@@ -4,6 +4,23 @@ import type {
   FundingScheduleSpecInput,
   MilestoneReleaseOverride,
 } from "../../../types/ratification";
+import type { RatificationPackagePublicView } from "../../../types/ratification";
+import type { TrackingPolicyView } from "../../../types/tracking";
+import type { TransactionDetail } from "../../../types/transactions";
+
+export interface ReadinessItem { key: "document" | "rules" | "parties" | "policy" | "schedule" | "reviews"; label: string; ready: boolean; }
+
+export function packageReadinessItems(detail: TransactionDetail, policy: TrackingPolicyView | null, pkg: RatificationPackagePublicView | null): ReadinessItem[] {
+  const packageBuilt = Boolean(pkg && pkg.status !== "superseded" && pkg.status !== "cancelled");
+  return [
+    { key: "document", label: "Sözleşme dokümanı hazır", ready: Boolean(detail.extraction) },
+    { key: "rules", label: "Kurallar doğrulandı", ready: detail.validator?.status === "PASS" },
+    { key: "parties", label: "İki taraf profili onaylandı", ready: packageBuilt },
+    { key: "policy", label: "Takip politikası kilitli", ready: policy?.tracking_policy.status === "locked" },
+    { key: "schedule", label: "Fonlama takvimi oluşturuldu", ready: Boolean(pkg?.canonical_payload.funding_schedule?.milestones.length) },
+    { key: "reviews", label: "Engelleyici inceleme yok", ready: detail.state !== "awaiting_review" },
+  ];
+}
 
 /** Current package 404 = "henüz paket yok" normal ön-durumu (hata değil). */
 export function isNoPackageError(error: ApiClientError): boolean {

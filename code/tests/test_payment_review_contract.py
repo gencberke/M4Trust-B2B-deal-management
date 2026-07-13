@@ -195,20 +195,22 @@ def test_manager_can_request_reconciliation() -> None:
     conn = make_full_reviews_db()
     users = _seed_manager_and_approvers(conn, "tx-auth-1")
     assert review_service.can_request_payment_reconciliation(
-        conn, "tx-auth-1", _actor(users["manager"])
+        conn, "tx-auth-1", _actor(users["manager"], "entity-buyer")
     )
 
 
 def test_manager_can_request_retry() -> None:
     conn = make_full_reviews_db()
     users = _seed_manager_and_approvers(conn, "tx-auth-2")
-    assert review_service.can_request_payment_retry(conn, "tx-auth-2", _actor(users["manager"]))
+    assert review_service.can_request_payment_retry(
+        conn, "tx-auth-2", _actor(users["manager"], "entity-buyer")
+    )
 
 
 def test_manager_cannot_execute_undo_or_refund() -> None:
     conn = make_full_reviews_db()
     users = _seed_manager_and_approvers(conn, "tx-auth-3")
-    manager_actor = _actor(users["manager"])
+    manager_actor = _actor(users["manager"], "entity-buyer")
     assert review_service.can_request_payment_reversal(conn, "tx-auth-3", manager_actor)
     # Execution: manager platform reviewer değil ve bilateral resolution tamamlanmadı.
     authorized = review_service.can_authorize_payment_reversal(

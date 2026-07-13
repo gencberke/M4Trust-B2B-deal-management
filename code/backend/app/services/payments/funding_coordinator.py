@@ -323,6 +323,29 @@ def _safe_provider_result(result, *, code: str | None = None):
     )
 
 
+def _safe_result_message(result) -> str:
+    """Persist only a typed, provider-independent result summary.
+
+    Provider ``message`` values may contain request URLs or other sensitive
+    response data. The normalized code already has its own column, so this
+    legacy display column records only our closed outcome enum.
+    """
+
+    return f"Provider outcome recorded: {result.outcome.value}."
+
+
+def _provider_internal_status(status: ProviderPaymentStatus) -> str:
+    """Map every normalized provider payment status without fallthrough."""
+
+    if status is ProviderPaymentStatus.POOL:
+        return "pool_waiting"
+    if status is ProviderPaymentStatus.APPROVED:
+        return "approved"
+    if status is ProviderPaymentStatus.REFUNDED:
+        return "refunded"
+    return "unknown"
+
+
 def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
     job = processing_jobs.ensure_job(
         conn,
@@ -386,25 +409,52 @@ def _reconcile_unknown_unit(conn: Connection, *, unit, gateway: PaymentGateway):
         funding_units_repo.update_status(conn, unit["id"], "pool_created")
         processing_jobs.mark_succeeded(conn, job["id"])
         return "pool_created"
-    provider_payments_repo.upsert_payment(
-        conn,
-        payment_id=uuid4().hex,
-        funding_unit_id=unit["id"],
-        provider_profile=unit["provider_profile"],
-        other_trx_code=unit["other_trx_code"],
-        virtual_pos_order_id=identifier.virtual_pos_order_id,
-        amount_minor=unit["amount_minor"],
-        currency=unit["currency"],
-        internal_status="approved",
-    )
-    funding_units_repo.update_status(conn, unit["id"], "approved")
-    processing_jobs.mark_succeeded(conn, job["id"])
-    return "approved"
+    if payment.status is ProviderPaymentStatus.APPROVED:
+        provider_payments_repo.upsert_payment(
+            conn,
+            payment_id=uuid4().hex,
+            funding_unit_id=unit["id"],
+            provider_profile=unit["provider_profile"],
+            other_trx_code=unit["other_trx_code"],
+            virtual_pos_order_id=identifier.virtual_pos_order_id,
+            amount_minor=unit["amount_minor"],
+            currency=unit["currency"],
+            internal_status="approved",
+        )
+        funding_units_repo.update_status(conn, unit["id"], "approved")
+        processing_jobs.mark_succeeded(conn, job["id"])
+        return "approved"
+    if payment.status is ProviderPaymentStatus.REFUNDED:
+        provider_payments_repo.upsert_payment(
+            conn,
+            payment_id=uuid4().hex,
+            funding_unit_id=unit["id"],
+            provider_profile=unit["provider_profile"],
+            other_trx_code=unit["other_trx_code"],
+            virtual_pos_order_id=identifier.virtual_pos_order_id,
+            amount_minor=unit["amount_minor"],
+            currency=unit["currency"],
+            internal_status="refunded",
+        )
+        funding_units_repo.update_status(conn, unit["id"], "refunded")
+        processing_jobs.mark_succeeded(conn, job["id"])
+        return "refunded"
+
+    # Defense-in-depth for a future enum extension: never infer approval.
+    processing_jobs.mark_unknown(conn, job["id"], reason_code="PAYMENT_RECONCILE_AMBIGUOUS")
+    funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
+    return "unknown"
 
 
 def _create_unit_pool_payment(conn: Connection, *, unit, gateway: PaymentGateway) -> str:
     if unit["status"] == "pool_created":
         return "pool_created"
+    if unit["status"] == "approved":
+        return "approved"
+    if unit["status"] == "refunded":
+        # A provider-confirmed refund is terminal. Funding retries must not
+        # create a replacement payment behind the existing review gate.
+        return "refunded"
     job = processing_jobs.ensure_job(
         conn,
         kind="funding",
@@ -418,6 +468,10 @@ def _create_unit_pool_payment(conn: Connection, *, unit, gateway: PaymentGateway
         if reconciliation != "retry":
             if reconciliation in {"pool_created", "approved"}:
                 processing_jobs.mark_succeeded(conn, job["id"])
+            elif reconciliation == "refunded":
+                processing_jobs.mark_failed(
+                    conn, job["id"], reason_code="PAYMENT_POOL_CREATION_FAILED"
+                )
             else:
                 processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_CREATE_UNKNOWN")
             return reconciliation
@@ -445,13 +499,9 @@ def _create_unit_pool_payment(conn: Connection, *, unit, gateway: PaymentGateway
             virtual_pos_order_id=result.payment.identifier.virtual_pos_order_id,
             amount_minor=unit["amount_minor"],
             currency=unit["currency"],
-            internal_status=(
-                "pool_waiting"
-                if result.payment.status is ProviderPaymentStatus.POOL
-                else "approved"
-            ),
+            internal_status=_provider_internal_status(result.payment.status),
             last_result_code=result.provider_code,
-            last_result_message=result.message,
+            last_result_message=_safe_result_message(result),
         )
     else:
         provider_payment = existing_payment
@@ -471,7 +521,7 @@ def _create_unit_pool_payment(conn: Connection, *, unit, gateway: PaymentGateway
                     else "failed"
                 ),
                 last_result_code=result.provider_code,
-                last_result_message=result.message,
+                last_result_message=_safe_result_message(result),
             )
 
     _record_provider_operation(
@@ -486,9 +536,24 @@ def _create_unit_pool_payment(conn: Connection, *, unit, gateway: PaymentGateway
     )
 
     if result.outcome is ProviderOperationOutcome.SUCCESS and result.payment is not None:
-        funding_units_repo.update_status(conn, unit["id"], "pool_created")
-        processing_jobs.mark_succeeded(conn, job["id"])
-        return "pool_created"
+        if result.payment.status is ProviderPaymentStatus.POOL:
+            funding_units_repo.update_status(conn, unit["id"], "pool_created")
+            processing_jobs.mark_succeeded(conn, job["id"])
+            return "pool_created"
+        if result.payment.status is ProviderPaymentStatus.APPROVED:
+            funding_units_repo.update_status(conn, unit["id"], "approved")
+            processing_jobs.mark_succeeded(conn, job["id"])
+            return "approved"
+        if result.payment.status is ProviderPaymentStatus.REFUNDED:
+            funding_units_repo.update_status(conn, unit["id"], "refunded")
+            processing_jobs.mark_failed(
+                conn, job["id"], reason_code="PAYMENT_POOL_CREATION_FAILED"
+            )
+            return "refunded"
+
+        funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
+        processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_CREATE_UNKNOWN")
+        return "unknown"
     if result.outcome is ProviderOperationOutcome.UNKNOWN:
         funding_units_repo.update_status(conn, unit["id"], "pool_creation_unknown")
         processing_jobs.mark_unknown(conn, job["id"], reason_code="PROVIDER_CREATE_UNKNOWN")
@@ -694,11 +759,11 @@ def ensure_pool_funded(
         gateway = make_payment_gateway(Settings.from_env(), conn)
     statuses = [_create_unit_pool_payment(conn, unit=unit, gateway=gateway) for unit in units]
     failed = any(
-        status in {"pool_creation_failed", "pool_creation_unknown", "unknown"}
+        status in {"pool_creation_failed", "pool_creation_unknown", "refunded", "unknown"}
         for status in statuses
     )
     if failed:
-        if any(status == "pool_creation_failed" for status in statuses) and not (
+        if any(status in {"pool_creation_failed", "refunded"} for status in statuses) and not (
             review_service.has_blocking_case(conn, transaction_id, phase="payment")
         ):
             review_service.open_case(

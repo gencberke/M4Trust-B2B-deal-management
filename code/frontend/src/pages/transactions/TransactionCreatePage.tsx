@@ -85,9 +85,10 @@ export function TransactionCreatePage() {
             Bu bağlantı <strong>gizli ve tek kullanımlıktır</strong>. Yalnız davet ettiğiniz karşı
             tarafla paylaşın; bir yerde saklamayın.
           </Notice>
+          <Notice tone="info">Bağlantıyı kaybederseniz işlemin Taraflar sayfasından yeniden oluşturabilirsiniz.</Notice>
           {token ? (
-            <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-              <p className="break-all font-mono text-sm text-cyan-200">
+            <div className="rounded-2xl border border-border bg-subtle/60 p-4">
+              <p className="break-all font-mono text-sm text-primary">
                 {frontendInvitationPath(token)}
               </p>
               <button
@@ -139,25 +140,25 @@ export function TransactionCreatePage() {
         )}
 
         <div>
-          <label className="mb-2 block text-sm text-slate-300" htmlFor="contract-file">
+          <label className="mb-2 block text-sm text-body" htmlFor="contract-file">
             Sözleşme dosyası
           </label>
           <input
             id="contract-file"
             type="file"
             accept={ACCEPT_SUFFIXES}
-            className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-xl file:border-0 file:bg-cyan-300 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
+            className="block w-full text-sm text-body file:mr-4 file:rounded-xl file:border-0 file:bg-primary file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             disabled={submitting}
           />
-          <p className="mt-1 text-xs text-slate-500">İzin verilen türler: pdf, docx, png, jpg, jpeg, md, txt.</p>
+          <p className="mt-1 text-xs text-muted">İzin verilen türler: pdf, docx, png, jpg, jpeg, md, txt.</p>
         </div>
 
         <fieldset disabled={submitting}>
           <legend className="mb-2 text-sm text-slate-300">Bu işlemdeki rolünüz</legend>
           <div className="flex gap-4">
             {(["buyer", "seller"] as ParticipantRole[]).map((role) => (
-              <label key={role} className="flex items-center gap-2 text-sm text-white">
+              <label key={role} className="flex items-center gap-2 text-sm text-heading">
                 <input
                   type="radio"
                   name="own-role"
@@ -172,7 +173,7 @@ export function TransactionCreatePage() {
         </fieldset>
 
         <div>
-          <label className="mb-2 block text-sm text-slate-300" htmlFor="counterparty-email">
+          <label className="mb-2 block text-sm text-body" htmlFor="counterparty-email">
             Karşı taraf e-postası (isteğe bağlı)
           </label>
           <input
@@ -184,7 +185,7 @@ export function TransactionCreatePage() {
             disabled={submitting}
             placeholder="ornek@firma.com"
           />
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-muted">
             E-posta verilirse karşı taraf için davet bağlantısı üretilir.
           </p>
         </div>

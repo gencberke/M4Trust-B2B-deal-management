@@ -29,7 +29,6 @@ from backend.app.repositories import ratifications as ratifications_repo
 from backend.app.repositories.transactions import load_transaction
 from backend.app.schemas.payments import FundingScheduleSpec
 from backend.app.schemas.ratification import (
-    RatificationOutcome,
     RatificationPackagePublicView,
     RatificationProgress,
 )
@@ -61,10 +60,26 @@ class RatificationPackageBuildRequest(BaseModel):
     funding_schedule_spec: FundingScheduleSpec = FundingScheduleSpec()
 
 
+class RatificationPublicView(BaseModel):
+    """Public acknowledgement; request metadata and user identifiers stay server-side."""
+
+    id: str
+    package_id: str
+    transaction_id: str
+    participant_id: str
+    legal_entity_id: str
+    participant_role: str
+    approved_at: str
+
+
+class RatificationOutcomePublicView(BaseModel):
+    ratification: RatificationPublicView
+    package_status: str
+    funding_triggered: bool
+
+
 def _require_access(conn: Connection, transaction_id: str, actor: ActorContext) -> None:
-    if actor.user_id is None or not participants_service.has_transaction_access(
-        conn, transaction_id, actor.user_id
-    ):
+    if not participants_service.has_transaction_access_for_actor(conn, transaction_id, actor):
         raise ApiError(
             status_code=403,
             code="TRANSACTION_ACCESS_DENIED",
@@ -218,7 +233,7 @@ def submit_ratification(
     actor: Annotated[ActorContext, Depends(require_authenticated_user)],
     _csrf: Annotated[None, Depends(require_csrf_protection)],
     conn: Connection = Depends(get_db),
-) -> RatificationOutcome:
+) -> RatificationOutcomePublicView:
     try:
         outcome = ratifications_service.create_ratification(
             conn,
@@ -236,4 +251,17 @@ def submit_ratification(
         raise ApiError(status_code=409, code=exc.reason_code, message=str(exc)) from exc
     except FundingCoordinatorError as exc:
         raise ApiError(status_code=409, code="FUNDING_COORDINATOR_CONFLICT", message=str(exc)) from exc
-    return outcome
+    ratification = outcome.ratification
+    return RatificationOutcomePublicView(
+        ratification=RatificationPublicView(
+            id=ratification.id,
+            package_id=ratification.package_id,
+            transaction_id=ratification.transaction_id,
+            participant_id=ratification.participant_id,
+            legal_entity_id=ratification.legal_entity_id,
+            participant_role=ratification.participant_role,
+            approved_at=ratification.approved_at,
+        ),
+        package_status=outcome.package_status.value,
+        funding_triggered=outcome.funding_triggered,
+    )

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { useAsyncData } from "./useAsyncData";
@@ -48,5 +48,33 @@ describe("useAsyncData", () => {
     // Kısa bir bekleme sonrası bayat veri UYGULANMAMALI.
     await new Promise((r) => setTimeout(r, 10));
     expect(result.current.data).toBe("güncel");
+  });
+
+  it("deps değişince önceki entity verisini hemen temizler", async () => {
+    const second = deferred<string>();
+    const { result, rerender } = renderHook(
+      ({ entityId }: { entityId: string }) =>
+        useAsyncData(
+          () => entityId === "e-1" ? Promise.resolve("birinci") : second.promise,
+          [entityId],
+        ),
+      { initialProps: { entityId: "e-1" } },
+    );
+    await waitFor(() => expect(result.current.data).toBe("birinci"));
+
+    rerender({ entityId: "e-2" });
+
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    expect(result.current.data).toBeNull();
+    second.resolve("ikinci");
+    await waitFor(() => expect(result.current.data).toBe("ikinci"));
+  });
+
+  it("disabled iken istek başlatmaz", async () => {
+    const fetcher = vi.fn(() => Promise.resolve(1));
+    const { result } = renderHook(() => useAsyncData(fetcher, [], false));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.current.data).toBeNull();
   });
 });

@@ -160,6 +160,25 @@ def get_active_assignment(
     ).fetchone()
 
 
+def get_active_assignment_for_entity(
+    conn: sqlite3.Connection,
+    transaction_id: str,
+    user_id: str,
+    legal_entity_id: str,
+    *,
+    role: str | None = None,
+) -> sqlite3.Row | None:
+    sql = (
+        "SELECT * FROM transaction_assignments WHERE transaction_id = ? AND user_id = ? "
+        "AND legal_entity_id = ? AND status = 'active'"
+    )
+    params: tuple = (transaction_id, user_id, legal_entity_id)
+    if role is not None:
+        sql += " AND role = ?"
+        params += (role,)
+    return conn.execute(sql, params).fetchone()
+
+
 def list_assignments(conn: sqlite3.Connection, transaction_id: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM transaction_assignments WHERE transaction_id = ?", (transaction_id,)

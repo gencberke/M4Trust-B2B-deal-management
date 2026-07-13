@@ -33,7 +33,7 @@ code/
 ├── scripts/          # offline hazırlık + demo_moka_contract.py gerçek HTTP demo sürücüsü
 ├── backend/app/
 │   ├── main.py · config.py · eventbus.py
-│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-017,023
+│   ├── db/           # connection lifecycle · migration runner · kısa transaction helper · migrations 001,003-025
 │   ├── repositories/ # transactions · identity/participants · documents/extraction_runs · rule_sets/reviews/packages/evidence/disputes
 │   ├── api/          # yeni uçlar için standart hata zarfı
 │   ├── middleware/   # request-id üretimi ve X-Request-ID response header'ı
@@ -221,6 +221,8 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 `source_quote` yalnızca **capability token'ı gerektiren** uçlarda döner (party-view · manager-view · evidence) ve orada da `privacy.analyze()` ile maskelenir: taraf, onaylayacağı kuralın sözleşmedeki dayanağını görebilmelidir (§6.2). Token istemeyen `GET /api/transactions/{id}` ve liste ucu alıntıyı **döndürmez** — maskeleme desen tabanlıdır (TCKN/VKN/IBAN/telefon/e-posta/kart), NER değildir; alıntıdaki kişi adı, adres veya ticari hassas ifade temizlenmez. `redacted_extraction_projection(..., include_source_quote=False)` varsayılanı bu yüzden kapalıdır. Ham alıntı yalnız DB'de kalır.
 
 ### 4.1.1 Identity/entity/participant/invitation endpoint'leri (Plan 03)
+
+Plan 14 ekleri: `GET /api/transactions/{id}/invitations` creator-scoped olarak kimlik/rol/e-posta/durum/tarih listesini döndürür; token veya hash döndürmez. `POST /api/transactions/{id}/invitations/{invitation_id}/reissue` CSRF ve creator yetkisiyle eski daveti supersede eder, taze `invite_link` yalnız mutation cevabında bir kez görünür. `DEMO_TOOLS_ENABLED=true` olduğunda authenticated `GET /api/demo/status`, CSRF korumalı `POST /api/demo/scenarios` ve `POST /api/demo/transactions/{id}/advance` mount edilir; flag kapalıyken router ve OpenAPI izi yoktur. Delivery fixture seçimi `LLM_FAKE_PROFILE=approval|delivery` ile yapılır (varsayılan `approval`).
 
 | Endpoint | İş |
 |---|---|
@@ -417,6 +419,8 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 19. **Review/re-trigger insan kontrollüdür.** Settlement video case'i yalnız platform reviewer/admin'in allowlist'li güvenli resolution koduyla kapanır; evidence verification, review action ve audit aynı transaction'dadır. Evidence replay veya review/dispute resolve/cancel sonrası settlement public orchestration seam'iyle yeniden değerlendirilir; ReleaseCoordinator idempotency'si korunur.
 20. **Undo/refund yalnız yetkili insan aksiyonudur (Plan 07).** Transaction manager provider'ı geri alacak/refund edecek bir işlemi tek başına **asla** çalıştıramaz — yalnız blocking review case'i açan bir talep üretebilir (`payment_resolutions`, provider side-effect'siz). Execution yalnız platform reviewer/admin **veya** buyer+seller approver'ının aynı resolution'ı bilateral onayladığı durumda çalışır (`payment_operations.py::_can_execute`, `services/review.py::can_authorize_payment_reversal`). Release retry reconciliation-first'tir — kör create/approve/undo/refund retry'ı yoktur, provider `unknown` sonucu kesin başarısızlık sayılmaz (§11 ile tutarlı). `GET /api/transactions/{id}/payment-trace` saf okumadır ve provider secret'larını (Password/CheckKey/CardToken/PAN/CVC/IP) asla döndürmez.
 
+21. **Demo araçları prod yüzeyine sızmaz.** `DEMO_TOOLS_ENABLED` varsayılan olarak kapalıdır; secure session-cookie ortamında mount reddedilir. Demo akışı ham business state veya funding satırı yazmaz, payment provider'ı doğrudan çağırmaz ve validator/policy/ratification/release guard kapılarını yalnız gerçek servisler üzerinden geçer.
+
 ## 7. Frontend contract gap-closure addendum (2026-07-12)
 
 Bu addendum, Program 6 frontend PR 2 ve PR 3 icin eklenen dar backend kontratlarini kaydeder.
@@ -427,3 +431,15 @@ Bu addendum, Program 6 frontend PR 2 ve PR 3 icin eklenen dar backend kontratlar
 - `GET /api/transactions/{transaction_id}/milestones` aktif assignment icin current package milestone/funding-unit projection'idir. Gercek milestone/unit ID'leri, rule mapping, status, amount/currency, sequence ve varsa `release_instruction_id`/status alanlarini tasir; eligibility payload'i allowlist'li scalar projection'dir.
 - `GET /api/transactions/{transaction_id}/payment-resolutions` ve nested detail endpoint'i assignment-scoped resolution ID, funding-unit/review-case mapping, operation/status/timestamps ve buyer/seller approval projection'i doner. Cross-transaction ID'ler 404 ile opak tutulur.
 - Session/account evidence bundle ve snapshot projection'larinda `source_quote` yoktur. Quote yalniz legacy capability compatibility endpoint'inde, capability guard arkasinda doner. Ham document, payload, storage path, token, secret ve provider credential hicbir yeni projection'a girmez.
+
+## 8. Plan 09 privacy, provenance ve readiness addendum (2026-07-12)
+
+- Authoritative migration order is now `001,003-018,019,020,021,022,023,024,025`; `002` remains intentionally unused. Migrations 019-022 are additive Plan 09 schema, while 025 corrects provenance immutability after the existing 023/024 steps without rewriting history.
+- Raw contract, normalized markdown, masked markdown and evidence blobs use `DocumentStorageProvider` AES-256-GCM envelopes. The key is required, each write uses a fresh nonce, storage ref is AAD, writes are atomic/immutable, and plaintext/wrong-key/corrupt reads fail closed. Contract/evidence multipart reads are bounded before persistence.
+- Upload request state, encrypted document reference and a `queued` extraction job commit before background dispatch. The pipeline atomically claims the job; a second worker does not duplicate extraction. Storage materialization is inside the job failure guard and explicit account retry reuses the durable document.
+- Tracking policies retain the compatibility row plus immutable `tracking_policy_versions`; canonical ratification packages bind the exact policy version ID.
+- Authentication adds per-process IP+email throttling, persistent lockout/audit, hashed single-use expiring reset/verification tokens and session revocation after reset. Email verification enforcement stays env-controlled. `NotificationProvider` selects network-free fake or TLS SMTP; neither logs recipients or links.
+- Account resource reads and mutations require an active assignment matching the explicit, membership-validated `X-Acting-Entity-ID`; platform reviewer/admin exceptions remain narrow and explicit. Public ratification/evidence projections omit storage refs, IP/user-agent metadata and provider payloads.
+- Extraction/evidence provenance records OCR engine/version/confidence, document engine/page locators, LLM provider/model/package version, RAG collection/chunk/version and analyzer model/version. Corrective migration 025 makes the additive provenance fields immutable.
+- JSON logging is allowlist-only and carries request ID, actor/entity, action, outcome, status and duration; arbitrary request/exception/document text is excluded. CI gates Python/npm dependency audits, high-severity static analysis, direct startup and secret scanning.
+- Retention, encrypted legacy migration and backup/restore are explicit, dry-run-first or no-overwrite operational commands documented under `docs/`. PostgreSQL work is inventory-only; no PostgreSQL migration was performed.
