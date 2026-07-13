@@ -83,20 +83,20 @@ function ReviewCaseCard({
   }
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+    <div className="rounded-3xl border border-border bg-card shadow-card p-5">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-white">{c.title}</h3>
+        <h3 className="text-sm font-semibold text-heading">{c.title}</h3>
         <StatusBadge value={c.severity} map={reviewSeverityMap} />
         <StatusBadge value={c.status} map={reviewStatusMap} />
         <StatusBadge value={c.phase} map={reviewPhaseMap} />
         <StatusBadge value={c.source_type} map={reviewSourceMap} />
       </div>
-      <p className="mt-1 font-mono text-xs text-slate-500">{c.reason_code}</p>
-      <p className="mt-2 text-sm text-slate-300">{c.description}</p>
+      <p className="mt-1 font-mono text-xs text-muted">{c.reason_code}</p>
+      <p className="mt-2 text-sm text-body">{c.description}</p>
 
       {actions.length > 0 ? (
         <div className="mt-4">
-          <h4 className="mb-2 text-xs uppercase tracking-wide text-slate-500">Aksiyon geçmişi</h4>
+          <h4 className="mb-2 text-xs uppercase tracking-wide text-muted">Aksiyon geçmişi</h4>
           <Timeline
             emptyLabel="Aksiyon yok."
             items={actions.map((a) => ({
@@ -105,10 +105,10 @@ function ReviewCaseCard({
               timestamp: a.created_at,
               children: (
                 <div className="space-y-0.5">
-                  <p className="text-slate-500">Aktör: {shortId(a.actor_user_id)}</p>
+                  <p className="text-muted">Aktör: {shortId(a.actor_user_id)}</p>
                   {safeActionPayloadEntries(a.payload).map((e) => (
                     <p key={e.label}>
-                      <span className="text-slate-500">{e.label}:</span> {e.value}
+                      <span className="text-muted">{e.label}:</span> {e.value}
                     </p>
                   ))}
                 </div>
@@ -121,13 +121,13 @@ function ReviewCaseCard({
       {terminal ? (
         <Notice tone="info">Bu inceleme kapandı; yeni aksiyon eklenemez.</Notice>
       ) : (
-        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-          <p className="text-xs text-slate-500">
+        <div className="mt-4 space-y-3 border-t border-border pt-4">
+          <p className="text-xs text-muted">
             Aksiyon yetkisi backend tarafından belirlenir (yorum: yönetici/onaylayan/platform;
             uyuşmazlığa taşıma: yalnız taraf onaylayanı; diğerleri: yalnız platform). Yetkiniz yoksa
             gönderim 403 döner.
           </p>
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm text-body">
             Aksiyon
             <select
               className={`mt-1 block ${inputClass}`}
@@ -141,7 +141,7 @@ function ReviewCaseCard({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm text-body">
             Yorum (isteğe bağlı)
             <textarea
               className={`mt-1 block h-20 ${inputClass}`}
@@ -153,7 +153,7 @@ function ReviewCaseCard({
           </label>
           {isResolveAction(action) ? (
             <div className="space-y-2">
-              <label className="block text-sm text-slate-300">
+              <label className="block text-sm text-body">
                 Çözüm kodu
                 <input
                   className={`mt-1 block ${inputClass}`}
@@ -167,7 +167,7 @@ function ReviewCaseCard({
                   <button
                     key={code}
                     type="button"
-                    className="rounded-full border border-white/15 px-3 py-1 text-xs text-slate-200 hover:bg-white/10"
+                    className="rounded-full border border-border px-3 py-1 text-xs text-body hover:bg-primary-soft"
                     onClick={() => setResolutionCode(code)}
                   >
                     {code}

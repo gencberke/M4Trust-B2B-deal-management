@@ -1,0 +1,12 @@
+import { LoadingPanel, Notice, RetryPanel } from "../../../components/Feedback";
+import type { ApiClientError } from "../../../api/client";
+import type { FundingScheduleSpecInput, RatificationPackagePublicView } from "../../../types/ratification";
+import type { TrackingPolicyView } from "../../../types/tracking";
+import type { TransactionDetail } from "../../../types/transactions";
+import { PackagePanel } from "./PackagePanel";
+import { packageReadinessItems } from "./packageLogic";
+
+export function PackageReadinessStep({ detail, policy, pkg, loading, loadError, busy, error, onRefresh, onBuild }: { detail: TransactionDetail; policy: TrackingPolicyView | null; pkg: RatificationPackagePublicView | null; loading: boolean; loadError: ApiClientError | null; busy: boolean; error: string | null; onRefresh: () => void; onBuild: (spec: FundingScheduleSpecInput) => void; }) {
+  const checklist = packageReadinessItems(detail, policy, pkg);
+  return <section className="card-surface space-y-5 p-5 sm:p-6"><header className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-primary text-sm font-bold text-white">2</span><div><h2 className="text-lg font-bold text-heading">Paket hazırlığını doğrula</h2><p className="text-sm text-muted">Backend’in canonical paket kapılarıyla aynı hazırlık sinyalleri.</p></div></div><button type="button" className="text-sm font-bold text-primary disabled:opacity-50" disabled={loading} onClick={onRefresh}>Yenile</button></header><ul aria-label="Paket hazırlık kontrol listesi" className="grid gap-2 sm:grid-cols-2">{checklist.map((item) => <li key={item.key} className={item.ready ? "flex items-center gap-2 rounded-2xl bg-positive-soft p-3 text-sm font-semibold text-positive" : "flex items-center gap-2 rounded-2xl bg-warning-soft p-3 text-sm font-semibold text-amber-800"}><span aria-hidden="true" className="grid size-5 place-items-center rounded-full border border-current text-xs">{item.ready ? "✓" : "!"}</span>{item.label}</li>)}</ul>{loading && !pkg ? <LoadingPanel label="Onay paketi yükleniyor…" /> : loadError ? loadError.kind === "permission_denied" ? <Notice tone="danger">Onay paketine erişim yetkiniz yok.</Notice> : <RetryPanel title="Onay paketi yüklenemedi" message={loadError.userMessage} retrying={loading} onRetry={onRefresh} /> : <PackagePanel pkg={pkg} extraction={detail.extraction} busy={busy} error={error} onBuild={onBuild} />}</section>;
+}

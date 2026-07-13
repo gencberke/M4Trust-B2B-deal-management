@@ -31,11 +31,11 @@ export function PolicyPanel({ view, busy, error, onSave, onLock }: {
         { label: "Kilit zamanı", value: formatDateTime(policy.locked_at) },
       ]} />
       {policy.recommendation_reason_codes.length > 0 ? (
-        <ul className="list-disc space-y-1 pl-5 text-sm text-slate-300">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-body">
           {policy.recommendation_reason_codes.map((code) => <li key={code}>{reasonCodeLabel(code)}</li>)}
         </ul>
-      ) : <p className="text-sm text-slate-400">Öneri gerekçesi bulunmuyor.</p>}
-      <p className="text-sm text-slate-300">
+      ) : <p className="text-sm text-muted">Öneri gerekçesi bulunmuyor.</p>}
+      <p className="text-sm text-body">
         Sözleşmesel kanıtlar: {view.contractual_required_evidence.length > 0 ? view.contractual_required_evidence.join(", ") : "Yok"}
       </p>
       {error ? <Notice tone="danger">{error}</Notice> : null}
@@ -45,14 +45,14 @@ export function PolicyPanel({ view, busy, error, onSave, onLock }: {
         <Notice tone="warning">Politika bu işlem aşamasında yapılandırılamıyor.</Notice>
       ) : (
         <fieldset className="space-y-4" disabled={busy}>
-          <legend className="text-sm font-medium text-white">Yönetici seçimi</legend>
-          <label className="flex items-center gap-2 text-sm text-slate-300">
+          <legend className="text-sm font-medium text-heading">Yönetici seçimi</legend>
+          <label className="flex items-center gap-2 text-sm text-body">
             <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
             Fiziksel teslimatı doğruluyorum
           </label>
           <div className="grid gap-2 sm:grid-cols-3">
             {(["off", "document_only", "document_and_video"] as TrackingMode[]).map((value) => (
-              <label key={value} className="rounded-2xl border border-white/10 p-3 text-sm text-slate-300">
+              <label key={value} className="rounded-2xl border border-border p-3 text-sm text-body">
                 <input className="mr-2" type="radio" name="tracking-mode" value={value} checked={mode === value} onChange={() => setMode(value)} />
                 {TRACKING_MODE_LABEL[value]}
               </label>

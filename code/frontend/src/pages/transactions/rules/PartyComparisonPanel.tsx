@@ -21,7 +21,7 @@ export function PartyComparisonPanel({
   mismatchCases: ReviewCase[];
 }) {
   if (!extraction) {
-    return <p className="text-sm text-slate-400">Karşılaştırma için extraction bekleniyor.</p>;
+    return <p className="text-sm text-muted">Karşılaştırma için extraction bekleniyor.</p>;
   }
 
   const roles: ParticipantRole[] = ["buyer", "seller"];
@@ -33,19 +33,19 @@ export function PartyComparisonPanel({
           const extractedName = extraction.parties[role]?.name ?? "—";
           const participant = participants.find((p) => p.role === role) ?? null;
           return (
-            <div key={role} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-              <p className="text-xs uppercase tracking-wide text-slate-500">{ROLE_LABEL[role]}</p>
+            <div key={role} className="rounded-2xl border border-border bg-subtle/60 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted">{ROLE_LABEL[role]}</p>
               <dl className="mt-2 space-y-2 text-sm">
                 <div>
-                  <dt className="text-xs text-slate-500">Sözleşmeden</dt>
-                  <dd className="text-white">{extractedName}</dd>
+                  <dt className="text-xs text-muted">Sözleşmeden</dt>
+                  <dd className="text-heading">{extractedName}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-slate-500">Beyan edilen</dt>
-                  <dd className="text-white">{participant?.display_name ?? "—"}</dd>
+                  <dt className="text-xs text-muted">Beyan edilen</dt>
+                  <dd className="text-heading">{participant?.display_name ?? "—"}</dd>
                 </div>
                 <div className="flex items-center gap-2">
-                  <dt className="text-xs text-slate-500">Durum</dt>
+                  <dt className="text-xs text-muted">Durum</dt>
                   <dd>
                     {participant ? (
                       <StatusBadge value={participant.status} map={participantStatusMap} />
@@ -62,14 +62,14 @@ export function PartyComparisonPanel({
 
       {mismatchCases.length > 0 ? (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium text-amber-100">Taraf uyuşmazlığı incelemeleri</h3>
+          <h3 className="text-sm font-medium text-amber-800">Taraf uyuşmazlığı incelemeleri</h3>
           {mismatchCases.map((c) => (
-            <div key={c.id} className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm">
+            <div key={c.id} className="rounded-2xl border border-amber-300 bg-amber-400/5 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs text-slate-400">{c.reason_code}</span>
+                <span className="font-mono text-xs text-muted">{c.reason_code}</span>
                 <StatusBadge value={c.severity} map={reviewSeverityMap} />
               </div>
-              <p className="mt-1 text-slate-200">{c.description}</p>
+              <p className="mt-1 text-body">{c.description}</p>
             </div>
           ))}
         </div>

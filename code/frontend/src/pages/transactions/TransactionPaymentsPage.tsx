@@ -46,13 +46,13 @@ export function TransactionPaymentsPage() {
   return (
     <div className="space-y-10">
       {error ? <Notice tone="danger">{error}</Notice> : null}
-      <section><h2 className="mb-3 font-semibold text-white">Mutabakat</h2><ReconcilePanel busy={busy} results={results} onRun={() => void act(() => reconcilePayments(detail.id), (value) => setResults(value.results))} /></section>
+      <section><h2 className="mb-3 font-semibold text-heading">Mutabakat</h2><ReconcilePanel busy={busy} results={results} onRun={() => void act(() => reconcilePayments(detail.id), (value) => setResults(value.results))} /></section>
       <section className="space-y-3">
-        <h2 className="font-semibold text-white">Fonlama birimleri ve çözümler</h2>
+        <h2 className="font-semibold text-heading">Fonlama birimleri ve çözümler</h2>
         {milestones.loading && !milestones.data ? <LoadingPanel label="Milestone ve fonlama birimleri yükleniyor…" /> : milestones.error && !milestones.data ? <ReadError error={milestones.error} title="Milestone verileri" onRetry={() => void milestones.refresh()} /> : resolutions.loading && !resolutions.data ? <LoadingPanel label="Ödeme çözümleri yükleniyor…" /> : resolutions.error && !resolutions.data ? <ReadError error={resolutions.error} title="Ödeme çözümleri" onRetry={() => void resolutions.refresh()} /> : <OperableUnitsPanel units={units} resolutions={resolutions.data?.resolutions ?? []} busy={busy} onRequest={(id, operation) => void act(() => operation === "undo" ? requestUndo(id) : requestRefund(id))} onApprove={(id) => void act(() => approveResolution(id))} onExecute={(resolution: PaymentResolution) => void act(() => executeResolution(resolution.id), (value) => { if (value.status === "unknown") setError("Sonuç belirsiz — mutabakat gerekli; tekrar uygulamadan önce yenileyin."); })} />}
       </section>
-      <section className="space-y-3"><h2 className="font-semibold text-white">Release retry</h2>{milestones.data ? <ReleaseRetryPanel units={units} busy={busy} onRetry={(id) => void act(() => retryReleaseInstruction(id), (value) => { if (value.status === "unknown") setError("Sonuç belirsiz — mutabakat gerekli."); })} /> : null}</section>
-      <section className="space-y-3"><h2 className="font-semibold text-white">Ödeme izi</h2>{trace.loading && !trace.data ? <LoadingPanel label="Ödeme izi yükleniyor…" /> : trace.error && !trace.data ? <ReadError error={trace.error} title="Ödeme izi" onRetry={() => void trace.refresh()} /> : <TracePanel trace={trace.data ?? null} />}</section>
+      <section className="space-y-3"><h2 className="font-semibold text-heading">Release retry</h2>{milestones.data ? <ReleaseRetryPanel units={units} busy={busy} onRetry={(id) => void act(() => retryReleaseInstruction(id), (value) => { if (value.status === "unknown") setError("Sonuç belirsiz — mutabakat gerekli."); })} /> : null}</section>
+      <section className="space-y-3"><h2 className="font-semibold text-heading">Ödeme izi</h2>{trace.loading && !trace.data ? <LoadingPanel label="Ödeme izi yükleniyor…" /> : trace.error && !trace.data ? <ReadError error={trace.error} title="Ödeme izi" onRetry={() => void trace.refresh()} /> : <TracePanel trace={trace.data ?? null} />}</section>
     </div>
   );
 }

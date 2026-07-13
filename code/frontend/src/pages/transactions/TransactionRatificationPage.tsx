@@ -3,17 +3,16 @@ import { useState } from "react";
 import { toApiClientError } from "../../api/client";
 import { buildRatificationPackage, getCurrentRatificationPackage, submitRatification } from "../../api/ratification";
 import { getTrackingPolicy, lockTrackingPolicy, updateTrackingPolicy } from "../../api/tracking";
-import { LoadingPanel, Notice, RetryPanel } from "../../components/Feedback";
 import { useTransactionShell } from "../../components/TransactionShell";
 import { useEntities } from "../../entities/EntityContext";
 import { useAsyncData } from "../../lib/useAsyncData";
 import type { FundingScheduleSpecInput } from "../../types/ratification";
 import type { TrackingMode } from "../../types/tracking";
-import { PackagePanel } from "./ratification/PackagePanel";
 import { isNoPackageError, RATIFY_NETWORK_WARNING, ratifyErrorMessage, readinessChecklist } from "./ratification/packageLogic";
-import { PolicyPanel } from "./ratification/PolicyPanel";
 import { policyErrorMessage } from "./ratification/policyLogic";
-import { RatifyPanel } from "./ratification/RatifyPanel";
+import { PolicyLockStep } from "./ratification/PolicyLockStep";
+import { PackageReadinessStep } from "./ratification/PackageReadinessStep";
+import { RatifyStep } from "./ratification/RatifyStep";
 
 export function TransactionRatificationPage() {
   const { detail, refresh: refreshShell } = useTransactionShell();
@@ -62,13 +61,9 @@ export function TransactionRatificationPage() {
     } finally { setRatifyBusy(false); }
   }
 
-  return <div className="space-y-10">
-    <section className="space-y-3"><h2 className="text-base font-semibold text-white">Takip politikası</h2>
-      {policy.loading && !policy.data ? <LoadingPanel label="Takip politikası yükleniyor…" /> : policy.error && !policy.data ? policy.error.kind === "permission_denied" ? <Notice tone="danger">Takip politikasını görme veya yönetme yetkiniz yok.</Notice> : <RetryPanel title="Takip politikası yüklenemedi" message={policy.error.userMessage} retrying={policy.loading} onRetry={() => void policy.refresh()} /> : policy.data ? <PolicyPanel key={`${policy.data.tracking_policy.configured_at}-${policy.data.tracking_policy.locked_at}`} view={policy.data} busy={policyBusy} error={policyError} onSave={(confirmed, mode) => void savePolicy(confirmed, mode)} onLock={() => void lockPolicy()} /> : <Notice tone="info">Takip politikası henüz oluşturulmadı.</Notice>}
-    </section>
-    <section className="space-y-3"><div className="flex items-center justify-between"><h2 className="text-base font-semibold text-white">Onay paketi</h2><button type="button" className="text-sm text-cyan-300 disabled:opacity-50" disabled={pkg.loading} onClick={() => void pkg.refresh()}>Yenile</button></div>
-      {pkg.loading && !pkg.data ? <LoadingPanel label="Onay paketi yükleniyor…" /> : pkg.error ? pkg.error.kind === "permission_denied" ? <Notice tone="danger">Onay paketine erişim yetkiniz yok.</Notice> : <RetryPanel title="Onay paketi yüklenemedi" message={pkg.error.userMessage} retrying={pkg.loading} onRetry={() => void pkg.refresh()} /> : <PackagePanel pkg={pkg.data ?? null} extraction={detail.extraction} busy={packageBusy} error={packageError} onBuild={(spec) => void build(spec)} />}
-    </section>
-    <section className="space-y-3"><h2 className="text-base font-semibold text-white">Taraf onayı</h2><RatifyPanel pkg={pkg.data ?? null} actingEntityName={selectedEntity?.legal_name ?? ""} busy={ratifyBusy} error={ratifyError} resultMessage={resultMessage} onRatify={() => void ratify()} /></section>
+  return <div className="space-y-6">
+    <PolicyLockStep view={policy.data ?? null} loading={policy.loading} loadError={policy.error} busy={policyBusy} error={policyError} onRefresh={() => void policy.refresh()} onSave={(confirmed, mode) => void savePolicy(confirmed, mode)} onLock={() => void lockPolicy()} />
+    <PackageReadinessStep detail={detail} policy={policy.data ?? null} pkg={pkg.data ?? null} loading={pkg.loading} loadError={pkg.error} busy={packageBusy} error={packageError} onRefresh={() => void pkg.refresh()} onBuild={(spec) => void build(spec)} />
+    <RatifyStep pkg={pkg.data ?? null} actingEntityName={selectedEntity?.legal_name ?? ""} busy={ratifyBusy} error={ratifyError} resultMessage={resultMessage} onRatify={() => void ratify()} />
   </div>;
 }

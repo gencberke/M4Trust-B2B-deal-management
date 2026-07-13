@@ -156,7 +156,7 @@ export function TransactionPartiesPage() {
     <div className="space-y-8">
       {/* Blok 1 — katılımcılar */}
       <section className="space-y-3">
-        <h2 className="text-base font-semibold text-white">Taraflar</h2>
+        <h2 className="text-base font-semibold text-heading">Taraflar</h2>
         {loading && !participants ? (
           <LoadingPanel label="Taraflar yükleniyor…" />
         ) : error && !participants ? (
@@ -185,13 +185,13 @@ export function TransactionPartiesPage() {
       </section>
 
       {/* Blok 2 — davet */}
-      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-6">
-        <h2 className="text-base font-semibold text-white">Karşı tarafı davet et</h2>
+      <section className="space-y-3 rounded-3xl border border-border bg-card shadow-card p-6">
+        <h2 className="text-base font-semibold text-heading">Karşı tarafı davet et</h2>
         {roles.length === 0 ? (
           <Notice tone="info">Davet edilebilecek bekleyen bir rol yok.</Notice>
         ) : (
           <form className="flex flex-wrap items-end gap-3" onSubmit={onCreateInvite}>
-            <label className="text-sm text-slate-300">
+            <label className="text-sm text-body">
               Rol
               <select
                 className={`mt-1 block ${inputClass}`}
@@ -205,7 +205,7 @@ export function TransactionPartiesPage() {
                 ))}
               </select>
             </label>
-            <label className="flex-1 text-sm text-slate-300">
+            <label className="flex-1 text-sm text-body">
               E-posta
               <input
                 type="email"
@@ -225,7 +225,7 @@ export function TransactionPartiesPage() {
         {inviteError ? <Notice tone="danger">{inviteError}</Notice> : null}
 
         {lastInvite ? (
-          <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+          <div className="space-y-3 rounded-2xl border border-border bg-subtle/60 p-4">
             <Notice tone="warning">
               Bu bağlantı <strong>gizli ve tek kullanımlıktır</strong>. Yalnız davet ettiğiniz
               tarafla paylaşın.
@@ -233,12 +233,12 @@ export function TransactionPartiesPage() {
             {(() => {
               const token = extractInvitationToken(lastInvite.invite_link);
               return token ? (
-                <p className="break-all font-mono text-sm text-cyan-200">
+                <p className="break-all font-mono text-sm text-primary">
                   {frontendInvitationPath(token)}
                 </p>
               ) : null;
             })()}
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted">
               Son geçerlilik: {formatDateTime(lastInvite.expires_at)}
             </p>
             <button
@@ -258,8 +258,8 @@ export function TransactionPartiesPage() {
       </section>
 
       {/* Blok 3 — kendi profilim */}
-      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-6">
-        <h2 className="text-base font-semibold text-white">Profilim</h2>
+      <section className="space-y-3 rounded-3xl border border-border bg-card shadow-card p-6">
+        <h2 className="text-base font-semibold text-heading">Profilim</h2>
         {panelMode === "hidden" ? (
           <Notice tone="info">
             Bu işlemde katılımcı kaydınız yok (görüntüleyici olabilirsiniz).
@@ -283,7 +283,7 @@ export function TransactionPartiesPage() {
                   ["address", "Adres", "text"],
                 ] as const
               ).map(([key, label, type]) => (
-                <label key={key} className="text-sm text-slate-300">
+                <label key={key} className="text-sm text-body">
                   {label}
                   <input
                     type={type}
@@ -320,7 +320,7 @@ export function TransactionPartiesPage() {
               </button>
             </div>
             {ownParticipant == null ? (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-muted">
                 Onaylamadan önce profili kaydedin (kaydetme cevabı gerekli).
               </p>
             ) : null}

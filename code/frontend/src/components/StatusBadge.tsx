@@ -1,11 +1,11 @@
 import { resolveStatus, type StatusMap, type StatusTone } from "../lib/statusMaps";
 
 const TONE_CLASS: Record<StatusTone, string> = {
-  info: "border-cyan-400/30 bg-cyan-400/10 text-cyan-100",
-  success: "border-emerald-400/30 bg-emerald-400/10 text-emerald-100",
-  warning: "border-amber-400/30 bg-amber-400/10 text-amber-100",
-  danger: "border-rose-400/30 bg-rose-400/10 text-rose-100",
-  neutral: "border-white/15 bg-white/5 text-slate-200",
+  info: "border-primary/30 bg-info-soft text-primary",
+  success: "border-emerald-400/30 bg-positive-soft text-positive",
+  warning: "border-amber-400/30 bg-warning-soft text-amber-800",
+  danger: "border-rose-400/30 bg-danger-soft text-rose-700",
+  neutral: "border-border bg-card shadow-card text-body",
 };
 
 /**

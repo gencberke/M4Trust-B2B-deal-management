@@ -16,7 +16,7 @@ export function RatifyPanel({ pkg, actingEntityName, busy, error, resultMessage,
       { label: "Alıcı onayı", value: progress.buyer?.ratified ? `Onaylandı · ${formatDateTime(progress.buyer.approved_at)}` : "Bekliyor" },
       { label: "Satıcı onayı", value: progress.seller?.ratified ? `Onaylandı · ${formatDateTime(progress.seller.approved_at)}` : "Bekliyor" },
     ]} />
-    <p className="text-sm text-slate-300">{Number(progress.buyer?.ratified) + Number(progress.seller?.ratified)}/2 taraf onayladı.</p>
+    <p className="text-sm text-body">{Number(progress.buyer?.ratified) + Number(progress.seller?.ratified)}/2 taraf onayladı.</p>
     {resultMessage ? <Notice tone="success">{resultMessage}</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}
     {!canRatify ? <Notice tone="info">Paket onaya açık değil ({pkg.status}).</Notice> : <button className={buttonClass} type="button" disabled={busy} onClick={() => setOpen(true)}>Paketi onayla</button>}
     <ConfirmDialog open={open} title="Paketi onayla" description={`“Onayla” hukuki taahhüt niteliğindedir; paket hash'i: ${pkg.package_hash}`} confirmLabel="Onayla" tone="danger" busy={busy} onCancel={() => setOpen(false)} onConfirm={() => { setOpen(false); onRatify(); }} />

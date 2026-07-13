@@ -54,6 +54,8 @@ Dokümantasyonu eskiten bir iş, doc-sync yapılmadan "bitti" sayılmaz.
 
 ## Pratik notlar
 
+- **Plan 14 frontend F1 (2026-07-13):** account işlem yaşam döngüsünün UI etiketi, stepper adımı ve rol-farkındalıklı sıradaki aksiyonu `code/frontend/src/lib/lifecycle.ts` saf haritasından türetilir; arayüz self-host Urbanist, açık `#f1f3f7` zemin, beyaz kart, `#3e30d9` primary ve `#51b206` positive token temasındadır.
+
 - Chroma index: `code/data/processed/embeddings/chroma/` — iki embed'li koleksiyon: `legal_articles` (891 vektör: TBK, 6493, 5549, KVKK, Yönetmelik, Tebliğ) ve `contract_examples` (395 vektör, 31 örnek sözleşme, few-shot yapısal referans). Üçüncü koleksiyon **`security_controls`** (PCI DSS kontrol haritası) için chunk'lar hazır (`data/processed/chunks/security/pci_dss_control_map.json`, 6 kontrol + 1 intro) ama **henüz embed edilmedi** (ağır RAG deps yoktu; `build_rag.py` çalıştırıldığında oluşur). Sorgular da BGE-M3 ile encode edilmelidir.
 - İki TCMB metni (Yönetmelik + Tebliğ) `code/data/raw/legal/` altına eklendi, chunk'landı ve embed edildi — bkz. [plans/ready/regulasyon_rag_genisletmesi.md](plans/done/regulasyon_rag_genisletmesi.md).
 - `code/scripts/convert_documents.py` dolduruldu (`code/scripts/document_parser/`: PyMuPDF/python-docx/Tesseract, Clean Architecture, testli). İş sıralaması için [YOL_HARITASI.md](YOL_HARITASI.md).

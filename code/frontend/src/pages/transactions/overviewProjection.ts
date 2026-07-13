@@ -2,44 +2,6 @@ import { eventLabel } from "../../lib/eventLabels";
 import type { StatusTone } from "../../lib/statusMaps";
 import type { AccountState, TransactionEvent } from "../../types/transactions";
 
-export interface StateNotice {
-  tone: "info" | "success" | "warning" | "danger";
-  message: string;
-}
-
-/** State'e göre bilgilendirme metni. Bilinmeyen state → nötr bilgi. */
-export function stateNotice(state: AccountState): StateNotice {
-  switch (state) {
-    case "preparation":
-    case "uploaded":
-    case "extracting":
-      return { tone: "info", message: "Sözleşme işleniyor; çıkarım tamamlanınca özet görünecek." };
-    case "awaiting_review":
-      return {
-        tone: "warning",
-        message:
-          "Manuel inceleme bekleniyor. İnceleme tamamlanana kadar onay paketi oluşturulamaz " +
-          "(inceleme ekranı sonraki sürümde gelir).",
-      };
-    case "awaiting_approval":
-      return { tone: "info", message: "Doğrulama geçti; taraf onay hazırlığına geçilebilir." };
-    case "awaiting_ratification":
-      return { tone: "info", message: "Tarafların paket onayı bekleniyor." };
-    case "funding_pending":
-      return { tone: "warning", message: "Fonlama bekleniyor; sağlayıcı havuz ödemesi oluşturuluyor." };
-    case "active":
-      return { tone: "success", message: "İşlem aktif; teslimat kanıtı akışı ilerleyebilir." };
-    case "settled":
-      return { tone: "success", message: "İşlem tamamlandı." };
-    case "rejected":
-      return { tone: "danger", message: "Doğrulama işlemi reddetti; aşağıdaki bulguları inceleyin." };
-    case "cancelled":
-      return { tone: "info", message: "İşlem iptal edildi." };
-    default:
-      return { tone: "info", message: "İşlem durumu görüntüleniyor." };
-  }
-}
-
 /** Yalnız yükleme/çıkarım sürerken poll yapılır. */
 export function shouldPoll(state: AccountState): boolean {
   return state === "uploaded" || state === "extracting";
