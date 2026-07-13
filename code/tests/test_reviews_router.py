@@ -26,8 +26,14 @@ def conn():
         connection.close()
 
 
-def actor(user_id="u1", platform_role=None) -> ActorContext:
-    return ActorContext(actor_type="user", user_id=user_id, platform_role=platform_role, request_id="req-1")
+def actor(user_id="u1", platform_role=None, entity_id="entity-1") -> ActorContext:
+    return ActorContext(
+        actor_type="user",
+        user_id=user_id,
+        acting_entity_id=entity_id,
+        platform_role=platform_role,
+        request_id="req-1",
+    )
 
 
 def _open_case(conn, tx_id, **overrides):

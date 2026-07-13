@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from backend.app.config import Settings
@@ -13,6 +15,7 @@ from backend.app.services import review as review_service
 from backend.app.services.access_control import ActorContext
 from backend.app.services.payments import funding_coordinator
 from backend.app.services.payments.domain import (
+    CreatePoolPaymentResult,
     PaymentDetailResult,
     ProviderOperationOutcome,
     ProviderPaymentDetail,
@@ -78,6 +81,37 @@ class _OverrideGateway(FakePaymentGateway):
         return self._detail
 
 
+class _UnknownThenRefundedGateway(FakePaymentGateway):
+    """Create times out while later detail definitively reports refunded."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.create_calls = 0
+
+    def create_pool_payment(self, command):
+        self.create_calls += 1
+        created = super().create_pool_payment(command)
+        assert created.payment is not None
+        self._store.save(
+            replace(created.payment, status=ProviderPaymentStatus.REFUNDED)
+        )
+        return CreatePoolPaymentResult(
+            outcome=ProviderOperationOutcome.UNKNOWN,
+            provider_code="TRANSPORT_TIMEOUT",
+            message="https://provider.invalid/detail?api_key=secret-create-key",
+        )
+
+
+class _SensitiveCreateMessageGateway(FakePaymentGateway):
+    def create_pool_payment(self, command):
+        result = super().create_pool_payment(command)
+        return replace(
+            result,
+            provider_code="PAYMENT_CREATED",
+            message="https://provider.invalid/create?api_key=secret-create-key",
+        )
+
+
 def test_pool_creation_unknown_with_provider_pool_becomes_pool_created(conn) -> None:
     transaction_id, unit, gateway = _funded_unit(conn)
     assert unit["status"] == "pool_created"
@@ -91,6 +125,72 @@ def test_pool_creation_unknown_with_provider_pool_becomes_pool_created(conn) -> 
     assert result.local_status == "pool_created"
     refreshed = funding_units_repo.get_by_id(conn, unit["id"])
     assert refreshed["status"] == "pool_created"
+
+
+def test_pool_creation_unknown_with_provider_refunded_fails_closed(conn) -> None:
+    transaction_id, package_id = _seed_complete_package(conn)
+    gateway = _UnknownThenRefundedGateway()
+
+    first = funding_coordinator.ensure_pool_funded(
+        conn, transaction_id, package_id, _actor(), gateway=gateway
+    )
+    assert first.status == "funding_pending"
+    assert gateway.create_calls == 2
+    assert {
+        unit["status"]
+        for unit in funding_units_repo.list_for_transaction(conn, transaction_id)
+    } == {"pool_creation_unknown"}
+
+    second = funding_coordinator.ensure_pool_funded(
+        conn, transaction_id, package_id, _actor(), gateway=gateway
+    )
+
+    assert second.status == "funding_pending"
+    assert gateway.create_calls == 2
+    assert {
+        unit["status"]
+        for unit in funding_units_repo.list_for_transaction(conn, transaction_id)
+    } == {"refunded"}
+    assert {
+        payment["internal_status"]
+        for payment in conn.execute("SELECT * FROM provider_payments").fetchall()
+    } == {"refunded"}
+    assert review_service.has_blocking_case(conn, transaction_id, phase="payment")
+    assert conn.execute(
+        "SELECT COUNT(*) FROM provider_operations WHERE operation_type = 'create_pool_payment'"
+    ).fetchone()[0] == 2
+
+    # Refunded is terminal: another funding pass cannot blind-create a replacement.
+    third = funding_coordinator.ensure_pool_funded(
+        conn, transaction_id, package_id, _actor(), gateway=gateway
+    )
+    assert third.status == "funding_pending"
+    assert gateway.create_calls == 2
+
+
+def test_funding_does_not_persist_raw_provider_result_message(conn) -> None:
+    transaction_id, package_id = _seed_complete_package(conn)
+
+    result = funding_coordinator.ensure_pool_funded(
+        conn,
+        transaction_id,
+        package_id,
+        _actor(),
+        gateway=_SensitiveCreateMessageGateway(),
+    )
+
+    assert result.status == "active"
+    payments = conn.execute(
+        "SELECT last_result_code, last_result_message FROM provider_payments"
+    ).fetchall()
+    assert {payment["last_result_code"] for payment in payments} == {"PAYMENT_CREATED"}
+    assert {
+        payment["last_result_message"] for payment in payments
+    } == {"Provider outcome recorded: success."}
+    assert all(
+        "secret-create-key" not in payment["last_result_message"]
+        for payment in payments
+    )
 
 
 def test_approval_unknown_with_provider_approved_becomes_approved(conn) -> None:

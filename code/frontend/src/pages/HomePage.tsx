@@ -12,9 +12,9 @@ export function HomePage() {
   return (
     <>
       <PageHeading
-        eyebrow="Faz 8A · Frontend Foundation"
-        title="Güvenli B2B akışları için hesap temeli"
-        description="Bu sürüm oturum, CSRF ve legal entity kontratlarını görünür kılar. İşlem, davet ve ödeme ekranları sonraki dikey dilimlere aittir."
+        eyebrow="Güvenli işlem orkestrasyonu"
+        title="B2B anlaşmalarını kanıta dayalı yönetin"
+        description="Sözleşme yüklemeden taraf onayına, teslimat kanıtından kontrollü ödemeye kadar işlem yaşam döngüsünü tek yerde izleyin."
       />
       {bootstrapError ? (
         <RetryPanel
@@ -26,7 +26,7 @@ export function HomePage() {
       ) : (
         <div className="grid gap-5 md:grid-cols-3">
           <section className="rounded-3xl border border-white/10 bg-white/5 p-6 md:col-span-2">
-            <p className="text-sm font-medium text-cyan-200">Backend kaynaklı durum</p>
+            <p className="text-sm font-medium text-cyan-200">Hesap ve yetki durumu</p>
             {loading ? (
               <p className="mt-4 text-sm text-slate-400">Oturum kontrol ediliyor…</p>
             ) : user ? (
@@ -56,15 +56,15 @@ export function HomePage() {
             )}
           </section>
           <aside className="rounded-3xl border border-white/10 bg-gradient-to-b from-indigo-400/10 to-cyan-400/5 p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">Hazır seam’ler</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">Güvenlik temeli</p>
             <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-300">
-              <li>Merkezi `/api` client</li>
-              <li>Session + CSRF koruması</li>
-              <li>Acting-entity header’ı</li>
-              <li>401 / 403 / 409 akışları</li>
-              <li>Backend projection odaklı tipler</li>
+              <li>HttpOnly oturum ve CSRF koruması</li>
+              <li>Entity kapsamlı erişim denetimi</li>
+              <li>Değiştirilemez onay paketi geçmişi</li>
+              <li>Şifreli sözleşme ve kanıt saklama</li>
+              <li>Tekrara dayanıklı ödeme işlemleri</li>
             </ul>
-            {user ? <p className="mt-6 text-xs text-slate-500">Backend’in döndürdüğü entity sayısı: {entities.length}</p> : null}
+            {user ? <p className="mt-6 text-xs text-slate-500">Hesabınıza bağlı entity sayısı: {entities.length}</p> : null}
           </aside>
         </div>
       )}

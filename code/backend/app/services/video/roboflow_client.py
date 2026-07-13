@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from pathlib import Path
 
 import requests
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://serverless.roboflow.com"
 REQUEST_TIMEOUT_SECONDS = 30
+_SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9_-]+/[0-9]+$")
 
 
 def infer(image_path: Path, model_id: str, api_key: str) -> list[Detection]:
@@ -46,12 +48,24 @@ def infer(image_path: Path, model_id: str, api_key: str) -> list[Detection]:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-    except requests.RequestException as exc:
-        raise RoboflowAPIError(f"Roboflow isteği başarısız ({model_id}): {exc}") from exc
+    except requests.RequestException:
+        # requests exception text may include the prepared URL and api_key.
+        safe_model = model_id if _SAFE_MODEL_ID.fullmatch(model_id) else "unknown-model"
+        raise RoboflowAPIError(
+            f"Roboflow inference isteği başarısız ({safe_model})."
+        ) from None
 
     payload = response.json()
     predictions = payload.get("predictions", [])
-    logger.info("model %s: %s için %d tespit", model_id, image_path.name, len(predictions))
+    logger.info(
+        "video inference completed",
+        extra={
+            "event": "video_inference_completed",
+            "action": "roboflow_infer",
+            "outcome": "success",
+            "item_count": len(predictions),
+        },
+    )
 
     return [
         Detection(

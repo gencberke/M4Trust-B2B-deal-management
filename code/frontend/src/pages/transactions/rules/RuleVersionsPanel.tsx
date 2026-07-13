@@ -144,7 +144,9 @@ export function RuleVersionsPanel({
           {editing && form ? (
             <RevisionForm
               form={form}
-              setForm={setForm}
+              setForm={(updater) =>
+                setForm((previous) => (previous ? updater(previous) : previous))
+              }
               formError={formError}
               busy={busy}
               onSubmit={submitRevision}

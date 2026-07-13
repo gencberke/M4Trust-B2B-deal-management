@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { toApiClientError, type ApiClientError } from "../api/client";
 
@@ -10,55 +10,68 @@ export interface AsyncData<T> {
 }
 
 /**
- * Route/sayfa seviyesinde tekil okuma hook'u.
- *
- * 8A `active` kalıbını izler: unmount veya `deps` değişiminden sonra çözülen
- * eski isteğin sonucu **uygulanmaz** (stale guard). AbortController yoktur —
- * backend SQLite ölçekli ve ucuz; amaç eski veriyi state'e yazmamaktır, isteği
- * iptal etmek değil.
+ * Route-level read hook with dependency reset, abort signalling, and a
+ * monotonic generation guard. A late response can never overwrite data for a
+ * newer acting entity, route parameter, or explicit refresh.
  */
 export function useAsyncData<T>(
-  fetcher: () => Promise<T>,
+  fetcher: (signal?: AbortSignal) => Promise<T>,
   deps: unknown[],
+  enabled = true,
 ): AsyncData<T> {
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<ApiClientError | null>(null);
+  const generationRef = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
 
-  // `active` her efekt/refresh çağrısına özgüdür; kapanış üzerinden yakalanır.
   const load = useCallback(
-    async (isActive: () => boolean) => {
+    async (reset: boolean) => {
+      if (!enabled) {
+        controllerRef.current?.abort();
+        generationRef.current += 1;
+        setData(null);
+        setError(null);
+        setLoading(false);
+        return;
+      }
+
+      controllerRef.current?.abort();
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      const generation = ++generationRef.current;
+      if (reset) setData(null);
       setLoading(true);
       setError(null);
+
       try {
-        const result = await fetcher();
-        if (!isActive()) return;
+        const result = await fetcher(controller.signal);
+        if (controller.signal.aborted || generation !== generationRef.current) return;
         setData(result);
       } catch (caught) {
-        if (!isActive()) return;
+        if (controller.signal.aborted || generation !== generationRef.current) return;
         setError(toApiClientError(caught));
       } finally {
-        if (isActive()) setLoading(false);
+        if (!controller.signal.aborted && generation === generationRef.current) {
+          setLoading(false);
+        }
       }
     },
-    // fetcher kimliği çağıranın sorumluluğunda; deps üzerinden yeniden koşar.
+    // Callers intentionally define identity through deps; inline fetchers are supported.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    deps,
+    [...deps, enabled],
   );
 
   useEffect(() => {
-    let active = true;
-    void load(() => active);
+    void load(true);
     return () => {
-      active = false;
+      controllerRef.current?.abort();
+      generationRef.current += 1;
     };
   }, [load]);
 
   const refresh = useCallback(async () => {
-    let active = true;
-    // refresh çağıran bileşen mount olduğu sürece geçerlidir; kısa ömürlü flag.
-    await load(() => active);
-    active = false;
+    await load(false);
   }, [load]);
 
   return { data, loading, error, refresh };

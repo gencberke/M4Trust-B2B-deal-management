@@ -101,6 +101,8 @@ class ContextSource:
     collection: str
     madde_no: str | None = None
     heading: str | None = None
+    chunk_id: str | None = None
+    collection_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -232,6 +234,8 @@ class ContextBuilder:
             collection=collection,
             madde_no=chunk.madde_no,
             heading=chunk.heading,
+            chunk_id=chunk.chunk_id,
+            collection_version=chunk.collection_version,
         )
 
     @staticmethod

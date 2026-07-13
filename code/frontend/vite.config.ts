@@ -14,7 +14,8 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/api": {
           target: backendTarget,
-          changeOrigin: true,
+          // Preserve the browser-facing host for backend CSRF Origin/Host checks.
+          changeOrigin: false,
         },
       },
     },

@@ -46,7 +46,7 @@ export class ApiClientError extends Error {
 }
 
 export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
-  body?: BodyInit | Record<string, unknown> | null;
+  body?: BodyInit | object | null;
   csrf?: boolean;
   redirectOnError?: boolean;
 }
@@ -102,6 +102,21 @@ function parseApiErrorEnvelope(value: unknown): ApiErrorEnvelope | null {
     message: value.message,
     request_id: value.request_id,
     detail: value.detail,
+  };
+}
+
+function parseLegacyFastApiError(value: unknown): {
+  code: string;
+  message: string | null;
+  detail: Record<string, unknown> | null;
+} | null {
+  if (!isRecord(value) || !isRecord(value.detail)) return null;
+  const detail = value.detail;
+  if (typeof detail.code !== "string") return null;
+  return {
+    code: detail.code,
+    message: typeof detail.message === "string" ? detail.message : null,
+    detail,
   };
 }
 
@@ -240,14 +255,15 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const envelope = parseApiErrorEnvelope(payload);
+    const legacyEnvelope = envelope ? null : parseLegacyFastApiError(payload);
     const kind = kindForStatus(response.status);
     const error = new ApiClientError({
       kind,
       status: response.status,
-      code: envelope?.code ?? `HTTP_${response.status}`,
+      code: envelope?.code ?? legacyEnvelope?.code ?? `HTTP_${response.status}`,
       requestId: envelope?.request_id ?? response.headers.get("X-Request-ID"),
-      detail: envelope?.detail ?? null,
-      userMessage: envelope?.message ?? GENERIC_MESSAGES[kind],
+      detail: envelope?.detail ?? legacyEnvelope?.detail ?? null,
+      userMessage: envelope?.message ?? legacyEnvelope?.message ?? GENERIC_MESSAGES[kind],
     });
     notifyNavigation(error, redirectOnError);
     throw error;

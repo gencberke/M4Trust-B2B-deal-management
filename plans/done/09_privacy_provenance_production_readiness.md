@@ -1,9 +1,9 @@
 # 09 — Privacy, Provenance ve Production Readiness (Program 7)
 
-> **Durum:** Ready — 2026-07-10 · **Master ref:** v2 §2.14, Program 7, §17-18
-> **Bağımlılık:** 07 tamam (08 ile paralel yürüyebilir). Integration branch: `program/domain-evolution-v2`
-> **Branch'ler:** Berke `feat/hardening-storage-ops` · Yusuf `feat/hardening-authflows-provenance`
-> **Tahmin:** 4-6 gün (paralel; maddeler bağımsız, kısmi uygulanabilir)
+> **Durum:** Uygulandı — 2026-07-12 · Sapmalar: PostgreSQL geçişi yapılmadı (yalnız readiness envanteri); legacy silinmedi (ayrı planning checklist); rate limit tek-process tasarımında kaldı ve multi-instance için paylaşımlı backend release ön koşuludur.
+> **Bağımlılık:** 07 tamamlandı.
+> **Uygulama branch'i:** `feat/final-system-audit-hardening`
+> **Kapanış raporu:** `plans/audits/final_system_readiness_report.md`
 
 ## Amaç
 
@@ -38,3 +38,11 @@ Seçilen maddeler için: full suite + yeni sertleştirme testleri yeşil · log/
 ## Doc-sync
 
 ARCHITECTURE §2 (log/scan), §3.5 (storage şifreleme), §5 (tracking_policy_versions), §6 (retention kuralı); AGENTS özet. v2 §2.14'teki "kabul edilmiş risk" kaydı kapatılan maddeler için güncellenir.
+
+## Kapanış kanıtı
+
+- Migration zinciri boş DB ve pre-09 upgrade testleriyle `019-025` dahil doğrulandı; 025, mevcut 023/024 sırasını bozmadan provenance trigger'larını düzeltir.
+- Storage round-trip, nonce çeşitliliği, wrong-key/corruption/plaintext fail-closed, atomic yarış, retention replay, encrypted migration ve backup/restore smoke testleri eklendi.
+- Auth throttling/lockout/enumeration-safe reset, hashed single-use token replay/expiry, verification, session revocation ve fake/SMTP notification adapter testleri eklendi.
+- OCR/LLM/RAG/analyzer provenance compatibility testleri; structured log leak testleri; acting-entity invitation/participant/ratification/transaction/payment/review matrisi genişletildi.
+- CI güvenlik workflow'u `pip-audit`, Bandit high severity, npm audit, direct startup ve Gitleaks kapılarını çalıştırır. Operasyon ve PostgreSQL envanteri `docs/` altındadır.

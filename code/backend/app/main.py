@@ -17,6 +17,7 @@ from backend.app.api.errors import ApiError, api_error_handler, unhandled_except
 from backend.app.config import Settings
 from backend.app.db import connect, init_db
 from backend.app.middleware.request_id import RequestIDMiddleware
+from backend.app.structured_logging import configure_structured_logging
 from backend.app.services import processing_jobs
 from backend.app.routers import (
     approvals,
@@ -39,6 +40,7 @@ from backend.app.routers import (
 
 
 def create_app() -> FastAPI:
+    configure_structured_logging()
     app = FastAPI(title="M4Trust API")
     app.add_middleware(RequestIDMiddleware)
     app.add_exception_handler(ApiError, api_error_handler)
@@ -90,7 +92,8 @@ def _recover_operational_jobs(conn) -> None:
     )
 
     extracting_transactions = conn.execute(
-        "SELECT id FROM transactions WHERE state = 'extracting' ORDER BY created_at"
+        "SELECT id FROM transactions WHERE state IN ('uploaded', 'extracting') "
+        "ORDER BY created_at"
     ).fetchall()
     for transaction in extracting_transactions:
         job = processing_jobs.ensure_job(

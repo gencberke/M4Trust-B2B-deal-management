@@ -103,6 +103,7 @@ def retry_extraction(
         conn, kind=_EXTRACTION_KIND, idempotency_key=idempotency_key
     )
     recoverable_job = job is not None and job["status"] in {
+        "queued",
         "retry_pending",
         "failed",
         "unknown",
@@ -156,6 +157,7 @@ def retry_extraction(
             storage_ref=document["storage_ref"],
             suffix=suffix,
         ),
+        attempt_already_claimed=True,
     )
 
     refreshed_job = jobs_repo.get_by_id(conn, job["id"])

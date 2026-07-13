@@ -85,6 +85,8 @@ def test_hybrid_pdf_extractor_uses_digital_text_when_present(tmp_path):
 
     assert "dijital sayfa metnidir" in text
     assert ocr.calls == 0
+    assert extractor.last_provenance["ocr_engine"] is None
+    assert extractor.last_provenance["page_count"] == 1
 
 
 def test_hybrid_pdf_extractor_falls_back_to_ocr_for_blank_page(tmp_path):
@@ -96,3 +98,5 @@ def test_hybrid_pdf_extractor_falls_back_to_ocr_for_blank_page(tmp_path):
 
     assert text == "OCR SONUCU"
     assert ocr.calls == 1
+    assert extractor.last_provenance["ocr_engine"] == "tesseract"
+    assert extractor.last_provenance["ocr_pages"] == [1]

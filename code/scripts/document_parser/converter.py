@@ -25,13 +25,14 @@ class DocumentConverter:
     ):
         self._factory = factory or ExtractorFactory()
         self._normalizer = normalizer or MarkdownNormalizer()
+        self.last_provenance: dict = {}
 
     def convert(self, file_path: Path) -> str:
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(file_path)
 
-        logger.info("Converting %s", file_path.name)
+        logger.info("Document conversion started")
         extractor = self._factory.get_extractor(file_path)
 
         try:
@@ -39,11 +40,13 @@ class DocumentConverter:
         except ExtractionError:
             raise
         except Exception as exc:
-            raise ExtractionError(f"Unexpected error extracting {file_path}: {exc}") from exc
+            raise ExtractionError("Unexpected document extraction error.") from exc
 
         clean_text = self._normalizer.normalize(raw_text)
         if not clean_text:
-            raise EmptyDocumentError(f"{file_path.name} produced no usable text after extraction")
+            raise EmptyDocumentError("Document produced no usable text after extraction")
 
-        logger.info("Converted %s -> %d characters", file_path.name, len(clean_text))
+        self.last_provenance = dict(getattr(extractor, "last_provenance", {}) or {})
+        self.last_provenance["normalizer_version"] = "markdown-normalizer-v1"
+        logger.info("Document conversion completed (%d characters)", len(clean_text))
         return clean_text

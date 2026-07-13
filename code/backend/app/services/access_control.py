@@ -76,6 +76,7 @@ async def get_current_actor(request: Request) -> ActorContext:
 
     session_actor = _resolve_session_actor(request, request_id=request_id)
     if session_actor is not None:
+        request.state.actor_context = session_actor
         return session_actor
 
     capability_present = any(
@@ -83,12 +84,16 @@ async def get_current_actor(request: Request) -> ActorContext:
         for name in ("token", "buyer_token", "seller_token", "manager_token")
     )
     if capability_present:
-        return ActorContext(
+        actor = ActorContext(
             actor_type="legacy_capability",
             request_id=request_id,
             auth_method="legacy_capability",
         )
-    return ActorContext(actor_type="anonymous", request_id=request_id)
+        request.state.actor_context = actor
+        return actor
+    actor = ActorContext(actor_type="anonymous", request_id=request_id)
+    request.state.actor_context = actor
+    return actor
 
 
 def require_authenticated_user(

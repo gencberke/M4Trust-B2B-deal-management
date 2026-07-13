@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlite3 import Connection, Row
@@ -47,6 +46,7 @@ from backend.app.schemas.tracking import (
 )
 from backend.app.services import invitations as invitations_service
 from backend.app.services import participants as participants_service
+from backend.app.services import processing_jobs
 from backend.app.services import transaction_pipeline
 from backend.app.services import transaction_state
 from backend.app.services.auth import require_csrf_protection, verify_csrf
@@ -57,6 +57,11 @@ from backend.app.services.access_control import (
 )
 from backend.app.services.document_storage import make_document_storage_provider
 from backend.app.services.extraction_projection import redacted_extraction_projection
+from backend.app.services.upload_limits import (
+    EmptyUploadError,
+    UploadTooLargeError,
+    read_upload_bounded,
+)
 from backend.app.services.tracking_policy import (
     contractual_required_evidence,
     create_draft_policy,
@@ -267,46 +272,98 @@ def _validate_suffix(filename: str | None) -> tuple[str, bool]:
     return suffix, suffix in _PASSTHROUGH_SUFFIXES
 
 
-async def _write_temp_file(file: UploadFile, suffix: str) -> tuple[bytes, Path]:
-    contents = await file.read()
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+async def _read_contract_upload(file: UploadFile, settings: Settings) -> bytes:
     try:
-        tmp.write(contents)
-    finally:
-        tmp.close()
-    return contents, Path(tmp.name)
+        return await read_upload_bounded(file, max_bytes=settings.max_contract_upload_bytes)
+    except UploadTooLargeError as exc:
+        raise ApiError(
+            status_code=413,
+            code="CONTRACT_FILE_TOO_LARGE",
+            message="Sözleşme dosyası yapılandırılmış boyut sınırını aşıyor.",
+        ) from exc
+    except EmptyUploadError as exc:
+        raise ApiError(
+            status_code=422,
+            code="CONTRACT_FILE_EMPTY",
+            message="Boş sözleşme dosyası yüklenemez.",
+        ) from exc
 
 
 async def _create_legacy_transaction(
     background_tasks: BackgroundTasks, file: UploadFile, conn: Connection
 ) -> dict:
-    """Anonim capability-link akışı — değişmedi (lifecycle_version='legacy_v1')."""
+    """Anonim capability-link akışı; raw upload dispatch'ten önce şifrelenir."""
     settings = Settings.from_env()
     suffix, is_passthrough = _validate_suffix(file.filename)
-    _contents, temp_path = await _write_temp_file(file, suffix)
+    contents = await _read_contract_upload(file, settings)
 
     transaction_id = uuid4().hex
+    document_id = uuid4().hex
     buyer_token = secrets.token_urlsafe(32)
     seller_token = secrets.token_urlsafe(32)
     manager_token = secrets.token_urlsafe(32)
-
-    conn.execute(
-        "INSERT INTO transactions "
-        "(id, state, buyer_token, seller_token, manager_token, markdown, masked_markdown, "
-        "created_at, lifecycle_version) "
-        "VALUES (?, 'uploaded', ?, ?, ?, NULL, NULL, ?, 'legacy_v1')",
-        (transaction_id, buyer_token, seller_token, manager_token, _utc_now_iso()),
+    content_sha256 = hashlib.sha256(contents).hexdigest()
+    storage = make_document_storage_provider(settings)
+    stored = storage.store(
+        transaction_id=transaction_id,
+        document_id=document_id,
+        original_filename=file.filename or "document",
+        media_type=file.content_type,
+        content=contents,
+        expected_sha256=content_sha256,
     )
-    create_draft_policy(conn, transaction_id)
-    # Background task kendi connection'ını açar; satırı başlamadan görünür kıl.
-    conn.commit()
+
+    try:
+        conn.execute(
+            "INSERT INTO transactions "
+            "(id, state, buyer_token, seller_token, manager_token, markdown, masked_markdown, "
+            "created_at, lifecycle_version, content_sha256) "
+            "VALUES (?, 'uploaded', ?, ?, ?, NULL, NULL, ?, 'legacy_v1', ?)",
+            (
+                transaction_id,
+                buyer_token,
+                seller_token,
+                manager_token,
+                _utc_now_iso(),
+                content_sha256,
+            ),
+        )
+        create_draft_policy(conn, transaction_id)
+        documents_repo.insert_document(
+            conn,
+            document_id=document_id,
+            transaction_id=transaction_id,
+            version=1,
+            original_filename=file.filename or "document",
+            media_type=file.content_type,
+            storage_ref=stored.storage_ref,
+            content_sha256=stored.content_sha256,
+            uploaded_by_user_id=None,
+            now=_utc_now_iso(),
+        )
+        processing_jobs.ensure_job(
+            conn,
+            kind="extraction",
+            source_id=transaction_id,
+            transaction_id=transaction_id,
+            idempotency_key=f"extraction:transaction:{transaction_id}",
+        )
+        conn.commit()
+    except BaseException:
+        try:
+            storage.delete(stored.storage_ref)
+        except Exception:  # noqa: BLE001 -- best-effort compensation
+            pass
+        raise
 
     background_tasks.add_task(
         transaction_pipeline.run_pipeline,
         transaction_id,
         is_passthrough,
         settings,
-        transaction_pipeline.LegacyPipelineInput(file_path=temp_path),
+        transaction_pipeline.LegacyPipelineInput(
+            storage_ref=stored.storage_ref, suffix=suffix
+        ),
     )
 
     return {
@@ -345,6 +402,12 @@ async def _create_account_transaction(
             code="INVALID_OWN_ROLE",
             message="own_role yalnızca 'buyer' veya 'seller' olabilir.",
         )
+    if actor.acting_entity_id != acting_entity_id:
+        raise ApiError(
+            status_code=403,
+            code="ACTING_ENTITY_MISMATCH",
+            message="X-Acting-Entity-ID seçimi formdaki acting_entity_id ile eşleşmelidir.",
+        )
     if get_active_membership(conn, user_id=actor.user_id, legal_entity_id=acting_entity_id) is None:
         raise ApiError(
             status_code=403,
@@ -354,7 +417,7 @@ async def _create_account_transaction(
 
     settings = Settings.from_env()
     suffix, is_passthrough = _validate_suffix(file.filename)
-    contents = await file.read()
+    contents = await _read_contract_upload(file, settings)
     content_sha256 = hashlib.sha256(contents).hexdigest()
 
     transaction_id = uuid4().hex
@@ -418,6 +481,14 @@ async def _create_account_transaction(
                 "invite_link": f"/api/invitations/{created_invitation.raw_token}/accept",
                 "notification_delivered": created_invitation.notification_delivered,
             }
+
+        processing_jobs.ensure_job(
+            conn,
+            kind="extraction",
+            source_id=transaction_id,
+            transaction_id=transaction_id,
+            idempotency_key=f"extraction:transaction:{transaction_id}",
+        )
 
         conn.commit()
     except BaseException:
@@ -488,12 +559,18 @@ def list_transactions(
     """
     settings = Settings.from_env()
     if actor.user_id is not None:
+        if actor.acting_entity_id is None:
+            raise ApiError(
+                status_code=403,
+                code="ACTING_ENTITY_REQUIRED",
+                message="İşlem listesi için aktif bir acting entity seçilmelidir.",
+            )
         assigned_ids = {
             row[0]
             for row in conn.execute(
                 "SELECT DISTINCT transaction_id FROM transaction_assignments "
-                "WHERE user_id = ? AND status = 'active'",
-                (actor.user_id,),
+                "WHERE user_id = ? AND legal_entity_id = ? AND status = 'active'",
+                (actor.user_id, actor.acting_entity_id),
             )
         }
         rows = [row for row in list_transaction_rows(conn) if row["id"] in assigned_ids]
@@ -607,7 +684,7 @@ def get_transaction(
     if row["lifecycle_version"] == "account_v2":
         if actor.user_id is None:
             raise HTTPException(status_code=401, detail="Kimlik doğrulama gerekli.")
-        if not participants_service.has_transaction_access(conn, transaction_id, actor.user_id):
+        if not participants_service.has_transaction_access_for_actor(conn, transaction_id, actor):
             raise HTTPException(status_code=403, detail="Bu işlemde erişiminiz yok.")
 
     events = [
@@ -809,6 +886,7 @@ def update_account_tracking_policy(
         extraction,
         physical_delivery_confirmed=body.physical_delivery_confirmed,
         tracking_mode=body.tracking_mode,
+        configured_by_user_id=actor.user_id,
     )
     if conflict is not None:
         _raise_policy_conflict(conflict)
@@ -856,7 +934,9 @@ def lock_account_tracking_policy(
             )
         )
 
-    policy, locked, conflict = lock_manager_policy(conn, transaction_id, extraction)
+    policy, locked, conflict = lock_manager_policy(
+        conn, transaction_id, extraction, locked_by_user_id=actor.user_id
+    )
     if conflict is not None:
         _raise_policy_conflict(conflict)
     if locked:

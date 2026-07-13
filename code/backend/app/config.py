@@ -11,22 +11,39 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 # config.py -> app/ -> backend/ -> code/
 _CODE_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_CHROMA_DIR = _CODE_ROOT / "data" / "processed" / "embeddings" / "chroma"
 _DEFAULT_DB_PATH = _CODE_ROOT / "data" / "runtime" / "m4trust.db"
 _DEFAULT_DOCUMENT_STORAGE_DIR = _CODE_ROOT / "data" / "runtime" / "documents"
+_DOTENV_PATH = _CODE_ROOT / ".env"
 
 
-def _env(name: str, default: str) -> str:
-    """Env değişkenini oku; tanımsız VEYA boş string ise default'a düş."""
+def _read_known_dotenv() -> dict[str, str]:
+    """Yalnız bilinen ``code/.env`` dosyasını process env'ini değiştirmeden oku."""
+
+    try:
+        values = dotenv_values(_DOTENV_PATH)
+    except (OSError, ValueError):
+        return {}
+    return {key: value for key, value in values.items() if isinstance(value, str) and value}
+
+
+def _env(name: str, default: str, dotenv: dict[str, str] | None = None) -> str:
+    """Process env > bilinen dotenv > default; boş değer bir sonraki kaynağa düşer."""
+
     value = os.environ.get(name)
-    return value if value else default
+    if value:
+        return value
+    file_value = (dotenv or {}).get(name)
+    return file_value if file_value else default
 
 
-def _env_bool(name: str, default: bool) -> bool:
+def _env_bool(name: str, default: bool, dotenv: dict[str, str] | None = None) -> bool:
     """Env'deki yaygın true biçimlerini bool'a çevir; boşsa default'u koru."""
-    value = os.environ.get(name)
+    value = _env(name, "", dotenv)
     if not value:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -65,59 +82,124 @@ class Settings:
     app_hmac_key: str = ""                             # base64 — tax identifier lookup HMAC-SHA256
     session_cookie_secure: bool = False                # prod'da true; local http demo'da false
     session_ttl_seconds: float = 604800.0              # 7 gün — oturum süresi
+    auth_rate_limit_enabled: bool = True
+    login_rate_limit_attempts: int = 5
+    login_rate_limit_window_seconds: float = 300.0
+    account_lockout_threshold: int = 5
+    account_lockout_window_seconds: float = 900.0
+    account_lockout_seconds: float = 900.0
+    password_reset_token_ttl_seconds: float = 1800.0
+    email_verification_token_ttl_seconds: float = 86400.0
+    email_verification_required: bool = False
+    trust_proxy_headers: bool = False
+    frontend_base_url: str = "http://127.0.0.1:5173"
+    notification_provider: str = "fake"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: float = 10.0
     legacy_capability_access_enabled: bool = False      # Plan 06 closure: default off (env ile açılır)
     processing_job_stale_seconds: float = 300.0         # Plan 07 startup recovery eşiği
     document_storage_dir: Path = _DEFAULT_DOCUMENT_STORAGE_DIR  # LocalDocumentStorageProvider kökü (§2.11)
+    max_contract_upload_bytes: int = 25 * 1024 * 1024
+    max_evidence_upload_bytes: int = 25 * 1024 * 1024
 
     @classmethod
     def from_env(cls) -> "Settings":
-        chroma = os.environ.get("CHROMA_DIR")
-        db_path = os.environ.get("DB_PATH")
-        document_storage_dir = os.environ.get("DOCUMENT_STORAGE_DIR")
+        dotenv = _read_known_dotenv()
+        chroma = _env("CHROMA_DIR", "", dotenv)
+        db_path = _env("DB_PATH", "", dotenv)
+        document_storage_dir = _env("DOCUMENT_STORAGE_DIR", "", dotenv)
         return cls(
-            llm_provider=_env("LLM_PROVIDER", "fake"),
-            llm_base_url=_env("LLM_BASE_URL", "https://api.openai.com/v1"),
-            llm_model=_env("LLM_MODEL", "gpt-5.4-mini"),
-            llm_api_key=os.environ.get("LLM_API_KEY", ""),
-            llm_timeout=float(_env("LLM_TIMEOUT", "60")),
+            llm_provider=_env("LLM_PROVIDER", "fake", dotenv),
+            llm_base_url=_env("LLM_BASE_URL", "https://api.openai.com/v1", dotenv),
+            llm_model=_env("LLM_MODEL", "gpt-5.4-mini", dotenv),
+            llm_api_key=_env("LLM_API_KEY", "", dotenv),
+            llm_timeout=float(_env("LLM_TIMEOUT", "60", dotenv)),
             chroma_dir=Path(chroma).resolve() if chroma else _DEFAULT_CHROMA_DIR,
-            rag_model_name=_env("RAG_MODEL", "BAAI/bge-m3"),
-            legal_collection=_env("RAG_LEGAL_COLLECTION", "legal_articles"),
-            contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples"),
-            security_collection=_env("RAG_SECURITY_COLLECTION", "security_controls"),
-            payment_provider=_env("PAYMENT_PROVIDER", "mock"),
-            moka_base_url=_env("MOKA_BASE_URL", "http://127.0.0.1:8001"),
-            moka_dealer_code=os.environ.get("MOKA_DEALER_CODE", ""),
-            moka_username=os.environ.get("MOKA_USERNAME", ""),
-            moka_password=os.environ.get("MOKA_PASSWORD", ""),
-            moka_card_token=os.environ.get("MOKA_CARD_TOKEN", ""),
-            moka_software=_env("MOKA_SOFTWARE", "M4Trust"),
-            moka_timeout_seconds=float(_env("MOKA_TIMEOUT_SECONDS", "20")),
+            rag_model_name=_env("RAG_MODEL", "BAAI/bge-m3", dotenv),
+            legal_collection=_env("RAG_LEGAL_COLLECTION", "legal_articles", dotenv),
+            contract_collection=_env("RAG_CONTRACT_COLLECTION", "contract_examples", dotenv),
+            security_collection=_env("RAG_SECURITY_COLLECTION", "security_controls", dotenv),
+            payment_provider=_env("PAYMENT_PROVIDER", "mock", dotenv),
+            moka_base_url=_env("MOKA_BASE_URL", "http://127.0.0.1:8001", dotenv),
+            moka_dealer_code=_env("MOKA_DEALER_CODE", "", dotenv),
+            moka_username=_env("MOKA_USERNAME", "", dotenv),
+            moka_password=_env("MOKA_PASSWORD", "", dotenv),
+            moka_card_token=_env("MOKA_CARD_TOKEN", "", dotenv),
+            moka_software=_env("MOKA_SOFTWARE", "M4Trust", dotenv),
+            moka_timeout_seconds=float(_env("MOKA_TIMEOUT_SECONDS", "20", dotenv)),
             moka_contract_profile=_env(
-                "MOKA_CONTRACT_PROFILE", "moka_payment_dealer_pool_v1"
+                "MOKA_CONTRACT_PROFILE", "moka_payment_dealer_pool_v1", dotenv
             ),
             db_path=Path(db_path).resolve() if db_path else _DEFAULT_DB_PATH,
-            validator_confidence_threshold=float(_env("VALIDATOR_CONFIDENCE_THRESHOLD", "0.7")),
-            video_advisory_confidence_threshold=float(
-                _env("VIDEO_ADVISORY_CONFIDENCE_THRESHOLD", "0.80")
+            validator_confidence_threshold=float(
+                _env("VALIDATOR_CONFIDENCE_THRESHOLD", "0.7", dotenv)
             ),
-            video_provider=_env("VIDEO_PROVIDER", "fake"),
-            roboflow_api_key=os.environ.get("ROBOFLOW_API_KEY", ""),
-            demo_public_dashboard=_env_bool("DEMO_PUBLIC_DASHBOARD", False),
-            app_encryption_key=os.environ.get("APP_ENCRYPTION_KEY", ""),
-            app_hmac_key=os.environ.get("APP_HMAC_KEY", ""),
-            session_cookie_secure=_env_bool("SESSION_COOKIE_SECURE", False),
-            session_ttl_seconds=float(_env("SESSION_TTL_SECONDS", "604800")),
+            video_advisory_confidence_threshold=float(
+                _env("VIDEO_ADVISORY_CONFIDENCE_THRESHOLD", "0.80", dotenv)
+            ),
+            video_provider=_env("VIDEO_PROVIDER", "fake", dotenv),
+            roboflow_api_key=_env("ROBOFLOW_API_KEY", "", dotenv),
+            demo_public_dashboard=_env_bool("DEMO_PUBLIC_DASHBOARD", False, dotenv),
+            app_encryption_key=_env("APP_ENCRYPTION_KEY", "", dotenv),
+            app_hmac_key=_env("APP_HMAC_KEY", "", dotenv),
+            session_cookie_secure=_env_bool("SESSION_COOKIE_SECURE", False, dotenv),
+            session_ttl_seconds=float(_env("SESSION_TTL_SECONDS", "604800", dotenv)),
+            auth_rate_limit_enabled=_env_bool("AUTH_RATE_LIMIT_ENABLED", True, dotenv),
+            login_rate_limit_attempts=int(_env("LOGIN_RATE_LIMIT_ATTEMPTS", "5", dotenv)),
+            login_rate_limit_window_seconds=float(
+                _env("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "300", dotenv)
+            ),
+            account_lockout_threshold=int(
+                _env("ACCOUNT_LOCKOUT_THRESHOLD", "5", dotenv)
+            ),
+            account_lockout_window_seconds=float(
+                _env("ACCOUNT_LOCKOUT_WINDOW_SECONDS", "900", dotenv)
+            ),
+            account_lockout_seconds=float(
+                _env("ACCOUNT_LOCKOUT_SECONDS", "900", dotenv)
+            ),
+            password_reset_token_ttl_seconds=float(
+                _env("PASSWORD_RESET_TOKEN_TTL_SECONDS", "1800", dotenv)
+            ),
+            email_verification_token_ttl_seconds=float(
+                _env("EMAIL_VERIFICATION_TOKEN_TTL_SECONDS", "86400", dotenv)
+            ),
+            email_verification_required=_env_bool(
+                "EMAIL_VERIFICATION_REQUIRED", False, dotenv
+            ),
+            trust_proxy_headers=_env_bool("TRUST_PROXY_HEADERS", False, dotenv),
+            frontend_base_url=_env(
+                "FRONTEND_BASE_URL", "http://127.0.0.1:5173", dotenv
+            ),
+            notification_provider=_env("NOTIFICATION_PROVIDER", "fake", dotenv),
+            smtp_host=_env("SMTP_HOST", "", dotenv),
+            smtp_port=int(_env("SMTP_PORT", "587", dotenv)),
+            smtp_username=_env("SMTP_USERNAME", "", dotenv),
+            smtp_password=_env("SMTP_PASSWORD", "", dotenv),
+            smtp_from_email=_env("SMTP_FROM_EMAIL", "", dotenv),
+            smtp_starttls=_env_bool("SMTP_STARTTLS", True, dotenv),
+            smtp_timeout_seconds=float(_env("SMTP_TIMEOUT_SECONDS", "10", dotenv)),
             legacy_capability_access_enabled=_env_bool(
-                "LEGACY_CAPABILITY_ACCESS_ENABLED", False
+                "LEGACY_CAPABILITY_ACCESS_ENABLED", False, dotenv
             ),
             processing_job_stale_seconds=float(
-                _env("PROCESSING_JOB_STALE_SECONDS", "300")
+                _env("PROCESSING_JOB_STALE_SECONDS", "300", dotenv)
             ),
             document_storage_dir=(
                 Path(document_storage_dir).resolve()
                 if document_storage_dir
                 else _DEFAULT_DOCUMENT_STORAGE_DIR
+            ),
+            max_contract_upload_bytes=int(
+                _env("MAX_CONTRACT_UPLOAD_BYTES", str(25 * 1024 * 1024), dotenv)
+            ),
+            max_evidence_upload_bytes=int(
+                _env("MAX_EVIDENCE_UPLOAD_BYTES", str(25 * 1024 * 1024), dotenv)
             ),
         )
 
@@ -129,6 +211,7 @@ class Settings:
         moka_card_token_masked = "***" if self.moka_card_token else ""
         encryption_key_masked = "***" if self.app_encryption_key else ""
         hmac_key_masked = "***" if self.app_hmac_key else ""
+        smtp_password_masked = "***" if self.smtp_password else ""
         return (
             f"Settings(llm_provider={self.llm_provider!r}, llm_base_url={self.llm_base_url!r}, "
             f"llm_model={self.llm_model!r}, llm_api_key={llm_masked!r}, "
@@ -154,8 +237,20 @@ class Settings:
             f"app_hmac_key={hmac_key_masked!r}, "
             f"session_cookie_secure={self.session_cookie_secure!r}, "
             f"session_ttl_seconds={self.session_ttl_seconds!r}, "
+            f"auth_rate_limit_enabled={self.auth_rate_limit_enabled!r}, "
+            f"login_rate_limit_attempts={self.login_rate_limit_attempts!r}, "
+            f"email_verification_required={self.email_verification_required!r}, "
+            f"trust_proxy_headers={self.trust_proxy_headers!r}, "
+            f"notification_provider={self.notification_provider!r}, "
+            f"smtp_host={self.smtp_host!r}, smtp_port={self.smtp_port!r}, "
+            f"smtp_username={self.smtp_username!r}, "
+            f"smtp_password={smtp_password_masked!r}, "
+            f"smtp_from_email={self.smtp_from_email!r}, "
+            f"smtp_starttls={self.smtp_starttls!r}, "
             f"legacy_capability_access_enabled="
             f"{self.legacy_capability_access_enabled!r}, "
             f"processing_job_stale_seconds={self.processing_job_stale_seconds!r}, "
-            f"document_storage_dir={str(self.document_storage_dir)!r})"
+            f"document_storage_dir={str(self.document_storage_dir)!r}, "
+            f"max_contract_upload_bytes={self.max_contract_upload_bytes!r}, "
+            f"max_evidence_upload_bytes={self.max_evidence_upload_bytes!r})"
         )

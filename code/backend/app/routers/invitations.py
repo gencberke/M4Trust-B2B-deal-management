@@ -33,17 +33,14 @@ from backend.app.services import invitations as invitations_service
 from backend.app.services import participants as participants_service
 from backend.app.services.access_control import ActorContext, require_authenticated_user
 from backend.app.services.auth import require_csrf_protection
-from backend.app.services.notifications import FakeNotificationProvider, NotificationProvider
+from backend.app.services.notifications import NotificationProvider, make_notification_provider
 
 router = APIRouter(tags=["invitations"])
 
 # Gerçek NotificationProvider seçimi (env-tabanlı) main.py wiring'ine aittir;
 # bu fazda yalnız fake mevcuttur (ARCHITECTURE §3 adapter+fake ilkesi).
-_notification_provider: NotificationProvider = FakeNotificationProvider()
-
-
 def get_notification_provider() -> NotificationProvider:
-    return _notification_provider
+    return make_notification_provider()
 
 
 def _build_invite_link(request: Request, token: str) -> str:

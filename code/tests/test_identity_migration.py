@@ -53,6 +53,9 @@ def test_003_and_004_tables_present_after_empty_db_migration(tmp_path: Path) -> 
         "email_verified_at",
         "created_at",
         "updated_at",
+        "failed_login_count",
+        "failed_login_window_started_at",
+        "locked_until",
     }
     assert {row[1] for row in conn.execute("PRAGMA table_info(sessions)")} == {
         "id",
@@ -73,7 +76,7 @@ def test_migration_is_idempotent_across_repeated_runs(tmp_path: Path) -> None:
     init_db(conn)
     init_db(conn)
     versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")]
-    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "023", "024"]
+    assert versions == ["001", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014", "015", "016", "017", "018", "019", "020", "021", "022", "023", "024", "025"]
     conn.close()
 
 

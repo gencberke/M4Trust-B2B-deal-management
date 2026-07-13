@@ -33,7 +33,10 @@ from backend.app.services.payments.funding_plan import (
     compile_funding_plan,
     to_minor,
 )
-from backend.app.services.tracking_policy import load_tracking_policy
+from backend.app.services.tracking_policy import (
+    current_policy_version_id,
+    load_tracking_policy,
+)
 
 PACKAGE_SCHEMA_VERSION = "ratification_package_v1"
 OTHER_TRX_CODE_DERIVATION_VERSION = "transaction_id_v1"
@@ -276,6 +279,7 @@ def _build_inputs(
         )
     policy_payload = policy.model_dump(mode="json")
     tracking_policy_hash = compute_package_hash(canonical_package_json(policy_payload))
+    tracking_policy_version_id = current_policy_version_id(conn, transaction_id)
 
     if review_service.has_blocking_case(conn, transaction_id, phase="pre_ratification"):
         raise PackageNotReadyError(
@@ -316,7 +320,7 @@ def _build_inputs(
         },
         "participant_snapshot_hash": participant_snapshot_hash,
         "tracking_policy": {
-            "version_id": None,
+            "version_id": tracking_policy_version_id,
             "snapshot": policy_payload,
             "hash": tracking_policy_hash,
         },
@@ -336,6 +340,7 @@ def _build_inputs(
         rule_set_hash=current_rule.rules_hash or "",
         participant_snapshot_hash=participant_snapshot_hash,
         tracking_policy_hash=tracking_policy_hash,
+        tracking_policy_version_id=tracking_policy_version_id,
         canonical_payload_json=canonical,
         package_hash=compute_package_hash(canonical),
     )

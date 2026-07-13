@@ -49,7 +49,7 @@ def extract_frames(video_path: Path, sample_fps: float = DEFAULT_SAMPLE_FPS) -> 
     cv2 = _load_cv2()
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
-        raise VideoAnalyzerError(f"Video dosyası açılamadı: {video_path}")
+        raise VideoAnalyzerError("Video dosyası açılamadı")
 
     native_fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
     frame_interval = max(1, round(native_fps / sample_fps))
@@ -74,10 +74,12 @@ def extract_frames(video_path: Path, sample_fps: float = DEFAULT_SAMPLE_FPS) -> 
         capture.release()
 
     logger.info(
-        "%s videosundan %d kare örneklendi (~%.1f fps native, her %d karede bir)",
-        video_path.name,
-        len(frame_paths),
-        native_fps,
-        frame_interval,
+        "video frames sampled",
+        extra={
+            "event": "video_frames_sampled",
+            "action": "sample_video",
+            "outcome": "success",
+            "item_count": len(frame_paths),
+        },
     )
     return frame_paths

@@ -8,6 +8,7 @@ burada değil, kendi test modüllerinde kalır — bu dosya global fixture
 from __future__ import annotations
 
 import sys
+import base64
 from pathlib import Path
 
 import pytest
@@ -53,7 +54,16 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     db_path = tmp_path / "m4trust_test.db"
     monkeypatch.setenv("DB_PATH", str(db_path))
+    monkeypatch.setenv("DOCUMENT_STORAGE_DIR", str(tmp_path / "documents"))
     monkeypatch.setenv("LLM_PROVIDER", "fake")
+    # Runtime storage is fail-closed without a 32-byte AES key. Tests use a
+    # deterministic, process-local key; production/demo must provide its own.
+    monkeypatch.setenv(
+        "APP_ENCRYPTION_KEY", base64.b64encode(b"m4trust-test-storage-key-32byte!").decode("ascii")
+    )
+    from backend.app.services import auth_hardening
+
+    auth_hardening.reset_rate_limit_state_for_tests()
 
 
 @pytest.fixture()

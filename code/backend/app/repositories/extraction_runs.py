@@ -26,13 +26,20 @@ def insert_extraction_run(
     status: str,
     failure_reason: str | None,
     now: str,
+    ocr_engine: str | None = None,
+    ocr_version: str | None = None,
+    ocr_confidence: float | None = None,
+    llm_provider_version: str | None = None,
+    rag_collection_versions_json: str = "{}",
+    source_locator_json: str = "{}",
 ) -> None:
     conn.execute(
         """INSERT INTO extraction_runs
         (id, transaction_id, document_id, provider, model, prompt_version, schema_version,
          rag_provenance_json, privacy_summary_json, extraction_json, status, failure_reason,
-         created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+         created_at, ocr_engine, ocr_version, ocr_confidence,
+         llm_provider_version, rag_collection_versions_json, source_locator_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             run_id,
             transaction_id,
@@ -47,6 +54,12 @@ def insert_extraction_run(
             status,
             failure_reason,
             now,
+            ocr_engine,
+            ocr_version,
+            ocr_confidence,
+            llm_provider_version,
+            rag_collection_versions_json,
+            source_locator_json,
         ),
     )
 
