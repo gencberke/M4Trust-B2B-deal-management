@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { useEntities } from "../entities/EntityContext";
+import { useDemo } from "../demo/DemoContext";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return [
@@ -11,6 +12,7 @@ function navClass({ isActive }: { isActive: boolean }): string {
 }
 
 export function AppShell() {
+  const { enabled: demoEnabled } = useDemo();
   const { user } = useAuth();
   const {
     entities,
@@ -34,6 +36,7 @@ export function AppShell() {
           </NavLink>
 
           <nav className="flex w-full flex-wrap items-center justify-between gap-1 sm:w-auto sm:justify-start">
+            {user && demoEnabled ? <NavLink to="/demo" className={navClass}>Demo</NavLink> : null}
             <NavLink to="/" className={navClass}>Ana sayfa</NavLink>
             {user ? <NavLink to="/transactions" className={navClass}>İşlemler</NavLink> : null}
             {user ? <NavLink to="/me" className={navClass}>Hesabım</NavLink> : null}

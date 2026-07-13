@@ -28,6 +28,7 @@ import {
   TransactionFulfillmentPage,
   TransactionDisputesPage,
   TransactionPaymentsPage,
+  DemoPage,
 } from "../pages";
 import { buildApiErrorNavigationState } from "./navigation";
 
@@ -78,6 +79,7 @@ export function AppRoutes() {
           <Route path="entities/new" element={<RequireAuth><EntityCreatePage /></RequireAuth>} />
           <Route path="entities/:entityId" element={<RequireAuth><EntityProfilePage /></RequireAuth>} />
           <Route path="transactions" element={<RequireAuth><TransactionListPage /></RequireAuth>} />
+          <Route path="demo" element={<RequireAuth><DemoPage /></RequireAuth>} />
           <Route path="transactions/new" element={<RequireAuth><TransactionCreatePage /></RequireAuth>} />
           <Route path="transactions/:transactionId" element={<RequireAuth><TransactionShell /></RequireAuth>}>
             <Route index element={<Navigate to="overview" replace />} />

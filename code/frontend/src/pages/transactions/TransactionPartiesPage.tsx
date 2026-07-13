@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { createInvitation, revokeInvitation } from "../../api/invitations";
+import { createInvitation, listInvitations, reissueInvitation, revokeInvitation } from "../../api/invitations";
 import {
   confirmMyProfile,
   listParticipants,
@@ -8,7 +8,7 @@ import {
 } from "../../api/participants";
 import { ApiClientError, toApiClientError } from "../../api/client";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { LoadingPanel, Notice, RetryPanel } from "../../components/Feedback";
+import { LoadingPanel, Notice, RetryPanel, SkeletonRows } from "../../components/Feedback";
 import { ResponsiveTable } from "../../components/ResponsiveTable";
 import { StatusBadge } from "../../components/StatusBadge";
 import { useTransactionShell } from "../../components/TransactionShell";
@@ -39,6 +39,7 @@ export function TransactionPartiesPage() {
     error,
     refresh: refreshParticipants,
   } = useAsyncData(() => listParticipants(detail.id), [detail.id]);
+  const { data: invitations, loading: invitationsLoading, error: invitationsError, refresh: refreshInvitations } = useAsyncData(() => listInvitations(detail.id), [detail.id]);
 
   // Davet paneli (B4: davet listesi endpoint'i yok — son create cevabı state'te tutulur).
   const [inviteRole, setInviteRole] = useState<ParticipantRole>("seller");
@@ -46,8 +47,10 @@ export function TransactionPartiesPage() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [lastInvite, setLastInvite] = useState<InvitationCreateResult | null>(null);
+  const [copied, setCopied] = useState(false);
   const [revokeDialog, setRevokeDialog] = useState(false);
   const [revokeBusy, setRevokeBusy] = useState(false);
+  const [reissueBusy, setReissueBusy] = useState<string | null>(null);
 
   // Profil paneli.
   const [form, setForm] = useState(EMPTY_FORM);
@@ -96,6 +99,13 @@ export function TransactionPartiesPage() {
     } finally {
       setRevokeBusy(false);
     }
+  }
+
+  async function onReissue(invitationId: string) {
+    setReissueBusy(invitationId); setInviteError(null);
+    try { const result = await reissueInvitation(detail.id, invitationId); setLastInvite(result); await refreshInvitations(); }
+    catch (caught) { setInviteError(inviteErrorMessage(toApiClientError(caught).code)); }
+    finally { setReissueBusy(null); }
   }
 
   async function submitProfile() {
@@ -233,9 +243,7 @@ export function TransactionPartiesPage() {
             {(() => {
               const token = extractInvitationToken(lastInvite.invite_link);
               return token ? (
-                <p className="break-all font-mono text-sm text-primary">
-                  {frontendInvitationPath(token)}
-                </p>
+                <div><p className="break-all font-mono text-sm text-primary">{frontendInvitationPath(token)}</p><button type="button" className={`mt-3 ${secondaryButtonClass}`} onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}${frontendInvitationPath(token)}`).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? "Kopyalandı" : "Bağlantıyı kopyala"}</button></div>
               ) : null;
             })()}
             <p className="text-xs text-muted">
@@ -326,6 +334,11 @@ export function TransactionPartiesPage() {
             ) : null}
           </>
         )}
+      </section>
+
+      <section className="space-y-3">
+        <div><h2 className="text-base font-semibold text-heading">Davetler</h2><p className="mt-1 text-sm text-muted">Bağlantılar güvenlik nedeniyle listelenmez; yeniden oluşturulan bağlantı yalnız bir kez görünür.</p></div>
+        {invitationsLoading && !invitations ? <SkeletonRows rows={3} /> : invitationsError && !invitations ? <RetryPanel title="Davetler yüklenemedi" message={invitationsError.userMessage} onRetry={() => void refreshInvitations()} /> : <ResponsiveTable caption="Davetler" head={["Kimlik", "Rol", "E-posta", "Durum", "İşlem"]} emptyLabel="Henüz davet yok." rows={(invitations ?? []).map((invitation) => ({ key: invitation.invitation_id, cells: [<span className="font-mono text-xs">{invitation.invitation_id}</span>, invitation.participant_role === "buyer" ? "Alıcı" : "Satıcı", invitation.invited_email, invitation.status, <button key="reissue" type="button" className={secondaryButtonClass} disabled={reissueBusy !== null || invitation.status === "accepted"} onClick={() => void onReissue(invitation.invitation_id)}>{reissueBusy === invitation.invitation_id ? "Oluşturuluyor…" : "Yeniden oluştur"}</button>] }))} />}
       </section>
 
       <ConfirmDialog
