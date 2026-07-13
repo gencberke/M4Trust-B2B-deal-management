@@ -9,6 +9,9 @@ from backend.app.services.extraction import (
     OpenAICompatibleExtractionService,
     make_extraction_service,
 )
+from backend.app.schemas.payments import FundingScheduleSpec
+from backend.app.services.payments.domain import MOKA_STANDARD_PROFILE
+from backend.app.services.payments.funding_plan import compile_funding_plan, to_minor
 
 
 def _valid_payload() -> dict:
@@ -88,6 +91,77 @@ def test_fake_extraction_service_returns_ok_with_valid_schema():
 
     assert result.status == "ok"
     assert isinstance(result.data, ExtractionJSON)
+
+
+# --- LLM_FAKE_PROFILE + marker profil seçimi (Plan 14 / P0) ------------------
+
+
+def _triggers(result: ExtractionResult) -> list[str]:
+    return [rule.trigger.value for rule in result.data.payment_rules]
+
+
+def test_fake_default_profile_is_approval_bit_for_bit():
+    """Default profil (settings yok / approval) mevcut approval-only davranışı korur."""
+    result = FakeExtractionService().extract("marker'sız metin", None)
+
+    assert _triggers(result) == ["approval"]
+    assert result.data.contract_id == "demo-sozlesme-001"
+
+
+def test_fake_env_profile_delivery_selects_delivery_fixture():
+    service = FakeExtractionService(Settings(llm_fake_profile="delivery"))
+
+    result = service.extract("marker'sız metin", None)
+
+    assert _triggers(result) == ["e_invoice", "e_invoice"]
+    assert result.data.contract_id == "demo-sozlesme-delivery-001"
+    assert [r.percentage for r in result.data.payment_rules] == [50.0, 50.0]
+
+
+def test_fake_marker_overrides_env_profile():
+    """Masked markdown marker'ı env default'u override eder (delivery kazanır)."""
+    service = FakeExtractionService(Settings(llm_fake_profile="approval"))
+
+    result = service.extract("... [[m4trust-fake-profile: delivery]] ...", None)
+
+    assert _triggers(result) == ["e_invoice", "e_invoice"]
+
+
+def test_fake_approval_marker_overrides_env_delivery():
+    service = FakeExtractionService(Settings(llm_fake_profile="delivery"))
+
+    result = service.extract("giriş [[m4trust-fake-profile: approval]] son", None)
+
+    assert _triggers(result) == ["approval"]
+
+
+def test_fake_unknown_profile_falls_back_to_approval():
+    service = FakeExtractionService(Settings(llm_fake_profile="banana"))
+
+    result = service.extract("[[m4trust-fake-profile: nonsense]]", None)
+
+    assert _triggers(result) == ["approval"]
+
+
+def test_delivery_fixture_compiles_to_two_funding_units():
+    """Delivery fixture → funding schedule uçtan uca: iki milestone, iki funding unit."""
+    result = FakeExtractionService(Settings(llm_fake_profile="delivery")).extract("", None)
+    extraction = result.data
+
+    plan = compile_funding_plan(
+        extraction.payment_rules,
+        to_minor(extraction.commercial_terms.total_amount, extraction.commercial_terms.currency.value),
+        extraction.commercial_terms.currency.value,
+        FundingScheduleSpec(),
+        MOKA_STANDARD_PROFILE,
+    )
+
+    assert len(plan.milestones) == 2
+    assert sum(len(m.funding_units) for m in plan.milestones) == 2
+    assert plan.total_amount_minor == 100000 * 100
+    # %50 + %50 = tam eşit bölünme
+    assert [m.amount_minor for m in plan.milestones] == [5_000_000, 5_000_000]
+    assert all(m.trigger_type == "e_invoice" for m in plan.milestones)
 
 
 def test_live_adapter_valid_json_returns_ok():

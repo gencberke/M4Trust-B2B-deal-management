@@ -117,6 +117,20 @@ class InvitationCreateResult(BaseModel):
     invite_link: str
 
 
+class InvitationListItem(BaseModel):
+    """`GET /api/transactions/{id}/invitations` — creator-scoped davet satırı (token yok)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invitation_id: str
+    participant_role: ParticipantRole
+    invited_email: str
+    status: InvitationStatus
+    created_at: str
+    expires_at: str
+    accepted_at: str | None = None
+
+
 class InvitationPreview(BaseModel):
     """`GET /api/invitations/{token}/preview` — auth'suz, PII'siz güvenli önizleme."""
 
