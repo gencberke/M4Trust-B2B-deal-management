@@ -54,6 +54,8 @@ Dokümantasyonu eskiten bir iş, doc-sync yapılmadan "bitti" sayılmaz.
 
 ## Pratik notlar
 
+- **Plan 14 tamamlandı (2026-07-13):** delivery fake profili + gerçek servisleri kullanan senaryo seeder'ı, env-gated demo API/UI paneli ve `/demo` matrisi, davet liste/reissue UX'i, lifecycle stepper, açık Urbanist tema ve skeleton yükleme yüzeyleri birlikte kullanılabilir; `DEMO_TOOLS_ENABLED=false` iken demo UI/network/OpenAPI izi yoktur.
+
 - **Plan 14 frontend F1 (2026-07-13):** account işlem yaşam döngüsünün UI etiketi, stepper adımı ve rol-farkındalıklı sıradaki aksiyonu `code/frontend/src/lib/lifecycle.ts` saf haritasından türetilir; arayüz self-host Urbanist, açık `#f1f3f7` zemin, beyaz kart, `#3e30d9` primary ve `#51b206` positive token temasındadır.
 
 - Chroma index: `code/data/processed/embeddings/chroma/` — iki embed'li koleksiyon: `legal_articles` (891 vektör: TBK, 6493, 5549, KVKK, Yönetmelik, Tebliğ) ve `contract_examples` (395 vektör, 31 örnek sözleşme, few-shot yapısal referans). Üçüncü koleksiyon **`security_controls`** (PCI DSS kontrol haritası) için chunk'lar hazır (`data/processed/chunks/security/pci_dss_control_map.json`, 6 kontrol + 1 intro) ama **henüz embed edilmedi** (ağır RAG deps yoktu; `build_rag.py` çalıştırıldığında oluşur). Sorgular da BGE-M3 ile encode edilmelidir.

@@ -222,6 +222,8 @@ Adapter + fake ilkesi (§6.3): bu fazda yalnızca `FakeNotificationProvider` mev
 
 ### 4.1.1 Identity/entity/participant/invitation endpoint'leri (Plan 03)
 
+Plan 14 ekleri: `GET /api/transactions/{id}/invitations` creator-scoped olarak kimlik/rol/e-posta/durum/tarih listesini döndürür; token veya hash döndürmez. `POST /api/transactions/{id}/invitations/{invitation_id}/reissue` CSRF ve creator yetkisiyle eski daveti supersede eder, taze `invite_link` yalnız mutation cevabında bir kez görünür. `DEMO_TOOLS_ENABLED=true` olduğunda authenticated `GET /api/demo/status`, CSRF korumalı `POST /api/demo/scenarios` ve `POST /api/demo/transactions/{id}/advance` mount edilir; flag kapalıyken router ve OpenAPI izi yoktur. Delivery fixture seçimi `LLM_FAKE_PROFILE=approval|delivery` ile yapılır (varsayılan `approval`).
+
 | Endpoint | İş |
 |---|---|
 | `POST /api/auth/register` | Kayıt (Argon2id parola hash) → `UserPublic` |
@@ -416,6 +418,8 @@ Karar → ödeme aksiyonu: tam teslim `capture` · kısmi `partial_capture` (ora
 18. **Evidence first-class ve milestone-scoped'dur.** Account teslimat kararı `evidence_records` adapter'ından okur; raw payload/path event, audit veya bundle projection'ına taşınmaz. `milestone_id` tek adayda deterministik bağlanır, çoklu adayda zorunludur; NULL evidence release eligibility'sini milestone'lara broadcast edemez. Video anomaly yalnız blocking review açabilir; dispute yalnız yetkili buyer/seller approver insanın explicit aksiyonudur.
 19. **Review/re-trigger insan kontrollüdür.** Settlement video case'i yalnız platform reviewer/admin'in allowlist'li güvenli resolution koduyla kapanır; evidence verification, review action ve audit aynı transaction'dadır. Evidence replay veya review/dispute resolve/cancel sonrası settlement public orchestration seam'iyle yeniden değerlendirilir; ReleaseCoordinator idempotency'si korunur.
 20. **Undo/refund yalnız yetkili insan aksiyonudur (Plan 07).** Transaction manager provider'ı geri alacak/refund edecek bir işlemi tek başına **asla** çalıştıramaz — yalnız blocking review case'i açan bir talep üretebilir (`payment_resolutions`, provider side-effect'siz). Execution yalnız platform reviewer/admin **veya** buyer+seller approver'ının aynı resolution'ı bilateral onayladığı durumda çalışır (`payment_operations.py::_can_execute`, `services/review.py::can_authorize_payment_reversal`). Release retry reconciliation-first'tir — kör create/approve/undo/refund retry'ı yoktur, provider `unknown` sonucu kesin başarısızlık sayılmaz (§11 ile tutarlı). `GET /api/transactions/{id}/payment-trace` saf okumadır ve provider secret'larını (Password/CheckKey/CardToken/PAN/CVC/IP) asla döndürmez.
+
+21. **Demo araçları prod yüzeyine sızmaz.** `DEMO_TOOLS_ENABLED` varsayılan olarak kapalıdır; secure session-cookie ortamında mount reddedilir. Demo akışı ham business state veya funding satırı yazmaz, payment provider'ı doğrudan çağırmaz ve validator/policy/ratification/release guard kapılarını yalnız gerçek servisler üzerinden geçer.
 
 ## 7. Frontend contract gap-closure addendum (2026-07-12)
 
