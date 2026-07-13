@@ -85,6 +85,7 @@ export function TransactionCreatePage() {
             Bu bağlantı <strong>gizli ve tek kullanımlıktır</strong>. Yalnız davet ettiğiniz karşı
             tarafla paylaşın; bir yerde saklamayın.
           </Notice>
+          <Notice tone="info">Bağlantıyı kaybederseniz işlemin Taraflar sayfasından yeniden oluşturabilirsiniz.</Notice>
           {token ? (
             <div className="rounded-2xl border border-border bg-subtle/60 p-4">
               <p className="break-all font-mono text-sm text-primary">

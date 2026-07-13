@@ -17,3 +17,4 @@ export { TransactionFulfillmentPage } from "./transactions/TransactionFulfillmen
 export { TransactionDisputesPage } from "./transactions/TransactionDisputesPage";
 export { TransactionPaymentsPage } from "./transactions/TransactionPaymentsPage";
 export { InvitationPage } from "./InvitationPage";
+export { DemoPage } from "./DemoPage";

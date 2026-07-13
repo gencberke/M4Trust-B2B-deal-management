@@ -1,3 +1,5 @@
+> **Durum:** Uygulandı — 2026-07-13 · Sapmalar: P0–P2 ve F1–F3 önceki PR'larda tamamlandı; F4–F5 bu kapanış branch'inde uygulandı. Kullanıcı talebiyle otomatik test, lint, typecheck, build ve tam uçtan uca doğrulama çalıştırılmadı; yalnız kısa tarayıcı kırıklık kontrolü yapıldı.
+
 # Plan 14 — Demo/test kolaylaştırma + kapsamlı UI redesign
 
 ## Bağlam

@@ -1,7 +1,7 @@
 import { Link, Outlet, useOutletContext, useParams } from "react-router-dom";
 
 import { getTransaction } from "../api/transactions";
-import { EmptyState, LoadingPanel, Notice, PageHeading } from "./Feedback";
+import { EmptyState, LoadingPanel, Notice, PageHeading, TransactionShellSkeleton } from "./Feedback";
 import { SectionNav, type SectionNavItem } from "./SectionNav";
 import { StatusBadge } from "./StatusBadge";
 import { LifecycleStepper } from "./LifecycleStepper";
@@ -11,6 +11,8 @@ import { useAsyncData } from "../lib/useAsyncData";
 import { useEntities } from "../entities/EntityContext";
 import type { ApiClientError } from "../api/client";
 import type { TransactionDetail } from "../types/transactions";
+import { useDemo } from "../demo/DemoContext";
+import { DemoPanel } from "./DemoPanel";
 
 // Bölüm kaydı — PR 2/3 buraya yeni slug ekler; kabuk aksi hâlde değişmez.
 const SECTIONS: SectionNavItem[] = [
@@ -38,6 +40,7 @@ export function useTransactionShell(): TransactionShellContext {
 }
 
 export function TransactionShell() {
+  const { enabled: demoEnabled } = useDemo();
   const { transactionId } = useParams<{ transactionId: string }>();
   const { selectedEntity, selectedEntityId, loading: entitiesLoading } = useEntities();
   const id = transactionId ?? "";
@@ -60,7 +63,7 @@ export function TransactionShell() {
   }
 
   if (loading && !data) {
-    return <LoadingPanel label="İşlem yükleniyor…" />;
+    return <TransactionShellSkeleton />;
   }
 
   if (error && !data) {
@@ -120,6 +123,7 @@ export function TransactionShell() {
       <div className="mt-6">
         <Outlet key={selectedEntityId} context={context} />
       </div>
+      {demoEnabled ? <DemoPanel transactionId={data.id} onAdvanced={refresh} /> : null}
     </>
   );
 }
